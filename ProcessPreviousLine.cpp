@@ -176,6 +176,43 @@ assemble the full text of the original line.
   if (m_pCurrentLine->hard_return)
     return false;
 
+  // An image is a transcript entry, not received text to match. Keep
+  // its fallback in logs and copy, but do not feed it to triggers. Existing
+  // received-text history remains available for multi-line triggers.
+  if (m_pCurrentLine->IsInlineImage ())
+    {
+    m_pCurrentLine->hard_return = true;
+
+    if (m_bLogOutput)
+      {
+      m_pCurrentLine->flags |= LOG_LINE;
+      if (m_logfile && !m_bLogRaw)
+        {
+        CString strPreamble = m_strLogLinePreambleOutput;
+        CString strPostamble = m_strLogLinePostambleOutput;
+        strPreamble.Replace ("%n", "\n");
+        strPostamble.Replace ("%n", "\n");
+        if (strPreamble.Find ('%') != -1)
+          strPreamble = FormatTime (m_pCurrentLine->m_theTime, strPreamble, m_bLogHTML);
+        if (strPostamble.Find ('%') != -1)
+          strPostamble = FormatTime (m_pCurrentLine->m_theTime, strPostamble, m_bLogHTML);
+
+        WriteToLog (strPreamble);
+        CString strFallback (m_pCurrentLine->text, m_pCurrentLine->len);
+        if (m_bLogHTML && m_bLogInColour)
+          LogLineInHTMLcolour (m_LineList.GetTailPosition ());
+        else if (m_bLogHTML)
+          WriteToLog (FixHTMLString (strFallback));
+        else
+          WriteToLog (strFallback);
+        WriteToLog (strPostamble);
+        if (!(m_bLogHTML && m_bLogInColour))
+          WriteToLog ("\n", 1);
+        }
+      }
+    return false;
+    }
+
   // get tail of list
   
   flags = m_pCurrentLine->flags;

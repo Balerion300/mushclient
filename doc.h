@@ -1051,6 +1051,9 @@ public:
 
   CLineList m_LineList;
 
+  // Changes when image rows are inserted or output rows are removed.
+  unsigned long m_inlineImageRevision = 0;
+
   CLine * m_pCurrentLine;   // the line we are currently receiving
 
   CString m_strCurrentLine;   // line currently received from MUD (excluding control codes)

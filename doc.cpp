@@ -2463,7 +2463,7 @@ POSITION pos;
     // new - for people on the forum who insist on getting lines without a \n at
     // the end - tell plugins about this line
 
-    if (!(flags & NOTE_OR_COMMAND))
+    if (!(flags & NOTE_OR_COMMAND) && !m_pCurrentLine->IsInlineImage ())
       SendLineToPlugin ();
 
   //  TRACE1 ("Received line: %s\n", (LPCTSTR) CString (m_pCurrentLine->text, m_pCurrentLine->len));
@@ -4529,6 +4529,8 @@ long CMUSHclientDoc::GetLastLine (void)
    {
   int i;
 
+  ++m_inlineImageRevision;
+
 // remove JUMP_SIZE lines
 
   for (i = 0; i < JUMP_SIZE; i++)
@@ -4921,6 +4923,7 @@ POSITION pos;
 // delete lines list
 
   DELETE_LIST (m_LineList);
+  ++m_inlineImageRevision;
 
 // put one line in line list
 

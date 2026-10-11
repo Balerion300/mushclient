@@ -11,6 +11,8 @@
 #include "mainfrm.h"
 #include "childfrm.h"
 #include "sendvw.h"
+#include "InlineImage.h"
+#include <algorithm>
 
 #include "ActivityDoc.h"
 #include "genprint.h"
@@ -80,6 +82,7 @@ static char BASED_CODE THIS_FILE[] = __FILE__;
 CString strMXP_menu_item [MXP_MENU_COUNT];
 
 #define ACTION_ALIAS 1    // dummy action type for alias menus
+#define INLINE_IMAGE_TIMER 0x1A61
 
 // for conversion to Unicode
 static WCHAR sUnicodeText [MAX_LINE_WIDTH];
@@ -93,6 +96,7 @@ IMPLEMENT_DYNCREATE(CMUSHView, CView)
 
 BEGIN_MESSAGE_MAP(CMUSHView, CView)
   ON_WM_CONTEXTMENU()
+  ON_WM_TIMER()
   //{{AFX_MSG_MAP(CMUSHView)
   ON_COMMAND(ID_TEST_END, OnTestEnd)
   ON_COMMAND(ID_TEST_PAGEDOWN, OnTestPagedown)
@@ -295,12 +299,225 @@ CMUSHView::CMUSHView()
   m_bottomview = NULL;
 
   m_iPauseStatus = ePauseUninitialised;
+  m_layoutWidth = -1;
+  m_layoutFontHeight = -1;
+  m_layoutRevision = 0;
+  m_layoutAnchorShift = 0;
+  m_imageTimerRunning = false;
 
 }
 
 CMUSHView::~CMUSHView()
 {
+  if (m_imageTimerRunning && GetSafeHwnd ())
+    KillTimer (INLINE_IMAGE_TIMER);
 }
+
+// All coordinates here are transcript pixels, before the view's scroll and
+// text-rectangle offsets.  Keep one extra prefix entry for the total height.
+CSize CMUSHView::MeasureInlineImage (const CLine * pLine, int availableWidth)
+  {
+  if (!pLine || !pLine->m_inlineImage ||
+      pLine->m_inlineImage->GetState () != CInlineImage::Ready)
+    return CSize (0, 0);
+
+  const double naturalWidth = MAX (1, pLine->m_inlineImage->GetWidth ());
+  const double naturalHeight = MAX (1, pLine->m_inlineImage->GetHeight ());
+  double width = pLine->m_imageWidth > 0 ? pLine->m_imageWidth : naturalWidth;
+  double height = pLine->m_imageHeight > 0 ? pLine->m_imageHeight : naturalHeight;
+  if (pLine->m_imageWidth > 0 && pLine->m_imageHeight <= 0)
+    height = naturalHeight * width / naturalWidth;
+  else if (pLine->m_imageHeight > 0 && pLine->m_imageWidth <= 0)
+    width = naturalWidth * height / naturalHeight;
+
+  // A hostile SIZE attribute must not overflow the scrollbar or allocate a
+  // multi-million-pixel row.  Scale proportionally to the view and four pages.
+  const double maxHeight = MAX (1024.0, MIN (8192.0, (double) GetOutputWindowHeight () * 4.0));
+  const double scale = MIN (1.0, MIN ((double) MAX (1, availableWidth) / width,
+                                       maxHeight / height));
+  return CSize (MAX (1, (int) (width * scale + 0.5)),
+                MAX (1, (int) (height * scale + 0.5)));
+  }
+
+void CMUSHView::EnsureLineLayout (void)
+  {
+  CMUSHclientDoc * pDoc = GetDocument ();
+  const int count = MAX (0, (int) pDoc->GetLastLine ());
+  const int width = MAX (1, (int) GetOutputWindowWidth () - pDoc->m_iPixelOffset);
+  const int fontHeight = MAX (1, pDoc->m_FontHeight);
+  const int oldCount = (int) m_layoutLines.size ();
+  const bool geometryChanged = m_layoutWidth != width || m_layoutFontHeight != fontHeight;
+  const bool revisionChanged = m_layoutRevision != pDoc->m_inlineImageRevision;
+  const bool transcriptReset = revisionChanged && oldCount > 0 && count > 0 &&
+                               pDoc->m_LineList.GetHead ()->m_nLineNumber < m_layoutLineNumbers.front ();
+  bool imageCompleted = false;
+
+  // Poll only images still loading; ordinary redraws stay constant-time when
+  // the transcript revision and viewport geometry have not changed.
+  for (size_t i = 0; i < m_pendingImages.size (); ++i)
+    if (m_pendingImages [i]->GetState () != CInlineImage::Loading)
+      { imageCompleted = true; break; }
+
+  bool changed = geometryChanged || revisionChanged || imageCompleted || count != oldCount;
+  if (!changed && count)
+    changed = m_layoutLineNumbers.front () != pDoc->m_LineList.GetHead ()->m_nLineNumber ||
+              m_layoutLineNumbers.back () !=
+              pDoc->m_LineList.GetAt (pDoc->GetLinePosition (count - 1))->m_nLineNumber;
+
+  if (!changed)
+    return;
+
+  const bool appendOnly = !geometryChanged && !revisionChanged && !imageCompleted &&
+                          count > oldCount &&
+                          (oldCount == 0 ||
+                           (m_layoutLineNumbers.front () == pDoc->m_LineList.GetHead ()->m_nLineNumber &&
+                            m_layoutLineNumbers.back () ==
+                            pDoc->m_LineList.GetAt (pDoc->GetLinePosition (oldCount - 1))->m_nLineNumber));
+
+  const int oldHeight = m_lineTops.empty () ? 0 : m_lineTops.back ();
+  const int oldScroll = m_scroll_position.y;
+  const int pageHeight = MAX (1, (int) GetOutputWindowHeight ());
+  const bool followBottom = !m_freeze && oldScroll >= MAX (0, oldHeight - pageHeight - 2);
+  int anchorLine = 0, anchorOffset = 0;
+  long anchorNumber = -1;
+  if (m_lineTops.size () > 1)
+    {
+    int anchorY = oldScroll + pDoc->m_iPixelOffset;
+    std::vector<int>::const_iterator it = std::upper_bound (m_lineTops.begin (), m_lineTops.end (), anchorY);
+    anchorLine = MAX (0, (int) (it - m_lineTops.begin ()) - 1);
+    anchorLine = MIN (anchorLine, (int) m_lineTops.size () - 2);
+    anchorOffset = anchorY - m_lineTops [anchorLine];
+    anchorNumber = m_layoutLineNumbers [anchorLine];
+    }
+  const int anchorShift = m_layoutAnchorShift;
+  anchorLine = MAX (0, anchorLine + anchorShift);
+  if (transcriptReset)
+    { anchorLine = 0; anchorOffset = 0; anchorNumber = -1; }
+  m_layoutAnchorShift = 0;
+
+  m_layoutWidth = width;
+  m_layoutFontHeight = fontHeight;
+  m_layoutRevision = pDoc->m_inlineImageRevision;
+  if (!appendOnly)
+    {
+    m_layoutLines.clear ();
+    m_layoutLineNumbers.clear ();
+    m_lineTops.clear ();
+    m_pendingImages.clear ();
+    m_lineTops.push_back (0);
+    }
+  m_layoutLines.reserve (count);
+  m_layoutLineNumbers.reserve (count);
+  m_lineTops.reserve (count + 1);
+  POSITION pos = appendOnly ? pDoc->GetLinePosition (oldCount) : pDoc->m_LineList.GetHeadPosition ();
+  for (int i = appendOnly ? oldCount : 0; i < count && pos; ++i)
+    {
+    CLine * pLine = pDoc->m_LineList.GetNext (pos);
+    m_layoutLines.push_back (pLine);
+    m_layoutLineNumbers.push_back (pLine->m_nLineNumber);
+    const CSize imageSize = MeasureInlineImage (pLine, width);
+    const int rowHeight = imageSize.cy > 0 ? MAX (fontHeight, imageSize.cy + 4) : fontHeight;
+    m_lineTops.push_back (m_lineTops.back () + rowHeight);
+    if (pLine->m_inlineImage && pLine->m_inlineImage->GetState () == CInlineImage::Loading)
+      m_pendingImages.push_back (pLine->m_inlineImage);
+    }
+
+  if (GetSafeHwnd ())
+    {
+    if (!m_pendingImages.empty () && !m_imageTimerRunning)
+      m_imageTimerRunning = SetTimer (INLINE_IMAGE_TIMER, 100, NULL) != 0;
+    else if (m_pendingImages.empty () && m_imageTimerRunning)
+      { KillTimer (INLINE_IMAGE_TIMER); m_imageTimerRunning = false; }
+    }
+
+  const int total = m_lineTops.back ();
+  const int maxScroll = MAX (0, total - pageHeight);
+  if (anchorNumber >= 0 && !appendOnly && !m_layoutLineNumbers.empty ())
+    {
+    std::vector<long>::const_iterator found = std::lower_bound (m_layoutLineNumbers.begin (),
+                                                                m_layoutLineNumbers.end (), anchorNumber);
+    if (found != m_layoutLineNumbers.end () && *found == anchorNumber)
+      anchorLine = (int) (found - m_layoutLineNumbers.begin ());
+    else if (revisionChanged && oldCount > count && anchorShift == 0)
+      { anchorLine = 0; anchorOffset = 0; }
+    }
+  m_scroll_position.y = followBottom ? maxScroll :
+    MIN (maxScroll, MAX (0, m_lineTops [MIN (anchorLine, (int) m_layoutLines.size ())] +
+                         anchorOffset - pDoc->m_iPixelOffset));
+  m_ScrollbarSizeTotal.cy = total;
+  m_ScrollbarSizePage.cy = pageHeight;
+  if (GetSafeHwnd () && pDoc->m_bScrollBarWanted)
+    {
+    SetScrollSizes (m_ScrollbarSizeTotal, m_ScrollbarSizePage, m_ScrollbarSizeLine);
+    SetScrollPos (SB_VERT, m_scroll_position.y, TRUE);
+    }
+  m_ScrollbarPosition.cy = m_scroll_position.y;
+  }
+
+void CMUSHView::OnTimer (UINT_PTR nIDEvent)
+  {
+  if (nIDEvent == INLINE_IMAGE_TIMER)
+    {
+    bool completed = false;
+    for (size_t i = 0; i < m_pendingImages.size (); ++i)
+      if (m_pendingImages [i]->GetState () != CInlineImage::Loading)
+        { completed = true; break; }
+    if (completed)
+      { EnsureLineLayout (); Invalidate (FALSE); }
+    return;
+    }
+  CView::OnTimer (nIDEvent);
+  }
+
+int CMUSHView::GetLineTop (int line)
+  {
+  EnsureLineLayout ();
+  return m_lineTops [MIN (MAX (0, line), (int) m_lineTops.size () - 1)];
+  }
+
+int CMUSHView::GetLineHeight (int line)
+  {
+  EnsureLineLayout ();
+  if (line < 0 || line + 1 >= (int) m_lineTops.size ())
+    return MAX (1, GetDocument ()->m_FontHeight);
+  return m_lineTops [line + 1] - m_lineTops [line];
+  }
+
+int CMUSHView::FindLineAtY (int y)
+  {
+  EnsureLineLayout ();
+  if (m_lineTops.size () < 2)
+    return 0;
+  std::vector<int>::const_iterator it = std::upper_bound (m_lineTops.begin (), m_lineTops.end (), y);
+  return MIN ((int) m_lineTops.size () - 2, MAX (0, (int) (it - m_lineTops.begin ()) - 1));
+  }
+
+int CMUSHView::GetBufferPixelHeight (void)
+  {
+  EnsureLineLayout ();
+  return m_lineTops.back ();
+  }
+
+CRect CMUSHView::GetInlineImageRect (int line, const CLine * pLine)
+  {
+  EnsureLineLayout ();
+  if (!pLine || !pLine->m_inlineImage || pLine->m_inlineImage->GetState () != CInlineImage::Ready)
+    return CRect (0, 0, 0, 0);
+  const CSize imageSize = MeasureInlineImage (pLine, m_layoutWidth);
+  const CRect textRect = GetTextRectangle ();
+  const int x = textRect.left + GetDocument ()->m_iPixelOffset - m_scroll_position.x;
+  const int y = textRect.top - GetDocument ()->m_iPixelOffset + GetLineTop (line) - m_scroll_position.y + 2;
+  return CRect (x, y, x + imageSize.cx, y + imageSize.cy);
+  }
+
+long CMUSHView::GetClickableLineRight (int line, const CLine * pLine, CClientDC & dc)
+  {
+  CRect imageRect = GetInlineImageRect (line, pLine);
+  if (!imageRect.IsRectEmpty ()) return imageRect.right;
+  return calculate_width (line, pLine->len, GetDocument (), dc) +
+         GetDocument ()->m_iPixelOffset + GetDocument ()->m_TextRectangle.left +
+         pLine->m_iPreambleOffset;
+  }
 
 /////////////////////////////////////////////////////////////////////////////
 // CMUSHView drawing
@@ -519,9 +736,9 @@ int iUnicodeCharacters = 0;
 
     SetRect (&r,
              pDoc->m_iPixelOffset + pixel,
-             - pDoc->m_iPixelOffset + line * pDoc->m_FontHeight,
+             - pDoc->m_iPixelOffset + GetLineTop (line),
              pDoc->m_iPixelOffset + pixel + textsize.cx,
-             - pDoc->m_iPixelOffset + (line + 1) * pDoc->m_FontHeight);
+             - pDoc->m_iPixelOffset + GetLineTop (line + 1));
 
     // allow for scroll position
     OffsetRect (&r, -m_scroll_position.x, -m_scroll_position.y);
@@ -894,6 +1111,8 @@ ASSERT_VALID(pDoc);
   if (!pDoc->m_FontHeight)
     return;
 
+  EnsureLineLayout ();
+
 //  TRACE ("CMUSHView::OnDraw\n");
 
   // sigh. How many times did we do this?
@@ -1036,8 +1255,8 @@ RECT r;
   CPoint pt = GetScrollPosition ();
    
 
-  startline = (pt.y - pDoc->m_iPixelOffset) / pDoc->m_FontHeight;
-  endline =  ((pt.y + GetOutputWindowHeight ()) / pDoc->m_FontHeight);
+  startline = FindLineAtY (pt.y + pDoc->m_iPixelOffset);
+  endline = FindLineAtY (pt.y + GetOutputWindowHeight () + pDoc->m_iPixelOffset) + 1;
 
   if (startline < 0)
     startline = 0;
@@ -1050,7 +1269,7 @@ RECT r;
     endline = lastline;
 
   if (startline > lastline)
-    startline = lastline - 20;
+    startline = MAX (0, lastline - 1);
 
   // give the user a chance to update miniwindows to match text in the output window
   pDoc->SendToAllPluginCallbacks (ON_PLUGIN_DRAW_OUTPUT_WINDOW,
@@ -1118,6 +1337,22 @@ double opacity;  // for fading lines
         }
       else
         opacity = 1.0;
+      }
+
+    // A ready image occupies one native transcript entry.  Its fallback URL
+    // text and action remain on the line for copying and interaction.
+    if (pLine->m_inlineImage && pLine->m_inlineImage->GetState () == CInlineImage::Ready)
+      {
+      CRect imageRect = GetInlineImageRect (line, pLine);
+      pLine->m_inlineImage->Draw (pDC, imageRect);
+      if ((m_selstart_line < line ||
+           (m_selstart_line == line && m_selstart_col < pLine->len)) &&
+          (m_selend_line > line ||
+           (m_selend_line == line && m_selend_col > 0)))
+        pDC->Draw3dRect (imageRect, RGB (255, 255, 255), RGB (64, 64, 64));
+      previousLineHPtime = pLine->m_lineHighPerformanceTime;
+      previousLineTime = pLine->m_theTime.GetTime ();
+      continue;
       }
 
     // on user input or note, assume default background bleed if nothing there
@@ -1238,9 +1473,9 @@ double opacity;  // for fading lines
         // offsetting per above  (in display_text)
         SetRect (&r, 
                  pDoc->m_iPixelOffset + pixel,
-                 - pDoc->m_iPixelOffset + line * pDoc->m_FontHeight,
+                 - pDoc->m_iPixelOffset + GetLineTop (line),
                  pDoc->m_iPixelOffset + pixel + textsize.cx,
-                 - pDoc->m_iPixelOffset + (line + 1) * pDoc->m_FontHeight);
+                 - pDoc->m_iPixelOffset + GetLineTop (line + 1));
             
         // allow for scroll position
         OffsetRect (&r, -m_scroll_position.x, -m_scroll_position.y);
@@ -1378,9 +1613,9 @@ double opacity;  // for fading lines
 
         SetRect (&r,
                  0,
-                 - pDoc->m_iPixelOffset + line * pDoc->m_FontHeight,
+                 - pDoc->m_iPixelOffset + GetLineTop (line),
                  pDoc->m_iPixelOffset,
-                 - pDoc->m_iPixelOffset + (line + 1) * pDoc->m_FontHeight);
+                 - pDoc->m_iPixelOffset + GetLineTop (line + 1));
 
         OffsetRect (&r, -m_scroll_position.x, -m_scroll_position.y);
 
@@ -1435,9 +1670,9 @@ double opacity;  // for fading lines
 
         SetRect (&r,
                  pDoc->m_iPixelOffset + pixel,
-                 - pDoc->m_iPixelOffset + line * pDoc->m_FontHeight,
+                 - pDoc->m_iPixelOffset + GetLineTop (line),
                  cr.right,
-                 - pDoc->m_iPixelOffset + (line + 1) * pDoc->m_FontHeight);
+                 - pDoc->m_iPixelOffset + GetLineTop (line + 1));
 
         OffsetRect (&r, -m_scroll_position.x, -m_scroll_position.y);
 
@@ -1459,9 +1694,9 @@ double opacity;  // for fading lines
 
         SetRect (&r,
                  pDoc->m_iPixelOffset + 10 + pixel,
-                 - pDoc->m_iPixelOffset + line * pDoc->m_FontHeight + iHalfFontHeight,
+                 - pDoc->m_iPixelOffset + GetLineTop (line) + iHalfFontHeight,
                  cr.right - 10 - pDoc->m_iPixelOffset,
-                 - pDoc->m_iPixelOffset + line * pDoc->m_FontHeight + iHalfFontHeight + 1);
+                 - pDoc->m_iPixelOffset + GetLineTop (line) + iHalfFontHeight + 1);
 
         OffsetRect (&r, -m_scroll_position.x, -m_scroll_position.y);
         OffsetRect (&r, pDoc->m_TextRectangle.left, pDoc->m_TextRectangle.top);
@@ -1628,7 +1863,7 @@ CPoint pt;
 
 lastline = pDoc->GetLastLine ();
 
-pt.y =  (lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ();
+pt.y = GetBufferPixelHeight () - GetOutputWindowHeight ();
 
 pt.x = 0;
 
@@ -1661,17 +1896,12 @@ CMUSHclientDoc* pDoc = GetDocument();
 ASSERT_VALID(pDoc);
 
 CPoint pt = GetScrollPosition ();
-int lastline;
 
 
 pt.y += GetOutputWindowHeight () - pDoc->m_FontHeight;
 
-// include partial last line if necessary
-
-lastline = pDoc->GetLastLine ();
-
-if (pt.y > ((lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ()))
-  pt.y =  (lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ();
+if (pt.y > (GetBufferPixelHeight () - GetOutputWindowHeight ()))
+  pt.y = GetBufferPixelHeight () - GetOutputWindowHeight ();
 
 ScrollToPosition (pt, false);
 
@@ -1772,13 +2002,7 @@ ASSERT_VALID(pDoc);
 // find page size
 
 
-// find last line
-
-int lastline;
-
-  lastline = pDoc->GetLastLine ();
-
-  m_ScrollbarSizeTotal = CSize (pDoc->m_nWrapColumn * pDoc->m_FontWidth, lastline * pDoc->m_FontHeight);
+  m_ScrollbarSizeTotal = CSize (pDoc->m_nWrapColumn * pDoc->m_FontWidth, GetBufferPixelHeight ());
   m_ScrollbarSizePage  = CSize (GetOutputWindowWidth () - pDoc->m_iPixelOffset, GetOutputWindowHeight ());
   m_ScrollbarSizeLine  = CSize (pDoc->m_FontWidth, pDoc->m_FontHeight);
 
@@ -1797,13 +2021,7 @@ ASSERT_VALID(pDoc);
 
 // find page size
 
-// find last line
-
-int lastline;
-
-  lastline = pDoc->GetLastLine ();
-
- m_ScrollbarSizeTotal = CSize (pDoc->m_nWrapColumn * pDoc->m_FontWidth, lastline * pDoc->m_FontHeight),
+ m_ScrollbarSizeTotal = CSize (pDoc->m_nWrapColumn * pDoc->m_FontWidth, GetBufferPixelHeight ()),
  m_ScrollbarSizePage  = CSize (GetOutputWindowWidth () - pDoc->m_iPixelOffset, GetOutputWindowHeight ()),
  m_ScrollbarSizeLine  = CSize (pDoc->m_FontWidth, pDoc->m_FontHeight);
 
@@ -1887,7 +2105,7 @@ long pixel;
   point.x -= pDoc->m_TextRectangle.left;
 
 
-  line = (point.y + pDoc->m_iPixelOffset + m_scroll_position.y) / pDoc->m_FontHeight;
+  line = FindLineAtY (point.y + pDoc->m_iPixelOffset + m_scroll_position.y);
 
 // include partial last line if necessary
 
@@ -1904,6 +2122,9 @@ long pixel;
       bOutside = false;
 
   CLine * pLine = pDoc->m_LineList.GetAt (pDoc->GetLinePosition (line));
+
+  if (GetInlineImageRect (line, pLine).PtInRect (pt))
+    { col = 0; return false; }
 
 //  point.x -= pLine->m_iPreambleOffset;
 
@@ -2225,12 +2446,10 @@ int line,
   int iCol;
 
   // don't do it *past* end of last word
-  long pixel = calculate_width (line, pLine->len, pDoc, dc) +
-                pDoc->m_iPixelOffset +
-                pDoc->m_TextRectangle.left +
-                pLine->m_iPreambleOffset;
+  long pixel = GetClickableLineRight (line, pLine, dc);
+  CRect imageHit = GetInlineImageRect (line, pLine);
 
-  if (point.x < pixel &&
+  if ((imageHit.IsRectEmpty () ? point.x < pixel : imageHit.PtInRect (point)) &&
      pDoc->FindStyle (pLine, col, iCol, pStyle, foundpos))
     {
     iStyle = pStyle->iFlags;
@@ -2826,9 +3045,9 @@ CPoint pt = GetScrollPosition ();
 
     SetRect (&r, 
               pDoc->m_iPixelOffset + start_textsize,
-              - pDoc->m_iPixelOffset + (m_selstart_line * pDoc->m_FontHeight) - pt.y,
+              - pDoc->m_iPixelOffset + GetLineTop (m_selstart_line) - pt.y,
               pDoc->m_iPixelOffset + end_textsize,
-              - pDoc->m_iPixelOffset + ((m_selstart_line + 1) * pDoc->m_FontHeight) - pt.y);
+              - pDoc->m_iPixelOffset + GetLineTop (m_selstart_line + 1) - pt.y);
 
     // end before or equal start means empty region
     // if we cannot create the region, create an empty one
@@ -2845,9 +3064,9 @@ CPoint pt = GetScrollPosition ();
 
   SetRect (&r, 
             pDoc->m_iPixelOffset + start_textsize,
-            - pDoc->m_iPixelOffset + (m_selstart_line * pDoc->m_FontHeight) - pt.y,
+            - pDoc->m_iPixelOffset + GetLineTop (m_selstart_line) - pt.y,
             pDoc->m_iPixelOffset + right,
-            - pDoc->m_iPixelOffset + ((m_selstart_line + 1) * pDoc->m_FontHeight) - pt.y);
+            - pDoc->m_iPixelOffset + GetLineTop (m_selstart_line + 1) - pt.y);
 
   CRgn firstrgn;
   CRgn middlergn;
@@ -2862,9 +3081,9 @@ CPoint pt = GetScrollPosition ();
     {
     SetRect (&r, 
               pDoc->m_iPixelOffset,
-              - pDoc->m_iPixelOffset + ((m_selstart_line + 1) * pDoc->m_FontHeight) - pt.y,
+              - pDoc->m_iPixelOffset + GetLineTop (m_selstart_line + 1) - pt.y,
               pDoc->m_iPixelOffset + right,
-              - pDoc->m_iPixelOffset + ((m_selend_line) * pDoc->m_FontHeight) - pt.y);
+              - pDoc->m_iPixelOffset + GetLineTop (m_selend_line) - pt.y);
 
 
     if (middlergn.CreateRectRgn (r.left, r.top, r.right, r.bottom) == 0)
@@ -2879,9 +3098,9 @@ CPoint pt = GetScrollPosition ();
 
   SetRect (&r, 
             pDoc->m_iPixelOffset,
-            - pDoc->m_iPixelOffset + (m_selend_line * pDoc->m_FontHeight) - pt.y,
+            - pDoc->m_iPixelOffset + GetLineTop (m_selend_line) - pt.y,
             pDoc->m_iPixelOffset + end_textsize,
-            - pDoc->m_iPixelOffset + ((m_selend_line + 1) * pDoc->m_FontHeight) - pt.y);
+            - pDoc->m_iPixelOffset + GetLineTop (m_selend_line + 1) - pt.y);
 
   if (lastrgn.CreateRectRgn (r.left, r.top, r.right, r.bottom) == 0)
     lastrgn.CreateRectRgn (0, 0, 0, 0);
@@ -2989,10 +3208,8 @@ ASSERT_VALID(pDoc);
   POSITION foundpos;
 
   // don't show finger pointer *past* end of last word
-  long pixel = calculate_width (line, pLine->len, pDoc, dc) + 
-               pDoc->m_iPixelOffset + 
-               pDoc->m_TextRectangle.left +
-               pLine->m_iPreambleOffset;
+  long pixel = GetClickableLineRight (line, pLine, dc);
+  CRect imageHit = GetInlineImageRect (line, pLine);
 
   if (pDoc->FindStyle (pLine, col, iCol, pStyle, foundpos))
     {
@@ -3002,7 +3219,7 @@ ASSERT_VALID(pDoc);
         !pStyle->pAction->m_strAction.IsEmpty () &&   // there is something to send
         pStyle->pAction->m_strAction.Find ("&text;") == -1 &&  // we know what &text; is
         CStaticLink::g_hCursorLink &&   // we have a finger cursor
-        point.x < pixel)    // the mouse is not past the RH side of the line
+        (imageHit.IsRectEmpty () ? point.x < pixel : imageHit.PtInRect (point)))
       {
       ::SetCursor (CStaticLink::g_hCursorLink);
       return TRUE;
@@ -3026,6 +3243,10 @@ void CMUSHView::did_jump (void)
 {
 CMUSHclientDoc* pDoc = GetDocument();
 ASSERT_VALID(pDoc);
+
+// The document has just removed the first JUMP_SIZE entries.  Preserve the
+// same visible entry and intra-entry pixel offset across this trim.
+m_layoutAnchorShift -= JUMP_SIZE;
 
 bool selection_changed = false;
 
@@ -3059,34 +3280,10 @@ if (m_pin_line < 0)
   m_pin_col = 0;
   }
 
-// if frozen, adjust scroll position so same piece of text stays visible
-
-if (m_freeze)
-  {
-
-  CPoint orig_top = GetScrollPosition ();
-  
-  orig_top.y -= JUMP_SIZE * pDoc->m_FontHeight;
-
-  if (orig_top.y < 0)
-    {
-    m_freeze = FALSE;
-    orig_top.y = 0;
-    }
-
-
-  ScrollToPosition (orig_top, App.m_bSmoothScrolling);
-  if (orig_top.y == 0)
-    {
-    Invalidate ();
-#if REDRAW_DEBUG
-    RECT r;
-    GetClientRect (&r);
-    ShowInvalidatedRect (this, r);
-#endif
-    }
-
-  }  // end of being frozen
+EnsureLineLayout ();
+if (m_scroll_position.y == 0)
+  m_freeze = FALSE;
+Invalidate ();
 
 }   // end of did_jump
 
@@ -3118,21 +3315,13 @@ void CMUSHView::OnTestLinedown()
 {
 CMUSHclientDoc* pDoc = GetDocument();
 ASSERT_VALID(pDoc);
-int lastline;
 
 CPoint pt = GetScrollPosition ();
 
 pt.y += pDoc->m_FontHeight;
 
-// include partial last line if necessary
-
-lastline = pDoc->GetLastLine ();
-
-//if (pt.y > (pDoc->m_iPixelOffset + (lastline * pDoc->m_FontHeight) - r.bottom))
-//  pt.y = pDoc->m_iPixelOffset + (lastline * pDoc->m_FontHeight) - r.bottom;
-
-if (pt.y > ((lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ()))
-  pt.y =  (lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ();
+if (pt.y > (GetBufferPixelHeight () - GetOutputWindowHeight ()))
+  pt.y = GetBufferPixelHeight () - GetOutputWindowHeight ();
 
 ScrollToPosition (pt, App.m_bSmoothScrolling);
 
@@ -3339,13 +3528,7 @@ ASSERT_VALID(pDoc);
 // find page size
 
 
-// find last line
-
-int lastline;
-
-  lastline = pDoc->GetLastLine ();
-
-  m_ScrollbarSizeTotal = CSize (pDoc->m_nWrapColumn * pDoc->m_FontWidth, lastline * pDoc->m_FontHeight);
+  m_ScrollbarSizeTotal = CSize (pDoc->m_nWrapColumn * pDoc->m_FontWidth, GetBufferPixelHeight ());
   m_ScrollbarSizePage  = CSize (GetOutputWindowWidth () - pDoc->m_iPixelOffset, GetOutputWindowHeight ());
   m_ScrollbarSizeLine  = CSize (pDoc->m_FontWidth, pDoc->m_FontHeight);
 
@@ -3690,12 +3873,11 @@ ASSERT_VALID(pDoc);
     int iCol;
 
     // don't do it *past* end of last word
-    long pixel = calculate_width (line, pLine->len, pDoc, dc) + 
-                 pDoc->m_iPixelOffset + 
-                 pLine->m_iPreambleOffset;
+    long pixel = GetClickableLineRight (line, pLine, dc);
+    CRect imageHit = GetInlineImageRect (line, pLine);
 
-    if ((point.x - pDoc->m_TextRectangle.left) < pixel &&
-        (point.x - pDoc->m_TextRectangle.left) >= 0 &&
+    if ((imageHit.IsRectEmpty () ? point.x < pixel : imageHit.PtInRect (point)) &&
+        point.x >= pDoc->m_TextRectangle.left &&
         pDoc->FindStyle (pLine, col, iCol, pStyle, foundpos))
       {
       iStyle = pStyle->iFlags;
@@ -4429,14 +4611,12 @@ BOOL CMUSHView::OnToolTipNeedText(UINT id, NMHDR * pNMHDR, LRESULT * pResult)
       int iCol = 0;
 
     // don't do it *past* end of last word
-    long pixel = calculate_width (line, pLine->len, pDoc, dc) + 
-                pDoc->m_iPixelOffset + 
-                pDoc->m_TextRectangle.left +
-                pLine->m_iPreambleOffset;
+    long pixel = GetClickableLineRight (line, pLine, dc);
+    CRect imageHit = GetInlineImageRect (line, pLine);
 
 //    m_ToolTip.SendMessage (TTM_SETTITLE, TTI_INFO, (LPARAM) Translate ("Line information") );
 
-    if (CursorPos.x < pixel && 
+    if ((imageHit.IsRectEmpty () ? CursorPos.x < pixel : imageHit.PtInRect (CursorPos)) &&
         pDoc->FindStyle (pLine, col, iCol, pStyle, foundpos))
         {
         iStyle = pStyle->iFlags;
@@ -4693,6 +4873,8 @@ void CMUSHView::ScrollToPosition ( POINT pt, const bool bSmooth)
   {
 CMUSHclientDoc* pDoc = GetDocument();
 ASSERT_VALID(pDoc);
+
+pt.y = MIN (MAX (0, pt.y), MAX (0, GetBufferPixelHeight () - GetOutputWindowHeight ()));
 
 SCROLLINFO ScrollInfo;
 RECT r;
@@ -5149,8 +5331,8 @@ RECT r;
 
 GetClientRect (&r);
 
-  int startline = (pt.y - pDoc->m_iPixelOffset) / pDoc->m_FontHeight + 1;
-  int endline =  ((pt.y + GetOutputWindowHeight ()) / pDoc->m_FontHeight) - 1;
+  int startline = FindLineAtY (pt.y + pDoc->m_iPixelOffset) + 1;
+  int endline = FindLineAtY (pt.y + GetOutputWindowHeight () + pDoc->m_iPixelOffset) - 1;
 
   if (startline < 0)
     startline = 0;
@@ -5165,7 +5347,7 @@ GetClientRect (&r);
   if (m_selend_line < startline || m_selstart_line > endline)
     {
     // scroll so bookmark is halfway down page
-    CPoint pt (0, m_selstart_line * pDoc->m_FontHeight -
+    CPoint pt (0, GetLineTop (m_selstart_line) -
                   (GetOutputWindowHeight ()) / 2);
 
     if (pt.y < 0)
@@ -5175,7 +5357,7 @@ GetClientRect (&r);
 
     // include partial last line if necessary
 
-    lastline_pt.y =  (lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ();
+    lastline_pt.y = GetBufferPixelHeight () - GetOutputWindowHeight ();
     lastline_pt.x = 0;
 
     if (lastline_pt.y < 0)
@@ -5264,22 +5446,15 @@ bool bSmooth_saved = App.m_bSmoothScrolling;
     long scrollAmount = ((long) zDelta * iScrollLines * pDoc->m_FontHeight) / WHEEL_DELTA;
 
     RECT r;
-    int lastline;
-
-
     CPoint ScrollPt = GetScrollPosition ();
 
     GetClientRect (&r);
 
     ScrollPt.y += scrollAmount;
 
-    // include partial last line if necessary
-
-    lastline = pDoc->GetLastLine ();
-
     // limit to end of screen
-    if (ScrollPt.y > ((lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ()))
-      ScrollPt.y =  (lastline * pDoc->m_FontHeight) - GetOutputWindowHeight ();
+    if (ScrollPt.y > (GetBufferPixelHeight () - GetOutputWindowHeight ()))
+      ScrollPt.y = GetBufferPixelHeight () - GetOutputWindowHeight ();
 
     ScrollToPosition (ScrollPt, false);
 

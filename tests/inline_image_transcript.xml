@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="Inline_Image_Transcript_Test" author="MUSHclient contributors"
+ id="b9d3e1d15637c81273480a61" language="Lua" version="1.0" requires="5.07"
+ purpose="Verify inline-image transcript and link behavior against a local fixture" />
+<script><![CDATA[
+local seen_marker, checked = false, false
+local image_callbacks, image_triggers = 0, 0
+local marker_time = 0
+local output = GetPluginInfo(GetPluginID(), 20) .. '.results.txt'
+local function record(message)
+  local f = assert(io.open(output, 'a'))
+  f:write(message, '\n'); f:close()
+end
+function OnPluginInstall()
+  local f = assert(io.open(output, 'w')); f:close()
+  assert(AddTriggerEx('image_guard', '^\\[https?://.*\\]$', '', 41,
+      -1, 0, '', 'ImageTrigger', 12, 100) == 0)
+  record('START transcript test')
+end
+function ImageTrigger() image_triggers = image_triggers + 1 end
+function OnPluginLineReceived(line)
+  if line:match('^%[https?://') then image_callbacks = image_callbacks + 1 end
+  if line:find('INLINE_SUITE_END', 1, true) then
+    seen_marker = true; marker_time = os.time()
+  end
+  return true
+end
+local function action_at(line, expected)
+  for style = 1, GetLineInfo(line, 11) do
+    if GetStyleInfo(line, style, 5) == expected then return true end
+  end
+  return false
+end
+local function check(condition, message)
+  record((condition and 'PASS ' or 'FAIL ') .. message)
+  if not condition then error(message) end
+end
+function OnPluginTick()
+  if not seen_marker or checked or os.time() - marker_time < 4 then return end
+  local images, after, text_link = {}, nil, nil
+  for line = 1, GetLinesInBufferCount() do
+    if GetLineInfo(line, 14) then
+      if GetLineInfo(line, 18) == 0 then return end
+      images[#images+1] = line
+    end
+    local text = GetLineInfo(line, 1)
+    if text:find('AFTER_IMAGES', 1, true) then after = line end
+    if text:find('Clickable text', 1, true) then text_link = line end
+  end
+  checked = true
+  local ok, err = pcall(function()
+    check(#images == 2, 'two image tags create exactly two transcript entries')
+    check(image_callbacks == 0, 'image entries do not call received-line plugins')
+    check(image_triggers == 0, 'image entries do not fire text triggers')
+    for _, line in ipairs(images) do
+      check(GetLineInfo(line, 18) == 1, 'image completed successfully')
+      check(GetLineInfo(line, 16) == 640 and GetLineInfo(line, 17) == 240,
+            'image preserves intrinsic dimensions')
+      check(GetLineInfo(line, 20) > 100, 'image occupies a variable-height transcript block')
+      check(GetLineInfo(line+1, 19) == GetLineInfo(line, 19) + GetLineInfo(line, 20),
+            'following entry starts at image bottom')
+    end
+    check(after and after > images[2], 'text after images stays in stream order')
+    check(text_link and action_at(text_link, 'text-clicked'), 'text command link retains its action')
+    check(action_at(images[2], 'image-clicked'), 'image retains its enclosing command link')
+    local before = GetInfo(296)
+    SetScroll(0, true)
+    check(GetInfo(296) == 0, 'scroll-to-start uses pixel layout')
+    SetScroll(-1, true)
+    check(GetInfo(296) >= 0, 'scroll-to-bottom accepts image transcript')
+    record('PASS transcript checks completed')
+  end)
+  if not ok then record('ERROR ' .. tostring(err)) end
+end
+]]></script>
+</muclient>

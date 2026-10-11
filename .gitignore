@@ -81,3 +81,11 @@ TinyGL*
 #
 git_diff_output.txt
 git_log_output.txt
+
+# Local test/build outputs
+__pycache__/
+*.pyc
+*.obj
+*.pch
+*.log
+*.results.txt
