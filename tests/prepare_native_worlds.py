@@ -18,6 +18,10 @@ def main():
     parser.add_argument('--runtime', type=Path, required=True,
                         help='Installed MUSHclient directory containing Lua and locale/en.dll')
     parser.add_argument('--destination', type=Path, default=ROOT / '.test-runtime')
+    parser.add_argument('--plugin', type=Path, default=ROOT / 'tests/inline_image_transcript.xml',
+                        help='Fixture plugin to install in both isolated worlds')
+    parser.add_argument('--protocol', choices=['MXP', 'Pueblo'],
+                        help='Open one world to serialize global clipboard compatibility tests')
     args = parser.parse_args()
     destination = args.destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -27,8 +31,9 @@ def main():
     shutil.copy2(args.runtime / 'locale/en.dll', destination / 'locale/en.dll')
     worlds = []
     for protocol, port in [('MXP', 18766), ('Pueblo', 18767)]:
+        if args.protocol and args.protocol != protocol: continue
         plugin = destination / (protocol.lower() + '-test.xml')
-        shutil.copy2(ROOT / 'tests/inline_image_transcript.xml', plugin)
+        shutil.copy2(args.plugin, plugin)
         world = destination / (protocol.lower() + '-test.mcl')
         world.write_text('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE muclient>\n'
             '<muclient><world name="Inline images - ' + protocol + ' test" '
@@ -43,8 +48,11 @@ def main():
                     'CREATE TABLE IF NOT EXISTS prefs(name TEXT PRIMARY KEY,value TEXT);'
                     'CREATE TABLE IF NOT EXISTS worlds(name TEXT PRIMARY KEY,value TEXT);')
     db.execute("INSERT OR REPLACE INTO control VALUES('database_version',1)")
+    db.execute("INSERT OR REPLACE INTO control VALUES('First time',0)")
+    db.execute("INSERT OR REPLACE INTO control VALUES('Version',507)")
+    db.execute("INSERT OR REPLACE INTO control VALUES('Tip_StartUp',1)")
     for name, value in {'WorldList': '*'.join(worlds), 'EnableSpellCheck': '0',
-                        'AutoConnectWorlds': '1', 'OpenWorldsMaximised': '1',
+                        'AutoConnectWorlds': '1', 'OpenWorldsMaximised': '0' if 'compatibility' in args.plugin.name else '1',
                         'ConfirmBeforeClosingMushclient': '0',
                         'ConfirmBeforeClosingWorld': '0'}.items():
         db.execute('INSERT OR REPLACE INTO prefs VALUES(?,?)', (name, value))

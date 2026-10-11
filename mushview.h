@@ -92,6 +92,8 @@ public:
   std::vector<std::shared_ptr<CInlineImage> > m_pendingImages;
   int m_layoutWidth;
   int m_layoutFontHeight;
+  int m_layoutViewportHeight;
+  int m_layoutPixelOffset;
   unsigned long m_layoutRevision;
   int m_layoutAnchorShift;
   bool m_imageTimerRunning;

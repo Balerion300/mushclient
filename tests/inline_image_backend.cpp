@@ -35,8 +35,9 @@ namespace
     return image->GetState ();
   }
 
-  COLORREF CenterPixel (const std::shared_ptr<CInlineImage>& image,
-                        COLORREF background)
+  COLORREF RenderedPixel (const std::shared_ptr<CInlineImage>& image,
+                          COLORREF background, const CRect& target,
+                          int x, int y)
   {
     BITMAPINFO info = {};
     info.bmiHeader.biSize = sizeof (BITMAPINFOHEADER);
@@ -61,14 +62,20 @@ namespace
     HGDIOBJ previous = SelectObject (memory, bitmap);
     CDC dc;
     dc.Attach (memory);
-    image->Draw (&dc, CRect (0, 0, 8, 8));
+    image->Draw (&dc, target);
     dc.Detach ();
     GdiFlush ();
-    DWORD pixel = pixels[4 + 4 * 8];
+    DWORD pixel = pixels[x + y * 8];
     SelectObject (memory, previous);
     DeleteDC (memory);
     DeleteObject (bitmap);
     return RGB ((pixel >> 16) & 0xff, (pixel >> 8) & 0xff, pixel & 0xff);
+  }
+
+  COLORREF CenterPixel (const std::shared_ptr<CInlineImage>& image,
+                        COLORREF background)
+  {
+    return RenderedPixel (image, background, CRect (0, 0, 8, 8), 4, 4);
   }
 
   bool Near (COLORREF actual, COLORREF expected, int tolerance = 3)
@@ -122,6 +129,14 @@ int main (int argc, char** argv)
   Check (WaitFor (unicode) == CInlineImage::Ready,
          "UTF-8 source path is percent encoded for HTTP");
 
+  std::shared_ptr<CInlineImage> scene = CInlineImage::Request (Address (base, "/scene"));
+  Check (WaitFor (scene) == CInlineImage::Ready, "wide image decodes");
+  Check (Near (RenderedPixel (scene, RGB (255,255,255), CRect (0,0,8,8), 4,0),
+               RGB (255,255,255)) &&
+         !Near (CenterPixel (scene, RGB (255,255,255)), RGB (255,255,255)),
+         "proportional draw leaves top margin and fills image center");
+  scene.reset ();
+
   const char* failuresToTry[] = { "/bad", "/too-large", "/huge-dimensions",
                                    "/redirect-file", "/redirect-loop" };
   for (int i = 0; i < 5; ++i)
@@ -133,6 +148,14 @@ int main (int argc, char** argv)
 
   std::shared_ptr<CInlineImage> file = CInlineImage::Request ("file:///C:/Windows/win.ini");
   Check (WaitFor (file) == CInlineImage::Failed, "local file URL is rejected");
+  Check (file->GetWidth () == 0 && file->GetHeight () == 0 &&
+         Near (CenterPixel (file, RGB (12,34,56)), RGB (12,34,56)),
+         "failed image has no dimensions and does not paint over fallback");
+  CString longUrl = CString ("https://example.com/") + CString ('x', 3000);
+  std::shared_ptr<CInlineImage> oversizedUrl = CInlineImage::Request (longUrl);
+  Check (oversizedUrl->GetState () == CInlineImage::Failed &&
+         !oversizedUrl->GetError ().IsEmpty (),
+         "oversized server URL is rejected without queuing a worker");
   std::shared_ptr<CInlineImage> otherLoopback =
     CInlineImage::Request ("http://127.0.0.2/image.png");
   Check (WaitFor (otherLoopback) == CInlineImage::Failed,
@@ -157,6 +180,9 @@ int main (int argc, char** argv)
     CInlineImage::Request (Address (base, "/large?i=4"));
   Check (WaitFor (large4, 30000) == CInlineImage::Ready,
          "dropping an image releases its bitmap budget");
+  large2.reset ();
+  large3.reset ();
+  large4.reset ();
 
   std::shared_ptr<CInlineImage> discarded =
     CInlineImage::Request (Address (base, "/slow?discarded=1"));
@@ -169,6 +195,32 @@ int main (int argc, char** argv)
     Sleep (10);
   Check (abandoned.expired (),
          "dropping a view reference during download releases the image safely");
+
+  bool churnReady = true;
+  std::vector<std::weak_ptr<CInlineImage> > churnImages;
+  for (int i = 0; i < 270; ++i)
+    {
+    CString path;
+    path.Format ("/png?churn=%d", i);
+    std::shared_ptr<CInlineImage> image =
+      CInlineImage::Request (Address (base, path));
+    if (WaitFor (image, 5000) != CInlineImage::Ready)
+      churnReady = false;
+    churnImages.push_back (image);
+    }
+  Check (churnReady, "270 sequential image URLs remain loadable across cache pruning");
+  const DWORD churnAt = GetTickCount ();
+  bool churnReleased = false;
+  do
+    {
+    churnReleased = true;
+    for (size_t i = 0; i < churnImages.size (); ++i)
+      if (!churnImages[i].expired ()) churnReleased = false;
+    if (churnReleased) break;
+    Sleep (10);
+    }
+  while (GetTickCount () - churnAt < 5000);
+  Check (churnReleased, "weak cache releases discarded transcript images");
 
   printf ("%d failure(s)\n", failures);
   return failures ? 1 : 0;

@@ -4,13 +4,13 @@
 #include <winhttp.h>
 #include <wincodec.h>
 #include <shlwapi.h>
+#include <process.h>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <exception>
 #include <map>
 #include <mutex>
-#include <thread>
 #include <vector>
 
 #pragma comment(lib, "winhttp.lib")
@@ -414,12 +414,21 @@ namespace
 class InlineImageCache
 {
 public:
-  InlineImageCache ()
+  InlineImageCache () : workerCount_ (0)
   {
     // Deliberately process-lifetime: detached workers cannot observe a
-    // destructed queue during application shutdown.
+    // destructed queue during application shutdown. If thread creation runs
+    // out of resources, keep the workers already started and fail promptly
+    // when none could be started rather than unwinding a live queue.
     for (int i = 0; i < 4; ++i)
-      std::thread (&InlineImageCache::Worker, this).detach ();
+      {
+      const uintptr_t thread = _beginthreadex (NULL, 0,
+                                                &InlineImageCache::WorkerEntry,
+                                                this, 0, NULL);
+      if (!thread) break;
+      CloseHandle (reinterpret_cast<HANDLE> (thread));
+      ++workerCount_;
+      }
   }
 
   std::shared_ptr<CInlineImage> Request (const std::wstring& source)
@@ -436,6 +445,8 @@ public:
     std::shared_ptr<CInlineImage> image (new CInlineImage (source));
     if (source.empty () || source.size () > 2048)
       { image->Fail ("Invalid image URL"); return image; }
+    if (!workerCount_)
+      { image->Fail ("Unable to start image workers"); return image; }
     if (queue_.size () >= kMaxQueued)
       { image->Fail ("Too many pending image downloads"); return image; }
     if (cache_.size () >= kMaxCacheKeys)
@@ -456,6 +467,12 @@ public:
   }
 
 private:
+  static unsigned int __stdcall WorkerEntry (void* cache)
+  {
+    static_cast<InlineImageCache*> (cache)->Worker ();
+    return 0;
+  }
+
   void Worker ()
   {
     HRESULT com = CoInitializeEx (NULL, COINIT_MULTITHREADED);
@@ -484,6 +501,7 @@ private:
   std::condition_variable cv_;
   std::deque<std::shared_ptr<CInlineImage> > queue_;
   std::map<std::wstring, std::weak_ptr<CInlineImage> > cache_;
+  int workerCount_;
 };
 
 CInlineImage::CInlineImage (const std::wstring& source)
@@ -506,6 +524,10 @@ std::shared_ptr<CInlineImage> CInlineImage::Request (const CString& source)
 {
   // The queue/cache's lifetime intentionally matches the process.
   static InlineImageCache* cache = new InlineImageCache;
+  // This path runs on the UI thread. Reject oversized server attributes
+  // before making a wide-string copy or attempting UTF-8 conversion.
+  if (source.GetLength () > 2048)
+    return cache->Request (std::wstring ());
   std::wstring url = WideSource (source);
   const size_t fragment = url.find (L'#');
   if (fragment != std::wstring::npos) url.erase (fragment);

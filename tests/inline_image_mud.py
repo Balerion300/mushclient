@@ -11,6 +11,7 @@ import threading
 import time
 
 IMAGE = 'https://raw.githubusercontent.com/Balerion300/mushclient/codex/inline-static-images/tests/fixture-scene.png'
+TALL_IMAGE = IMAGE.replace('fixture-scene.png', 'fixture-tall.png')
 
 
 class Mud(socketserver.BaseRequestHandler):
@@ -41,7 +42,7 @@ class Mud(socketserver.BaseRequestHandler):
             self.request.sendall(b'</xch_mudtext>')
         self.send('Isolated inline-image test. Commands: suite, scroll, clear-test.\r\n')
         time.sleep(.5)
-        self.suite()
+        if not self.server.compat_only: self.suite()
         pending = b''
         telnet_state = 'text'
         while True:
@@ -71,6 +72,18 @@ class Mud(socketserver.BaseRequestHandler):
                 command = raw.decode('utf-8', errors='ignore').strip()
                 print(json.dumps({'protocol': self.server.protocol, 'command': command}), flush=True)
                 if command == 'suite': self.suite()
+                elif command == 'compat':
+                    self.send('COMPAT_BEFORE: paragraph above a tall illustration.\r\n')
+                    if self.server.protocol == 'mxp':
+                        self.send('\x1b[1z<image url="' + TALL_IMAGE + '">')
+                    else:
+                        self.send('<img src="' + TALL_IMAGE + '">')
+                    self.send('COMPAT_AFTER: paragraph below the tall illustration.\r\n')
+                    if self.server.protocol == 'mxp':
+                        self.send('\x1b[1z<image url="' + IMAGE + '">')
+                    else:
+                        self.send('<img src="' + IMAGE + '">')
+                    self.send('COMPAT_END\r\n')
                 elif command == 'scroll':
                     for i in range(80): self.send(f'Scrollback test line {i+1:02d}\r\n')
                     self.suite()
@@ -88,11 +101,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--mxp-port', type=int, default=18766)
     parser.add_argument('--pueblo-port', type=int, default=18767)
+    parser.add_argument('--compat-only', action='store_true')
     args = parser.parse_args()
     servers = []
     for protocol, port in [('mxp', args.mxp_port), ('pueblo', args.pueblo_port)]:
         server = Server(('127.0.0.1', port), Mud)
         server.protocol = protocol
+        server.compat_only = args.compat_only
         servers.append(server)
         threading.Thread(target=server.serve_forever, daemon=True).start()
     print('Loopback fixtures ready: MXP and Pueblo', flush=True)
