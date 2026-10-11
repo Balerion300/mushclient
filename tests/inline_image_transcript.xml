@@ -8,12 +8,22 @@
 local seen_marker, checked = false, false
 local image_callbacks, image_triggers = 0, 0
 local marker_time = 0
+local enabled = false
+local deletion_request, deletion_called, deletion_result
+local fixture_ports = {
+  ['Inline images - MXP test'] = 18766,
+  ['Inline images - Pueblo test'] = 18767,
+}
 local output = GetPluginInfo(GetPluginID(), 6) .. '.results.txt'
 local function record(message)
   local f = assert(io.open(output, 'a'))
   f:write(message, '\n'); f:close()
 end
 function OnPluginInstall()
+  local expected_port = fixture_ports[WorldName()]
+  if not expected_port or GetAlphaOption('site') ~= '127.0.0.1' or
+     GetOption('port') ~= expected_port then return end
+  enabled = true
   local f = assert(io.open(output, 'w')); f:close()
   assert(AddTriggerEx('image_guard', '^\\[https?://.*\\]$', '', 41,
       -1, 0, '', 'ImageTrigger', 12, 100) == 0)
@@ -21,6 +31,7 @@ function OnPluginInstall()
 end
 function ImageTrigger() image_triggers = image_triggers + 1 end
 function OnPluginLineReceived(line)
+  if not enabled then return true end
   if line:match('^%[https?://') then image_callbacks = image_callbacks + 1 end
   if line:find('INLINE_SUITE_END', 1, true) then
     seen_marker = true; marker_time = os.time()
@@ -37,8 +48,13 @@ local function check(condition, message)
   record((condition and 'PASS ' or 'FAIL ') .. message)
   if not condition then error(message) end
 end
+function RunDeleteChecks()
+  if not enabled or not deletion_request or deletion_request <= 0 then return end
+  deletion_called = true
+  deletion_result = DeleteLines(deletion_request)
+end
 function OnPluginTick()
-  if not seen_marker or checked or os.time() - marker_time < 4 then return end
+  if not enabled or not seen_marker or checked or os.time() - marker_time < 4 then return end
   local images, after, text_link, image_tail = {}, nil, nil, nil
   for line = 1, GetLinesInBufferCount() do
     if GetLineInfo(line, 14) then
@@ -75,8 +91,76 @@ function OnPluginTick()
     check(GetInfo(296) == 0, 'scroll-to-start uses pixel layout')
     SetScroll(-1, true)
     check(GetInfo(296) >= 0, 'scroll-to-bottom accepts image transcript')
+
+    -- Fill until there is room to scroll even in a large desktop window.
+    local filler = 0
+    repeat
+      for i = 1, 100 do
+        filler = filler + 1
+        Note(string.format('INLINE_SCROLL_FILLER_%03d', filler))
+      end
+      SetScroll(-1, true)
+    until GetInfo(296) > 240 or filler >= 1000
+    local bottom = GetInfo(296)
+    Pause(true)
+    SetScroll(120, true)
+    local scrolled_up = GetInfo(296)
+    check(scrolled_up > 0 and scrolled_up < bottom,
+          'fixture transcript has a measurable scrolled-up position')
+    Note('INLINE_SCROLL_APPEND_PROBE')
+    local after_append = GetInfo(296)
+    record(string.format('SCROLL append before=%d after=%d bottom=%d paused=true',
+                         scrolled_up, after_append, bottom))
+    check(after_append == scrolled_up,
+          'appending text while paused and scrolled up preserves the pixel position')
+
+    Pause(false)
+    SetScroll(-1, true)
+    local count_before_delete = GetLinesInBufferCount()
+    local blank_tail = GetLineInfo(count_before_delete, 1) == ''
+    local lines_to_delete = count_before_delete - images[2] + 1
+    if blank_tail then lines_to_delete = lines_to_delete - 1 end
+    deletion_request, deletion_called, deletion_result = lines_to_delete, false, nil
+    local previous_prefix = GetAlphaOption('script_prefix')
+    check(SetAlphaOption('script_prefix', '/') == 0,
+          'fixture enables its command-script prefix')
+    local command_status = Execute(string.format(
+      '/CallPlugin("%s", "RunDeleteChecks", "")', GetPluginID()))
+    SetAlphaOption('script_prefix', previous_prefix)
+    check(command_status == 0 and deletion_called,
+          'tail deletion runs in the supported command-script context')
+    local count_after_delete = GetLinesInBufferCount()
+    local remaining_images, image_indices = 0, {}
+    for line = 1, count_after_delete do
+      if GetLineInfo(line, 14) then
+        remaining_images = remaining_images + 1
+        image_indices[#image_indices+1] = line
+      end
+    end
+    record(string.format('DELETE before=%d blank_tail=%s requested=%d return=%s after=%d original_images=%d,%d remaining=%d positions=%s',
+      count_before_delete, tostring(blank_tail), lines_to_delete,
+      tostring(deletion_result), count_after_delete, images[1], images[2],
+      remaining_images, table.concat(image_indices, ',')))
+    check(remaining_images == 1 and GetLineInfo(images[1], 14),
+          'deleting the tail removes the second image and retains the first')
+    check(not GetLineInfo(images[2], 14),
+          'deleted image index no longer exposes image metadata')
+
+    DeleteOutput()
+    check(GetLinesInBufferCount() == 1 and not GetLineInfo(1, 14),
+          'clearing the buffer releases all image entries')
+    check(GetInfo(296) == 0, 'clearing the buffer resets the pixel scroll position')
+    Note('INLINE_AFTER_CLEAR_PROBE')
+    local found_after_clear = false
+    for line = 1, GetLinesInBufferCount() do
+      if GetLineInfo(line, 1):find('INLINE_AFTER_CLEAR_PROBE', 1, true) then
+        found_after_clear = true
+      end
+    end
+    check(found_after_clear, 'text appends after clearing the image transcript')
     record('PASS transcript checks completed')
   end)
+  Pause(false)
   if not ok then record('ERROR ' .. tostring(err)) end
 end
 ]]></script>

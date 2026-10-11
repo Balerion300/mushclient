@@ -43,10 +43,29 @@ class Mud(socketserver.BaseRequestHandler):
         time.sleep(.5)
         self.suite()
         pending = b''
+        telnet_state = 'text'
         while True:
             data = self.request.recv(4096)
             if not data: return
-            pending += data
+            # Negotiation bytes can arrive with the first command. Preserve
+            # parser state across packets rather than leaking option 91 ('[').
+            clean = bytearray()
+            for byte in data:
+                if telnet_state == 'text':
+                    if byte == 255: telnet_state = 'iac'
+                    else: clean.append(byte)
+                elif telnet_state == 'iac':
+                    if byte in (251, 252, 253, 254): telnet_state = 'option'
+                    elif byte == 250: telnet_state = 'subnegotiation'
+                    else:
+                        if byte == 255: clean.append(byte)
+                        telnet_state = 'text'
+                elif telnet_state == 'option': telnet_state = 'text'
+                elif telnet_state == 'subnegotiation':
+                    if byte == 255: telnet_state = 'subnegotiation_iac'
+                elif telnet_state == 'subnegotiation_iac':
+                    telnet_state = 'text' if byte == 240 else 'subnegotiation'
+            pending += clean
             while b'\n' in pending:
                 raw, pending = pending.split(b'\n', 1)
                 command = raw.decode('utf-8', errors='ignore').strip()

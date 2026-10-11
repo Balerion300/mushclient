@@ -77,6 +77,20 @@ test worlds to localhost ports 18766 (MXP) and 18767 (Pueblo), and load
 `tests/inline_image_transcript.xml`. Its report is written beside the plugin.
 The fixture uses this fork's public test PNG; it never contacts a live game.
 It checks transcript entries, ordering, layout, link actions, trigger isolation
-and scrolling. Visually check image placement, clipping, resize, scrollback,
+and scrolling. `prepare_native_worlds.py --runtime <installed-client-directory>`
+can create an isolated runtime using a compiled executable and only the Lua
+and English resource DLLs from an existing installation. It copies no saved
+worlds, credentials, logs, or user preferences. Launch with `/noregister` from
+that runtime directory. The plugin runs only in the named loopback fixture
+worlds. Visually check image placement, clipping, resize, scrollback,
 selection, actual command clicks, and split views before treating a build as
 ready for player use.
+
+The implementation at commit `ca2aa6e` passed GitHub Debug and Release builds
+and the native image backend suite. The Release executable passed both
+full-client protocol fixtures, including paused scroll position preservation,
+tail deletion of image entries, buffer clearing, and output after clearing.
+Native mouse checks confirmed delivery of text and image commands in both
+protocols, and visual checks confirmed image placement and scrollback clipping.
+Broader plugin compatibility, narrow-window behavior, selection, split views,
+and extended sessions remain preview acceptance checks.
