@@ -2164,9 +2164,17 @@ CString strLine (lpszText, size);
           continue;   // discard incoming script
         } // end of not having an opening tag
 
-      // in <p> mode treat tabs as spaces
+      // Collapse interior paragraph tabs, but keep explicit indentation at
+      // the start of a line (including the text line created after an image).
       if (c == '\t' && m_bInParagraph)
-        c = ' ';
+        {
+        bool indentation = true;
+        for (int column = 0; column < m_pCurrentLine->len; ++column)
+          if (m_pCurrentLine->text[column] != ' ')
+            { indentation = false; break; }
+        if (!indentation)
+          c = ' ';
+        }
 
       } // end of special MXP tests on incoming data
 

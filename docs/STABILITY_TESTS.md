@@ -90,3 +90,19 @@ ran against the corrected application build.
 
 Raw measurements, summaries and differential probe reports are preserved in
 [test-results/2026-10-11](test-results/2026-10-11).
+
+## Leading tabs after images
+
+The pre-fix executable discards the first paragraph's leading tab after an
+image in both Pueblo and MXP fixtures. Paragraph mode converts that tab to a
+space, then removes it as leading paragraph whitespace. `doc.cpp` now keeps
+tabs when the current text line is empty or contains only indentation spaces;
+the existing tab-stop expansion then supplies the intended indentation.
+Tabs inside paragraph text keep their previous handling.
+
+The fixed Release executable passes eight checks across the two protocols:
+the first paragraph after an image, a later paragraph, two leading tabs, and
+unchanged interior-tab behavior. Local Debug and Release builds pass.
+Use `tests/inline_image_indent.xml` with the isolated world preparation helper
+and disable AutoConnectWorlds for this simulated-input fixture. The temporary
+fixture's ID and result-path errors were corrected before the accepted run.
