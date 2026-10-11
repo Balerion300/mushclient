@@ -8,7 +8,7 @@
 local seen_marker, checked = false, false
 local image_callbacks, image_triggers = 0, 0
 local marker_time = 0
-local output = GetPluginInfo(GetPluginID(), 20) .. '.results.txt'
+local output = GetPluginInfo(GetPluginID(), 6) .. '.results.txt'
 local function record(message)
   local f = assert(io.open(output, 'a'))
   f:write(message, '\n'); f:close()
@@ -39,7 +39,7 @@ local function check(condition, message)
 end
 function OnPluginTick()
   if not seen_marker or checked or os.time() - marker_time < 4 then return end
-  local images, after, text_link = {}, nil, nil
+  local images, after, text_link, image_tail = {}, nil, nil, nil
   for line = 1, GetLinesInBufferCount() do
     if GetLineInfo(line, 14) then
       if GetLineInfo(line, 18) == 0 then return end
@@ -48,6 +48,7 @@ function OnPluginTick()
     local text = GetLineInfo(line, 1)
     if text:find('AFTER_IMAGES', 1, true) then after = line end
     if text:find('Clickable text', 1, true) then text_link = line end
+    if text:find('Image link tail', 1, true) then image_tail = line end
   end
   checked = true
   local ok, err = pcall(function()
@@ -65,6 +66,10 @@ function OnPluginTick()
     check(after and after > images[2], 'text after images stays in stream order')
     check(text_link and action_at(text_link, 'text-clicked'), 'text command link retains its action')
     check(action_at(images[2], 'image-clicked'), 'image retains its enclosing command link')
+    check(image_tail and action_at(image_tail, 'image-clicked'),
+          'enclosing command link resumes on text after image')
+    check(after and not action_at(after, 'image-clicked'),
+          'image command link ends after its closing tag')
     local before = GetInfo(296)
     SetScroll(0, true)
     check(GetInfo(296) == 0, 'scroll-to-start uses pixel layout')

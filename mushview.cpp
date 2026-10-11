@@ -332,7 +332,9 @@ CSize CMUSHView::MeasureInlineImage (const CLine * pLine, int availableWidth)
 
   // A hostile SIZE attribute must not overflow the scrollbar or allocate a
   // multi-million-pixel row.  Scale proportionally to the view and four pages.
-  const double maxHeight = MAX (1024.0, MIN (8192.0, (double) GetOutputWindowHeight () * 4.0));
+  // 4092 plus the four-pixel row padding also keeps a maximum 500,000-line
+  // output buffer within Win32's signed scrollbar coordinate range.
+  const double maxHeight = MAX (1024.0, MIN (4092.0, (double) GetOutputWindowHeight () * 4.0));
   const double scale = MIN (1.0, MIN ((double) MAX (1, availableWidth) / width,
                                        maxHeight / height));
   return CSize (MAX (1, (int) (width * scale + 0.5)),

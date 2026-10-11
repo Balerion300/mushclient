@@ -22,11 +22,11 @@ class Mud(socketserver.BaseRequestHandler):
         if self.server.protocol == 'mxp':
             self.send('\x1b[1z<image url="' + IMAGE + '">\r\n')
             self.send('\x1b[1z<send href="text-clicked">Clickable text</send>\r\n')
-            self.send('\x1b[1z<send href="image-clicked"><image url="' + IMAGE + '"></send>\r\n')
+            self.send('\x1b[1z<send href="image-clicked"><image url="' + IMAGE + '">Image link tail</send>\r\n')
         else:
             self.send('<img src="' + IMAGE + '">\r\n')
             self.send('<a xch_cmd="text-clicked">Clickable text</a>\r\n')
-            self.send('<a xch_cmd="image-clicked"><img src="' + IMAGE + '"></a>\r\n')
+            self.send('<a xch_cmd="image-clicked"><img src="' + IMAGE + '">Image link tail</a>\r\n')
         self.send('AFTER_IMAGES: paragraph below the illustrations.\r\nINLINE_SUITE_END\r\n')
 
     def handle(self):
@@ -36,6 +36,9 @@ class Mud(socketserver.BaseRequestHandler):
             self.request.sendall(bytes((255, 250, 91, 255, 240)))
         else:
             self.send('This world is Pueblo 1.10 enhanced.\r\n')
+            # MUSHclient activates Pueblo markup only after this exact
+            # closing tag arrives following the identification line.
+            self.request.sendall(b'</xch_mudtext>')
         self.send('Isolated inline-image test. Commands: suite, scroll, clear-test.\r\n')
         time.sleep(.5)
         self.suite()
