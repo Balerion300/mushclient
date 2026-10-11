@@ -92,5 +92,27 @@ full-client protocol fixtures, including paused scroll position preservation,
 tail deletion of image entries, buffer clearing, and output after clearing.
 Native mouse checks confirmed delivery of text and image commands in both
 protocols, and visual checks confirmed image placement and scrollback clipping.
-Broader plugin compatibility, narrow-window behavior, selection, split views,
-and extended sessions remain preview acceptance checks.
+The follow-up implementation at `a4ce069` fixes viewport-height invalidation,
+paused/bottom resize anchoring, image selection bounds, link hits below the
+transcript, and worker startup under resource pressure. Local Debug and Release
+builds pass. The native backend suite reports zero failures, including drawing,
+failed-image no-op, oversized URLs, and 270 sequential URLs through cache pruning.
+The updated Release executable passes both original transcript suites and the
+compatibility suite for each protocol separately: multiline triggers across an
+image, received-line callbacks, Copy_Output-style reconstruction, actual plain
+and HTML copying, miniwindows, height/width resizing, paused resize position,
+bottom following, and creation of a second output window. Native visual checks
+confirm width-specific rendering in both protocols' second views, independent
+Pueblo scrolling/pane resizing, and mouse selection across an MXP image.
+
+To repeat compatibility checks, run `python tests/inline_image_mud.py --compat-only`
+and prepare one world at a time using `prepare_native_worlds.py --runtime
+<installed-client-directory> --plugin tests/inline_image_compatibility.xml
+--protocol MXP` (then `--protocol Pueblo` in a separate destination). Clipboard
+tests must be serialized because Windows has one shared clipboard. Reports are
+written beside the fixture plugin as `.compat-results.txt`. The fixture leaves
+the transcript visible for secondary-view inspection.
+
+This remains a preview: representative plugin interfaces were tested, not every
+third-party plugin. Long everyday sessions and Wine/macOS execution have not
+been validated. These tests never replace or connect the installed live client.

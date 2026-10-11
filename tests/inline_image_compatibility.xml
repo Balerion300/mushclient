@@ -27,6 +27,7 @@ local function safe_run(fn)
   local ok, err = pcall(fn)
   if not ok then
     record('ERROR ' .. tostring(err))
+    Pause(false)
     if prior_clipboard then SetClipboard(prior_clipboard) end
     phase = 'failed'
   end
@@ -200,11 +201,14 @@ function OnPluginTick()
 
       MoveWorldWindow(40, 40, 1050, 500)
       Pause(true)
-      SetScroll(120, true)
-      local anchor_before = GetInfo(296)
       local image_top = GetLineInfo(image_line, 19)
-      check(anchor_before > image_top and
-            anchor_before < image_top + GetLineInfo(image_line, 20),
+      local image_height = GetLineInfo(image_line, 20)
+      local requested_anchor = image_top + math.min(120, math.floor(image_height / 2))
+      SetScroll(requested_anchor, true)
+      local anchor_before = GetInfo(296)
+      record(string.format('SCROLL anchor requested=%d actual=%d image_top=%d image_height=%d',
+        requested_anchor, anchor_before, image_top, image_height))
+      check(anchor_before >= image_top and anchor_before < image_top + image_height,
         'paused scroll anchor falls inside the tall image row')
       MoveWorldWindow(40, 40, 1050, 800)
       local anchor_after = GetInfo(296)
