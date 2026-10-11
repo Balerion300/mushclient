@@ -1,0 +1,57 @@
+EVENT mxp_start=1
+PASS fixture enables Always On MXP mode
+START issue-87 restart probe
+EVENT connected=1 mxp_active=true
+LINE RESTART_INITIAL_1 active=true raw_tag=false starts=1 stops=0
+PASS initial connection parses MXP color markup
+STYLE RESTART_INITIAL_1 line=12 style=1 foreground=255
+PASS initial MXP marker has red foreground COLORREF 255
+LINE RESTART_SERVER_SILENT active=true raw_tag=false starts=1 stops=0
+PASS server ceasing markup does not itself reset client MXP state
+LINE RESTART_SOFT_NO_NEG active=true raw_tag=false starts=1 stops=0
+PASS same-socket soft restart without renegotiation retains MXP parsing
+STYLE RESTART_SOFT_NO_NEG line=14 style=1 foreground=255
+PASS same-socket marker retains red foreground
+EVENT mxp_stop=1
+EVENT mxp_start=2
+LINE RESTART_REOFFER active=true raw_tag=false starts=2 stops=1
+STATE same_socket_reoffer active=true raw_tag=false starts=2 stops=1
+PASS same-socket DONT then DO restores MXP parsing
+STYLE RESTART_REOFFER line=15 style=1 foreground=255
+PASS DONT then DO marker has red foreground COLORREF 255
+EVENT mxp_stop=2
+EVENT mxp_start=3
+LINE RESTART_REOFFER_WILL active=true raw_tag=false starts=3 stops=2
+PASS same-socket DONT then WILL restores Always On MXP parsing
+STYLE RESTART_REOFFER_WILL line=16 style=1 foreground=255
+PASS DONT then WILL marker has red foreground COLORREF 255
+PASS switch to Query MXP mode
+EVENT mxp_stop=3
+EVENT mxp_start=4
+LINE RESTART_QUERY_REOFFER active=true raw_tag=false starts=4 stops=3
+PASS Query mode still enables MXP on renewed DO
+STYLE RESTART_QUERY_REOFFER line=17 style=1 foreground=255
+PASS Query reoffer marker has red foreground
+EVENT mxp_stop=4
+PASS switch to No MXP mode
+LINE RESTART_NO_MXP active=false raw_tag=true starts=4 stops=4
+PASS No MXP mode refuses both DO and WILL offers
+PASS switch to On Command MXP mode
+LINE RESTART_ONCOMMAND_BEFORE active=false raw_tag=true starts=4 stops=4
+PASS On Command mode waits for MXP subnegotiation
+EVENT mxp_start=5
+LINE RESTART_ONCOMMAND_STARTED active=true raw_tag=false starts=5 stops=4
+PASS On Command mode enables MXP after subnegotiation
+STYLE RESTART_ONCOMMAND_STARTED line=20 style=1 foreground=255
+PASS On Command marker has red foreground
+PASS restore Always On mode before reconnect
+EVENT mxp_stop=5
+EVENT disconnected=1 mxp_active=false
+ACTION hard reconnect status=0
+EVENT mxp_start=6
+EVENT connected=2 mxp_active=true
+LINE RESTART_INITIAL_2 active=true raw_tag=false starts=6 stops=5
+PASS new socket restores MXP parsing and color markup
+STYLE RESTART_INITIAL_2 line=26 style=1 foreground=255
+PASS hard reconnect marker has red foreground COLORREF 255
+PASS issue-87 restart probe completed

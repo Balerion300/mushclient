@@ -25,6 +25,7 @@ for item in args.distribution.iterdir():
         shutil.copy2(item, target)
 shutil.copy2(args.exe, destination / 'MUSHclient.exe')
 shutil.copy2(root / 'docs/INLINE_IMAGES.md', destination / 'INLINE_IMAGES.md')
+shutil.copy2(root / 'docs/STABILITY_TESTS.md', destination / 'STABILITY_TESTS.md')
 shutil.copytree(root / 'licences', destination / 'licences')
 for folder in ('logs', 'sounds', 'worlds'):
     (destination / folder).mkdir(exist_ok=True)
@@ -39,8 +40,10 @@ for folder in ('logs', 'sounds', 'worlds'):
     'This package has fresh preferences and no personal worlds or credentials.\n\n'
     'Static Pueblo IMG and MXP IMAGE illustrations scroll between paragraphs.\n'
     'Toolbar drag outlines follow the toolbar on scaled displays.\n'
+    'Always On MXP recovers when the server disables and re-offers it.\n'
     'Windows 7+; 32-bit unsigned preview. Mac/Wine has not been validated.\n'
     'See INLINE_IMAGES.md for behavior, limits and verification results.\n\n'
+    'See STABILITY_TESTS.md for heap, restart and longer resource tests.\n\n'
     'Runtime files: official MUSHclient 5.06 distribution from\n'
     'https://www.gammon.com.au/files/mushclient/mushclient506.exe\n'
     'Installer MD5: ba0815ce7f84dac6695a8ef5b6ace2fb (matches publisher).\n'

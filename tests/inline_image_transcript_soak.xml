@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient><muclient>
+<plugin name="Inline_Image_Transcript_Soak" author="MUSHclient contributors"
+id="782777f15577bcc76223fa01" language="Lua" version="1.0" requires="5.07"/>
+<script><![CDATA[
+local started, cycles, rendered, failures = nil, 0, 0, 0
+local initialized, last_tick = false, nil
+local report = GetPluginInfo(GetPluginID(), 6) .. '.results.txt'
+local image = 'https://raw.githubusercontent.com/Balerion300/mushclient/codex/inline-static-images/tests/fixture-scene.png'
+local pueblo = WorldName() == 'Inline images - Pueblo test'
+local function record(message)
+  local f = assert(io.open(report, 'a')); f:write(message, '\n'); f:close()
+end
+function OnPluginInstall()
+  assert(GetAlphaOption('site') == '127.0.0.1')
+  assert(not IsConnected())
+  local f = assert(io.open(report, 'w')); f:close()
+  SetOption('max_output_lines', 200)
+  started = os.time()
+  record('START transcript soak; disconnected simulated input only')
+end
+function OnPluginTick()
+  if not started then return end
+  if last_tick == os.time() then return end
+  last_tick = os.time()
+  if not initialized then
+    if pueblo then
+      SetOption('use_mxp', 0)
+      SetOption('detect_pueblo', 1)
+      Simulate('This world is Pueblo 1.10 enhanced.\r\n</xch_mudtext>')
+    else SetOption('use_mxp', 2) end
+    assert(GetInfo(104), 'simulated protocol did not activate')
+    initialized = true
+    SetOption('max_output_lines', 200)
+  end
+  local ready, loading = 0, 0
+  for line = 1, GetLinesInBufferCount() do
+    if GetLineInfo(line,14) then
+      local state = GetLineInfo(line,18)
+      if state == 1 then ready = ready + 1
+      elseif state == 0 then loading = loading + 1
+      else failures = failures + 1 end
+    end
+  end
+  rendered = math.max(rendered,ready)
+  local elapsed = os.time() - started
+  if elapsed >= 600 then
+    record(string.format('END cycles=%d ready_peak=%d failures=%d',cycles,rendered,failures))
+    if rendered > 0 and failures == 0 then record('PASS COMPLETE') else record('FAIL COMPLETE') end
+    DeleteOutput(); started = nil; return
+  end
+  if cycles > 0 and cycles % 60 == 0 then DeleteOutput() end
+  for i = 1, 5 do
+    Simulate('SOAK paragraph before image\r\n')
+    if pueblo then Simulate('<img src="' .. image .. '">\r\n')
+    else Simulate('\027[1z<image url="' .. image .. '">\r\n') end
+    Simulate('SOAK paragraph after image\r\n')
+  end
+  cycles = cycles + 1
+  if cycles % 30 == 0 then
+    record(string.format('SAMPLE elapsed=%d cycles=%d ready=%d loading=%d lines=%d',elapsed,cycles,ready,loading,GetLinesInBufferCount()))
+  end
+end
+]]></script></muclient>
