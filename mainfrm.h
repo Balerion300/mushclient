@@ -19,6 +19,7 @@ class CMUSHclientDoc;
 class CMyToolBar : public CToolBar
 {
 public:
+	void EnableDocking(DWORD dwDockStyle);
 	void DrawGripper(CDC* pDC, const CRect& rect);
 	void EraseNonClient();
 	virtual void DoPaint(CDC* pDC);

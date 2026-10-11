@@ -61,6 +61,160 @@ int ActivityToolBarResourceNames [6] = {
 //////////////////////////////////////////////////////
 // CMyToolBar
 
+// A window preview follows the same DPI virtualization as the toolbar frame.
+// The traditional MFC outline draws logical coordinates onto a physical
+// desktop DC, which places it above/left of the actual drop on scaled displays.
+class CToolbarDragPreview : public CWnd
+{
+public:
+  BOOL Create(CWnd* owner)
+    {
+    return CreateEx(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE |
+                    WS_EX_TOOLWINDOW,
+                    AfxRegisterWndClass(0), "", WS_POPUP,
+                    CRect(0, 0, 1, 1), owner, 0);
+    }
+  void Show(const CRect& rect)
+    {
+    SetLayeredWindowAttributes(RGB(1, 2, 3), 255, LWA_COLORKEY);
+    SetWindowPos(&wndTopMost, rect.left, rect.top, rect.Width(), rect.Height(),
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    RedrawWindow(NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+protected:
+  afx_msg void OnPaint()
+    {
+    CPaintDC dc(this);
+    CRect rect; GetClientRect(rect);
+    dc.FillSolidRect(rect, RGB(1, 2, 3));
+    // Leave the center transparent and show the proposed outer frame.
+    for (int i = 0; i < 2 && !rect.IsRectEmpty(); ++i)
+      {
+      dc.Draw3dRect(rect, GetSysColor(COLOR_HIGHLIGHT), GetSysColor(COLOR_HIGHLIGHT));
+      rect.DeflateRect(1, 1);
+      }
+    }
+  DECLARE_MESSAGE_MAP()
+};
+
+BEGIN_MESSAGE_MAP(CToolbarDragPreview, CWnd)
+  ON_WM_PAINT()
+END_MESSAGE_MAP()
+
+class CToolbarDockContext : public CDockContext
+{
+public:
+  explicit CToolbarDockContext(CControlBar* bar) : CDockContext(bar) {}
+  virtual void StartDrag(CPoint point)
+    {
+    // All three application toolbars use dynamic layout. Keep the framework
+    // path available for any future fixed-size control bar.
+    if (!(m_pBar->m_dwStyle & CBRS_SIZE_DYNAMIC))
+      { CDockContext::StartDrag(point); return; }
+    if (::GetCapture() != NULL) return;
+    CToolbarDragPreview preview;
+    if (!preview.Create(m_pDockSite))
+      { CDockContext::StartDrag(point); return; }
+
+    m_bDragging = TRUE;
+    m_dwDockStyle = m_pBar->m_dwDockStyle;
+    m_dwStyle = m_pBar->m_dwStyle & CBRS_ALIGN_ANY;
+    m_bFlip = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    m_bForceFrame = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    CRect bar; m_pBar->GetWindowRect(bar);
+    m_rectDragHorz = CRect(bar.TopLeft(), m_pBar->CalcDynamicLayout(0, LM_HORZ | LM_HORZDOCK));
+    m_rectDragVert = CRect(bar.TopLeft(), m_pBar->CalcDynamicLayout(0, LM_VERTDOCK));
+    m_rectFrameDragHorz = CRect(bar.TopLeft(), m_pBar->CalcDynamicLayout(0, LM_HORZ | LM_MRUWIDTH));
+    CMiniFrameWnd::CalcBorders(&m_rectFrameDragHorz);
+    m_rectFrameDragHorz.InflateRect(-2 * GetSystemMetrics(SM_CXBORDER),
+                                   -2 * GetSystemMetrics(SM_CYBORDER));
+    m_rectFrameDragVert = m_rectFrameDragHorz;
+    KeepPointInside(m_rectDragHorz, point);
+    KeepPointInside(m_rectDragVert, point);
+    KeepPointInside(m_rectFrameDragHorz, point);
+    KeepPointInside(m_rectFrameDragVert, point);
+    m_ptLast = point;
+    UpdatePreview(preview);
+    m_pBar->SetCapture();
+    bool dropped = false;
+    while (::GetCapture() == m_pBar->m_hWnd)
+      {
+      MSG msg;
+      const BOOL result = ::GetMessage(&msg, NULL, 0, 0);
+      if (result <= 0)
+        { if (!result) AfxPostQuitMessage((int) msg.wParam); break; }
+      if (msg.message == WM_LBUTTONUP) { dropped = true; break; }
+      if (msg.message == WM_RBUTTONDOWN ||
+          (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE)) break;
+      if (msg.message == WM_MOUSEMOVE)
+        {
+        CPoint next(msg.pt);
+        const CPoint delta = next - m_ptLast;
+        m_rectDragHorz.OffsetRect(delta);
+        m_rectDragVert.OffsetRect(delta);
+        m_rectFrameDragHorz.OffsetRect(delta);
+        m_rectFrameDragVert.OffsetRect(delta);
+        m_ptLast = next;
+        UpdatePreview(preview);
+        }
+      else if (msg.message == WM_KEYDOWN || msg.message == WM_KEYUP)
+        {
+        if (msg.wParam == VK_SHIFT) m_bFlip = msg.message == WM_KEYDOWN;
+        if (msg.wParam == VK_CONTROL) m_bForceFrame = msg.message == WM_KEYDOWN;
+        UpdatePreview(preview);
+        }
+      else ::DispatchMessage(&msg);
+      }
+    preview.DestroyWindow();
+    if (::GetCapture() == m_pBar->m_hWnd) ::ReleaseCapture();
+    if (!dropped) return;
+    if (m_dwOverDockStyle)
+      {
+      CDockBar* dock = GetDockBar(m_dwOverDockStyle);
+      if (!dock) return;
+      CRect rect = m_dwOverDockStyle & CBRS_ORIENT_VERT ? m_rectDragVert : m_rectDragHorz;
+      m_uMRUDockID = dock->GetDlgCtrlID();
+      m_rectMRUDockPos = rect;
+      dock->ScreenToClient(&m_rectMRUDockPos);
+      m_pDockSite->DockControlBar(m_pBar, dock, &rect);
+      m_pDockSite->RecalcLayout();
+      }
+    else
+      {
+      const bool horizontal = ((m_dwStyle & CBRS_ORIENT_HORZ) != 0) != (m_bFlip != FALSE);
+      m_dwMRUFloatStyle = (horizontal ? CBRS_ALIGN_TOP : CBRS_ALIGN_LEFT) |
+                          (m_dwDockStyle & CBRS_FLOAT_MULTI);
+      m_ptMRUFloatPos = (horizontal ? m_rectFrameDragHorz : m_rectFrameDragVert).TopLeft();
+      m_pDockSite->FloatControlBar(m_pBar, m_ptMRUFloatPos, m_dwMRUFloatStyle);
+      }
+    }
+private:
+  static void KeepPointInside(CRect& rect, CPoint point)
+    {
+    const int dx = point.x < rect.left ? point.x - rect.left :
+                   point.x >= rect.right ? point.x - rect.right + 1 : 0;
+    const int dy = point.y < rect.top ? point.y - rect.top :
+                   point.y >= rect.bottom ? point.y - rect.bottom + 1 : 0;
+    rect.OffsetRect(dx, dy);
+    }
+  void UpdatePreview(CToolbarDragPreview& preview)
+    {
+    m_dwOverDockStyle = m_bForceFrame ? 0 : CanDock();
+    const bool horizontal = ((m_dwStyle & CBRS_ORIENT_HORZ) != 0) != (m_bFlip != FALSE);
+    const CRect rect = m_dwOverDockStyle ?
+      (m_dwOverDockStyle & CBRS_ORIENT_VERT ? m_rectDragVert : m_rectDragHorz) :
+      (horizontal ? m_rectFrameDragHorz : m_rectFrameDragVert);
+    preview.Show(rect);
+    }
+};
+
+void CMyToolBar::EnableDocking(DWORD style)
+{
+  // Install before LoadBarState restores the saved MRU docking positions.
+  if (!m_pDockContext) m_pDockContext = new CToolbarDockContext(this);
+  CToolBar::EnableDocking(style);
+}
+
 BEGIN_MESSAGE_MAP(CMyToolBar, CToolBar)
 	//{{AFX_MSG_MAP(CMyToolBar)
 	ON_WM_NCPAINT()

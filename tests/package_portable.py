@@ -10,6 +10,7 @@ parser.add_argument('--distribution', type=Path, required=True)
 parser.add_argument('--exe', type=Path, required=True)
 parser.add_argument('--destination', type=Path, required=True)
 parser.add_argument('--zip', type=Path, required=True)
+parser.add_argument('--source-commit', required=True)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 destination = args.destination.resolve()
@@ -37,12 +38,14 @@ for folder in ('logs', 'sounds', 'worlds'):
     'Create a new world or open a copy of your existing world file.\n'
     'This package has fresh preferences and no personal worlds or credentials.\n\n'
     'Static Pueblo IMG and MXP IMAGE illustrations scroll between paragraphs.\n'
+    'Toolbar drag outlines follow the toolbar on scaled displays.\n'
     'Windows 7+; 32-bit unsigned preview. Mac/Wine has not been validated.\n'
     'See INLINE_IMAGES.md for behavior, limits and verification results.\n\n'
     'Runtime files: official MUSHclient 5.06 distribution from\n'
     'https://www.gammon.com.au/files/mushclient/mushclient506.exe\n'
     'Installer MD5: ba0815ce7f84dac6695a8ef5b6ace2fb (matches publisher).\n'
-    'Executable: inline-image implementation a4ce069; tests/docs e77e24e.\n'
+    f'Source commit: {args.source_commit}\n'
+    f'Executable SHA256: {hashlib.sha256(args.exe.read_bytes()).hexdigest()}\n'
     'Source: https://github.com/Balerion300/mushclient/pull/1\n', encoding='utf-8')
 files = sorted(p for p in destination.rglob('*') if p.is_file())
 manifest = '\n'.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' +
