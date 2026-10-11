@@ -2,7 +2,7 @@ name: Build and Deploy MUSHclient
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, codex/inline-static-images ]
   pull_request:
     branches: [ master ]
 
