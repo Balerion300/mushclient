@@ -9,6 +9,7 @@
 #include "mxp.h"
 #include "..\scripting\errors.h"
 #include "..\color.h"
+#include "..\InlineImage.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -23,6 +24,17 @@ static char BASED_CODE THIS_FILE[] = __FILE__;
 #define PUEBLO_ACTIVE true
 
 extern tConfigurationNumericOption OptionsTable [];
+
+static int ImageDimension (const CString& value)
+  {
+  if (value.IsEmpty ())
+    return 0;
+  for (int i = 0; i < value.GetLength (); ++i)
+    if (value [i] < '0' || value [i] > '9')
+      return 0;
+  const long pixels = atol (value);
+  return pixels > 0 && pixels <= 4096 ? static_cast<int> (pixels) : 0;
+  }
 
 // do the action required to open a single atomic tag (iAction)
 void CMUSHclientDoc::MXP_OpenAtomicTag (const CString strTag,
@@ -737,19 +749,37 @@ COLORREF       iBackColour = pStyle->iBackColour;
                m_bSuppressNewline = false;
             } // end of some sort of Pueblo
 
-          strArgument = GetArgument (ArgumentList,"url", 0, false);  // get link
-          if (strArgument.IsEmpty () && PUEBLO_ACTIVE)   
-            strArgument = GetArgument (ArgumentList,"src", 0, false);  // get link
+          strArgument = GetArgument (ArgumentList,"url", 0, false);
+          if (strArgument.IsEmpty ())
+            strArgument = GetArgument (ArgumentList,"src", 0, false);
+          CString strFilename = GetArgument (ArgumentList,"fname", 0, false);
+          CString strSource = strArgument + strFilename;
+          const int requestedWidth = ImageDimension (GetArgument (ArgumentList,"width", 0, false));
+          const int requestedHeight = ImageDimension (GetArgument (ArgumentList,"height", 0, false));
 
-          CString strFilename = GetArgument (ArgumentList,"fname", 0, false); // and file name
-
-          if (!strArgument.IsEmpty ())
+          if (!strSource.IsEmpty ())
             {
 
             CString strOldAction = strAction;
+            CString strOldHint = strHint;
+            CString strOldVariable = strVariable;
             int iFlags = pStyle->iFlags;
             COLORREF iForeColour = pStyle->iForeColour;
             COLORREF iBackColour = pStyle->iBackColour;
+            if (strOldAction.IsEmpty () && pStyle->pAction)
+              {
+              strOldAction = pStyle->pAction->m_strAction;
+              strOldHint = pStyle->pAction->m_strHint;
+              strOldVariable = pStyle->pAction->m_strVariable;
+              }
+
+            const bool hasEnclosingAction =
+              !strOldAction.IsEmpty () && (iFlags & ACTIONTYPE) != ACTION_NONE;
+            const CString imageAction = hasEnclosingAction ? strOldAction : strSource;
+            const CString imageHint = hasEnclosingAction ? strOldHint : CString ();
+            const CString imageVariable = hasEnclosingAction ? strOldVariable : CString ();
+            const int imageActionType = hasEnclosingAction ?
+              (iFlags & ACTIONTYPE) : ACTION_HYPERLINK;
 
             // ensure on new line
             if (m_pCurrentLine->len > 0)
@@ -767,29 +797,60 @@ COLORREF       iBackColour = pStyle->iBackColour;
               pStyle->iFlags |= COLOUR_RGB;
               }
 
-            strArgument += strFilename;   // append filename to URL
-            strAction = strArgument;   // hyperlink
-            pStyle->iFlags &= ~ACTIONTYPE;   // cancel old actions
-            pStyle->iFlags |= ACTION_HYPERLINK;   // send-to action
+            pStyle->iFlags &= ~ACTIONTYPE;
+            pStyle->iFlags |= imageActionType;
 
             if (m_bUnderlineHyperlinks)
               pStyle->iFlags |= UNDERLINE;   // send-to action
 
-            AddToLine ("[", 0);          
-            AddToLine (strArgument, 0);
-            AddToLine ("]", 0);
+            CString strFallback;
+            if (strSource.GetLength () > 2048)
+              strFallback = "[image URL exceeds 2048 characters]";
+            else
+              strFallback = "[" + strSource + "]";
 
-            // have to add the action now, before we start a new line
-            pStyle->pAction = GetAction (strAction, strHint, strVariable);
-            strAction.Empty ();
+            // Keep the URL fallback on one logical line regardless of the
+            // configured text wrap column.
+            CLine * pImageLine = m_pCurrentLine;
+            const int fallbackLength = strFallback.GetLength ();
+            if (fallbackLength > pImageLine->iMemoryAllocated)
+              {
+#ifdef USE_REALLOC
+              char * pNewText = (char *) realloc (pImageLine->text, fallbackLength);
+              if (!pNewText)
+                AfxThrowMemoryException ();
+              pImageLine->text = pNewText;
+#else
+              delete [] pImageLine->text;
+              pImageLine->text = new char [fallbackLength];
+#endif
+              pImageLine->iMemoryAllocated = fallbackLength;
+              }
+            memcpy (pImageLine->text, (LPCTSTR) strFallback, fallbackLength);
+            pImageLine->len = fallbackLength;
+            pStyle->iLength = static_cast<unsigned short> (fallbackLength);
+            if (pStyle->pAction)
+              pStyle->pAction->Release ();
+            pStyle->pAction = GetAction (imageAction, imageHint, imageVariable);
 
-            StartNewLine (true, 0);   // new line after image tag
-            // go back to old style (ie. lose the underlining)
+            pImageLine->flags |= INLINE_IMAGE;
+            pImageLine->m_imageSource = strSource;
+            pImageLine->m_imageWidth = requestedWidth;
+            pImageLine->m_imageHeight = requestedHeight;
+            pImageLine->m_inlineImage = CInlineImage::Request (strSource);
+            ++m_inlineImageRevision;
+
+            StartNewLine (true, 0);
+            // Restore the enclosing action for text after the image.
             AddStyle (iFlags, 
                      iForeColour, 
                      iBackColour, 
                      0, 
-                     strOldAction);
+                     "");
+
+            strAction = strOldAction;
+            strHint = strOldHint;
+            strVariable = strOldVariable;
 
             }
         }

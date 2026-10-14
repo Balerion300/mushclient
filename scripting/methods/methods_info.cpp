@@ -5,6 +5,7 @@
 #include "stdafx.h"
 #include "..\..\MUSHclient.h"
 #include "..\..\doc.h"
+#include "..\..\InlineImage.h"
 #include "..\..\MUSHview.h"
 #include "..\..\mainfrm.h"
 #include "..\..\childfrm.h"
@@ -1173,6 +1174,15 @@ long CMUSHclientDoc::WorldPort()
 //   9: date/time line arrived
 //  10: actual line number (not line number in buffer)
 //  11: count of style runs
+//  12: high-performance arrival time (seconds from counter epoch)
+//  13: seconds since this world opened
+//  14: true if this is an inline image transcript entry
+//  15: image source URL (null for ordinary text)
+//  16: intrinsic image width, zero until loaded (null for ordinary text)
+//  17: intrinsic image height, zero until loaded (null for ordinary text)
+//  18: image state: 0 loading, 1 ready, 2 failed (null for ordinary text)
+//  19: pixel offset of line top in the first output window (null without view)
+//  20: displayed line height in the first output window (null without view)
 
 VARIANT CMUSHclientDoc::GetLineInfo(long LineNumber, short InfoType) 
 {
@@ -1225,6 +1235,46 @@ CLine * pLine = m_LineList.GetAt (GetLinePosition (LineNumber - 1));
       else
        fElapsedTime = pLine->m_theTime.GetTime () - (double) m_whenWorldStarted.GetTime ();
       SetUpVariantDouble (vaResult, fElapsedTime);
+      }
+      break;
+
+    case 14:
+      SetUpVariantBool (vaResult, pLine->IsInlineImage ());
+      break;
+    case 15:
+      if (pLine->IsInlineImage ())
+        SetUpVariantString (vaResult, pLine->m_imageSource);
+      else
+        vaResult.vt = VT_NULL;
+      break;
+    case 16:
+      if (pLine->m_inlineImage)
+        SetUpVariantLong (vaResult, pLine->m_inlineImage->GetWidth ());
+      else
+        vaResult.vt = VT_NULL;
+      break;
+    case 17:
+      if (pLine->m_inlineImage)
+        SetUpVariantLong (vaResult, pLine->m_inlineImage->GetHeight ());
+      else
+        vaResult.vt = VT_NULL;
+      break;
+    case 18:
+      if (pLine->m_inlineImage)
+        SetUpVariantLong (vaResult, static_cast<long> (pLine->m_inlineImage->GetState ()));
+      else
+        vaResult.vt = VT_NULL;
+      break;
+    case 19:
+    case 20:
+      {
+      CMUSHView * pView = GetFirstOutputWindow ();
+      if (pView)
+        SetUpVariantLong (vaResult, InfoType == 19 ?
+                          pView->GetLineTop (LineNumber - 1) :
+                          pView->GetLineHeight (LineNumber - 1));
+      else
+        vaResult.vt = VT_NULL;
       }
       break;
 

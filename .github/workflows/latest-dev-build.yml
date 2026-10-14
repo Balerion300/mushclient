@@ -2,7 +2,7 @@ name: Build and Deploy MUSHclient
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, codex/inline-static-images ]
   pull_request:
     branches: [ master ]
 
@@ -19,7 +19,7 @@ env:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     strategy:
       matrix:
         configuration: [Release, Debug]

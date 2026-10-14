@@ -446,6 +446,7 @@ library MUSHclient
 			[id(412)] void SetUnseenLines(long Counter);
 			[id(413)] void SetSelection(long StartLine, long EndLine, long StartColumn, long EndColumn);
 			[id(414)] void SetFrameBackgroundColour(long Colour);
+      [id(419)] long OpenLogExclusive(BSTR LogFileName);
 			//}}AFX_ODL_METHOD
 
 	};

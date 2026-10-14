@@ -276,6 +276,13 @@ CmcDateTimeSpan tsOneDay (1, 0, 0, 0);
 
 void CMUSHclientDoc::CheckTimers ()
   {
+  // A modal plugin can pump timer messages. Do not run connection callbacks
+  // inside its plugin context while the deferred startup is still pending.
+  if (m_bConnectStartupPending && m_CurrentPlugin)
+    return;
+  CheckConnectionStartup ();
+  if (m_bConnectStartupPending)
+    return;
 
   // make sure status line is showing the right thing (after 5 seconds)
   if (m_pActiveCommandView || m_pActiveOutputView)
@@ -341,6 +348,10 @@ void CMUSHclientDoc::CheckTickTimers ()
 
   // timer has kicked in unexpectedly - ignore it
   if (m_CurrentPlugin)
+    return;
+
+  CheckConnectionStartup ();
+  if (m_bConnectStartupPending)
     return;
 
   // check for selection change in command window

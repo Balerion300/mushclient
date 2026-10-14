@@ -7,6 +7,8 @@
 #include "MDIClientWnd.h"
 #include "MyStatusBar.h"
 #include "MDITabs.h"
+#include "WorkspacePane.h"
+#include "WorkspaceFrame.h"
 
 class CMUSHclientDoc;
 
@@ -19,6 +21,7 @@ class CMUSHclientDoc;
 class CMyToolBar : public CToolBar
 {
 public:
+	void EnableDocking(DWORD dwDockStyle);
 	void DrawGripper(CDC* pDC, const CRect& rect);
 	void EraseNonClient();
 	virtual void DoPaint(CDC* pDC);
@@ -33,11 +36,18 @@ protected:
 };
 
 
-class CMainFrame : public CMDIFrameWnd
+class CMainFrame : public CWorkspaceFrame
 {
 	DECLARE_DYNAMIC(CMainFrame)
 public:
 	CMainFrame();
+  using CMDIFrameWnd::DockControlBar;
+  using CMDIFrameWnd::FloatControlBar;
+  using CMDIFrameWnd::ShowControlBar;
+  void DockControlBar(CWorkspacePane* pane,UINT dock=AFX_IDW_DOCKBAR_RIGHT,LPCRECT rect=NULL) { DockPane(pane,dock,rect); }
+  void ShowControlBar(CWorkspacePane* pane,BOOL show,BOOL delay) { pane->ShowPane(show,delay,show); }
+  void FloatControlBar(CWorkspacePane* pane,CPoint point,DWORD) { pane->FloatPane(CRect(point,CSize(500,350)),DM_SHOW); }
+
 
 	BOOL OnDynamicTipText(UINT id, NMHDR* pNMHDR, LRESULT* pResult);
 
@@ -94,6 +104,22 @@ public:
 
    void CheckTimerFallback (void);
    void ProcessTimers (void);
+   bool OpenWorkspaceTranscript(const CString& connectionId, const CString& name);
+   bool AppendWorkspaceRecord(const CString& name, const WorkspaceRecord& record);
+   void CloseWorkspaceConnection(const CString& connectionId);
+   void ClearWorkspaceTranscript(const CString& connectionId,const CString& name);
+   bool WorkspaceOutputRetainedAfter(const CString& connectionId,unsigned __int64 boundary) const;
+   bool HostWorkspaceTool(HWND toolWindow, const CString& title);
+   bool AddWorkspaceRoute(const WorkspaceRoute& route, CString& error);
+   bool ReplaceWorkspaceRoute(const WorkspaceRoute& original,const WorkspaceRoute& replacement,CString& error);
+   bool RemoveWorkspaceRoute(const WorkspaceRoute& route);
+   bool SetWorkspaceInputPrefix(const CString& connectionId,const CString& name,const std::wstring& prefix);
+   std::wstring WorkspaceInputPrefix(const CString& connectionId,const CString& name) const;
+   bool FocusWorkspaceTranscript(size_t index);
+   bool RouteWorkspaceRecord(const WorkspaceRecord& record);
+   void SaveWorkspaceLayouts();
+   void RestoreWorkspaceRoutes(const CString& connectionId);
+   const std::vector<WorkspaceRoute>& WorkspaceRoutes() const { return m_workspaceRoutes; }
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -128,6 +154,29 @@ public:
   CHARFORMAT  m_defaultInfoBarFormat;
 
   COLORREF    m_backgroundColour;  // MDI frame background colour, 0xFFFFFFFF for the default
+
+  CWorkspacePane m_workspacePane;
+  unsigned m_workspaceRenderBatchDepth;
+  void BeginWorkspaceRenderBatch();
+  void EndWorkspaceRenderBatch();
+  std::vector<CWorkspacePane*> m_workspaceSplits;
+  std::vector<CWorkspacePane*> m_workspaceTools;
+  std::vector<WorkspaceRoute> m_workspaceRoutes;
+  std::map<CWorkspacePane*,WorkspacePaneLayout> m_workspaceRestoreGroups;
+  std::set<CWorkspacePane*> m_workspaceRestoredSplits;
+  void RestoreWorkspacePaneGroup(CWorkspacePane& pane,const WorkspacePaneLayout& layout);
+  std::set<CString> m_workspaceRestored;
+  std::set<CString> m_workspaceClosedConnections;
+  afx_msg void OnWorkspaceTranscript();
+  afx_msg void OnWorkspaceFloatTranscript();
+  afx_msg void OnWorkspaceTool(UINT id);
+  afx_msg void OnWorkspaceAgentReview();
+  afx_msg void OnWorkspaceLogStartSetup();
+  afx_msg void OnUpdateWorkspaceLogStartSetup(CCmdUI* command);
+  afx_msg void OnWorkspaceRoute();
+  afx_msg void OnWorkspaceFocus(UINT id);
+  afx_msg void OnUpdateWorkspaceFocus(CCmdUI* command);
+  void EnsureWorkspaceMenu();
 
 protected:  // control bar embedded members
 

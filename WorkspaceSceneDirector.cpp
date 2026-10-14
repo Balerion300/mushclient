@@ -1,0 +1,66 @@
+#include "stdafx.h"
+#include "mainfrm.h"
+#include "WorkspaceSceneDirector.h"
+#include "WorkspaceIntegration.h"
+#include "workspace/PennEditorWindow.h"
+
+namespace {
+struct Director {HWND window;int page;std::string scene,destination;std::vector<std::string> scenes,npcs,actions,windows;};
+std::wstring wide(const std::string& s){int n=MultiByteToWideChar(CP_UTF8,0,s.data(),(int)s.size(),NULL,0);std::wstring w(n,L'\0');if(n)MultiByteToWideChar(CP_UTF8,0,s.data(),(int)s.size(),&w[0],n);return w;}
+std::string get(HWND h){int n=GetWindowTextLengthW(h);std::wstring w(n+1,L'\0');GetWindowTextW(h,&w[0],n+1);w.resize(n);int bytes=WideCharToMultiByte(CP_UTF8,0,w.data(),n,NULL,0,NULL,NULL);std::string s(bytes,'\0');if(bytes)WideCharToMultiByte(CP_UTF8,0,w.data(),n,&s[0],bytes,NULL,NULL);return s;}
+std::string field(Director& u,int id){return get(GetDlgItem(u.window,id));}
+void set(Director& u,int id,const std::string& value){SetWindowTextW(GetDlgItem(u.window,id),wide(value).c_str());}
+HWND add(Director& u,int id,const wchar_t* cls,const wchar_t* label,DWORD style,int x,int y,int w,int h){HWND c=CreateWindowExW(WS_EX_CLIENTEDGE,cls,label,WS_CHILD|WS_VISIBLE|style|(!wcscmp(cls,L"STATIC")?0:WS_TABSTOP),x,y,w,h,u.window,(HMENU)(INT_PTR)id,AfxGetInstanceHandle(),NULL);SendMessage(c,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);if(!wcscmp(cls,L"EDIT"))SendMessage(c,EM_SETLIMITTEXT,32768,0);return c;}
+void page(Director& u,int selected){u.page=selected;for(int id=200;id<=499;++id){HWND c=GetDlgItem(u.window,id);if(c)ShowWindow(c,id/100==selected+2?SW_SHOW:SW_HIDE);}}
+void refresh(Director& u){auto& store=WorkspaceAgentStore();SendDlgItemMessage(u.window,100,LB_RESETCONTENT,0,0);u.scenes.clear();int selected=-1;for(const auto& s:store.humanScenes()){u.scenes.push_back(s.id);if(s.id==u.scene)selected=(int)u.scenes.size()-1;std::string title=s.title+" ("+s.state+")";SendDlgItemMessageW(u.window,100,LB_ADDSTRING,0,(LPARAM)wide(title).c_str());}SendDlgItemMessage(u.window,100,LB_SETCURSEL,selected,0);if(u.scene.empty())return;
+ auto s=store.humanScene(u.scene);set(u,201,s.notes);set(u,202,s.direction);set(u,114,"Scene: "+s.title+" / "+s.state+" / turn: "+s.turn+". Sending always requires editor review.");u.npcs.clear();SendDlgItemMessage(u.window,301,LB_RESETCONTENT,0,0);for(const auto& n:s.npcs){u.npcs.push_back(n.first);std::string label=n.second.name+" / "+n.second.agent;SendDlgItemMessageW(u.window,301,LB_ADDSTRING,0,(LPARAM)wide(label).c_str());}u.actions.clear();SendDlgItemMessage(u.window,401,LB_RESETCONTENT,0,0);for(const auto& a:s.actions){u.actions.push_back(a.id);std::string label=a.npc+" / "+a.status+" / "+a.kind;SendDlgItemMessageW(u.window,401,LB_ADDSTRING,0,(LPARAM)wide(label).c_str());}}
+void selectedNpc(Director& u){int index=(int)SendDlgItemMessage(u.window,301,LB_GETCURSEL,0,0);if(index<0)return;const auto s=WorkspaceAgentStore().humanScene(u.scene);const auto n=s.npcs.at(u.npcs.at(index));set(u,310,n.agent);set(u,311,n.name);set(u,313,n.summary);set(u,314,n.brief);set(u,315,n.knowledge);set(u,316,n.posePrefix);set(u,317,n.dialoguePrefix);set(u,318,n.id);u.destination=n.window;}
+void windows(Director& u){u.windows.clear();SendDlgItemMessage(u.window,312,CB_RESETCONTENT,0,0);auto g=WorkspaceAgentStore().humanWorkspace(field(u,310));if(!g.session)return;for(const auto& w:WorkspaceAgentStore().listWindows(field(u,310),g.session)){u.windows.push_back(w.id);std::string title=w.world+" / "+w.title;SendDlgItemMessageW(u.window,312,CB_ADDSTRING,0,(LPARAM)wide(title).c_str());}int selected=-1;for(size_t i=0;i<u.windows.size();++i)if(u.windows[i]==u.destination)selected=(int)i;SendDlgItemMessage(u.window,312,CB_SETCURSEL,selected,0);}
+void layout(Director& u,int width,int height) {
+ const int left=12,side=max(130,min(195,width/4)),x=side+27,body=max(260,width-x-12),bottom=height-75;
+ auto move=[&](int id,int px,int py,int w,int h){HWND child=GetDlgItem(u.window,id);if(child)MoveWindow(child,px,py,max(20,w),max(20,h),TRUE);};
+ move(113,left,12,side,25);move(100,left,45,side,max(80,height-190));move(110,left,height-135,side,28);
+ move(111,left,height-100,(side-6)/2,28);move(112,left+(side+6)/2,height-100,(side-6)/2,28);move(114,x,height-63,body,55);move(120,x,12,body,28);
+ const int editHeight=max(65,(bottom-150)/2);
+ move(203,x,50,body,22);move(201,x,76,body,editHeight);move(204,x,86+editHeight,body,22);move(202,x,112+editHeight,body,editHeight);
+ int buttons=bottom-33;int third=(body-16)/3;move(210,x,buttons,third,30);move(211,x+third+8,buttons,third,30);move(212,x+2*third+16,buttons,third,30);
+ move(301,x,50,body,80);int step=max(30,(bottom-222)/9),label=min(185,body/3);
+ for(int i=0;i<9;++i){int y=140+i*step;move(330+i,x,y,label,25);move(310+i,x+label+8,y,body-label-8,i==2?180:27);}
+ move(320,x,bottom-66,third,30);move(321,x+third+8,bottom-66,third,30);move(322,x+2*third+16,bottom-66,third,30);move(323,x,bottom-30,body,28);
+ move(401,x,50,body,130);move(402,x,192,body,max(65,bottom-237));move(410,x,bottom-33,third,30);move(411,x+third+8,bottom-33,third,30);move(412,x+2*third+16,bottom-33,third,30);
+}
+LRESULT CALLBACK procedure(HWND w,UINT msg,WPARAM wp,LPARAM lp){Director* u=(Director*)GetWindowLongPtrW(w,GWLP_USERDATA);if(msg==WM_NCCREATE){u=(Director*)((CREATESTRUCTW*)lp)->lpCreateParams;u->window=w;SetWindowLongPtrW(w,GWLP_USERDATA,(LONG_PTR)u);}if(!u)return DefWindowProcW(w,msg,wp,lp);
+ try{
+ if(msg==WM_CREATE){u->page=0;
+ add(*u,113,L"EDIT",L"New scene",ES_AUTOHSCROLL,12,12,195,25);add(*u,100,L"LISTBOX",L"",LBS_NOTIFY|WS_VSCROLL,12,45,195,480);add(*u,110,L"BUTTON",L"New scene",BS_PUSHBUTTON,12,535,195,27);add(*u,111,L"BUTTON",L"Stop scene",BS_PUSHBUTTON,12,568,95,27);add(*u,112,L"BUTTON",L"Remove",BS_PUSHBUTTON,112,568,95,27);add(*u,114,L"STATIC",L"New scenes start paused. Enable agent access before assigning an NPC.",0,222,610,730,55);
+ HWND tabs=add(*u,120,WC_TABCONTROLW,L"",0,222,12,730,28);for(int i=0;i<3;++i){const wchar_t* names[]={L"Direction",L"NPCs and turns",L"Review actions"};TCITEMW item={0};item.mask=TCIF_TEXT;item.pszText=const_cast<wchar_t*>(names[i]);SendMessageW(tabs,TCM_INSERTITEMW,i,(LPARAM)&item);}
+ add(*u,203,L"STATIC",L"Shared scene notes",0,222,50,650,22);add(*u,201,L"EDIT",L"",ES_MULTILINE|WS_VSCROLL,222,76,730,180);add(*u,204,L"STATIC",L"Your direction",0,222,270,650,22);add(*u,202,L"EDIT",L"",ES_MULTILINE|WS_VSCROLL,222,296,730,180);add(*u,210,L"BUTTON",L"Save direction",BS_PUSHBUTTON,222,492,180,30);add(*u,211,L"BUTTON",L"Pause",BS_PUSHBUTTON,412,492,120,30);add(*u,212,L"BUTTON",L"Resume",BS_PUSHBUTTON,542,492,120,30);
+ add(*u,301,L"LISTBOX",L"",LBS_NOTIFY|WS_VSCROLL,222,50,730,105);
+ const wchar_t* labels[]={L"Agent name",L"NPC name",L"Shared output destination",L"Public description",L"Private brief",L"Private knowledge",L"Pose command prefix",L"Speech command prefix",L"NPC ID (for edits)"};
+ for(int i=0;i<9;++i){int y=165+i*38;add(*u,330+i,L"STATIC",labels[i],0,222,y,185,25);add(*u,310+i,i==2?L"COMBOBOX":L"EDIT",i==6?L":":i==7?L"\"":L"",i==2?CBS_DROPDOWNLIST|WS_VSCROLL:ES_AUTOHSCROLL,414,y,538,i==2?180:27);}add(*u,320,L"BUTTON",L"Assign or update NPC",BS_PUSHBUTTON,222,520,220,30);add(*u,321,L"BUTTON",L"Remove selected NPC",BS_PUSHBUTTON,452,520,210,30);add(*u,322,L"BUTTON",L"Give selected NPC turn",BS_PUSHBUTTON,672,520,225,30);add(*u,323,L"BUTTON",L"Refresh agent destinations",BS_PUSHBUTTON,222,562,270,30);
+ add(*u,401,L"LISTBOX",L"",LBS_NOTIFY|WS_VSCROLL,222,50,730,160);add(*u,402,L"EDIT",L"",ES_MULTILINE|WS_VSCROLL,222,230,730,260);add(*u,410,L"BUTTON",L"Review as unsent editor draft",BS_PUSHBUTTON,222,508,290,30);add(*u,411,L"BUTTON",L"Reject proposal",BS_PUSHBUTTON,522,508,180,30);add(*u,412,L"BUTTON",L"Refresh proposals",BS_PUSHBUTTON,712,508,200,30);
+ page(*u,0);refresh(*u);RECT client;GetClientRect(w,&client);layout(*u,client.right,client.bottom);return 0;}
+ if(msg==WM_GETMINMAXINFO){auto limits=(MINMAXINFO*)lp;limits->ptMinTrackSize.x=800;limits->ptMinTrackSize.y=720;return 0;}
+ if(msg==WM_SIZE && GetDlgItem(w,100)){layout(*u,LOWORD(lp),HIWORD(lp));return 0;}
+ if(msg==WM_NOTIFY && ((NMHDR*)lp)->idFrom==120 && ((NMHDR*)lp)->code==TCN_SELCHANGE){page(*u,(int)SendDlgItemMessage(w,120,TCM_GETCURSEL,0,0));return 0;}
+ if(msg==WM_COMMAND){int id=LOWORD(wp),event=HIWORD(wp);auto& store=WorkspaceAgentStore();
+  if(id==100 && event==LBN_SELCHANGE){int n=(int)SendDlgItemMessage(w,100,LB_GETCURSEL,0,0);if(n>=0){u->scene=u->scenes.at(n);refresh(*u);}return 0;}
+  if(id==301 && event==LBN_SELCHANGE){selectedNpc(*u);windows(*u);return 0;}
+  if(id==401 && event==LBN_SELCHANGE){int n=(int)SendDlgItemMessage(w,401,LB_GETCURSEL,0,0);if(n>=0){auto s=store.humanScene(u->scene);for(const auto& a:s.actions)if(a.id==u->actions.at(n))set(*u,402,a.text);}return 0;}
+  if(id==312 && event==CBN_SELCHANGE){int selected=(int)SendDlgItemMessage(w,312,CB_GETCURSEL,0,0);if(selected>=0)u->destination=u->windows.at(selected);return 0;}
+  if(event!=BN_CLICKED)return DefWindowProcW(w,msg,wp,lp);
+  if(id==110){u->scene=store.createScene(field(*u,113));refresh(*u);return 0;}
+  if(id==323){windows(*u);return 0;}
+  if(u->scene.empty())throw std::runtime_error("Choose or create a scene first.");
+  auto scene=store.humanScene(u->scene);
+  if(id==210||id==211||id==212||id==111){std::string state=id==211?"paused":id==212?"running":id==111?"stopped":scene.state;store.directScene(u->scene,field(*u,201),field(*u,202),id==111?"":scene.turn,state);}
+  else if(id==112){store.removeScene(u->scene);u->scene.clear();}
+  else if(id==320){int target=(int)SendDlgItemMessage(w,312,CB_GETCURSEL,0,0);if(target<0)throw std::runtime_error("Select an explicitly shared output destination.");agent_workspace::Npc n;n.id=field(*u,318);if(n.id.empty())n.id="npc-"+std::to_string(GetTickCount64());n.name=field(*u,311);n.agent=field(*u,310);n.window=u->windows.at(target);n.summary=field(*u,313);n.brief=field(*u,314);n.knowledge=field(*u,315);n.posePrefix=field(*u,316);n.dialoguePrefix=field(*u,317);store.assignNpc(u->scene,n);set(*u,318,n.id);}
+  else if(id==321||id==322){int selected=(int)SendDlgItemMessage(w,301,LB_GETCURSEL,0,0);if(selected<0)throw std::runtime_error("Choose an NPC first.");std::string npc=u->npcs.at(selected);if(id==321)store.removeNpc(u->scene,npc);else store.directScene(u->scene,scene.notes,scene.direction,npc,scene.state);}
+  else if(id==410||id==411){int selected=(int)SendDlgItemMessage(w,401,LB_GETCURSEL,0,0);if(selected<0)throw std::runtime_error("Choose a proposal first.");std::string action=u->actions.at(selected);if(id==411)store.rejectAction(u->scene,action);else{store.editAction(u->scene,action,field(*u,402));auto draft=store.stageAction(u->scene,action);WorkspaceOpenDraft(w,draft);}}
+  refresh(*u);return 0;}
+ if(msg==WM_CLOSE){DestroyWindow(w);return 0;}if(msg==WM_NCDESTROY){SetWindowLongPtrW(w,GWLP_USERDATA,0);delete u;}
+ }catch(const std::exception& e){set(*u,114,e.what());return 0;}
+ return DefWindowProcW(w,msg,wp,lp);}
+}
+HWND OpenWorkspaceSceneDirector(CMainFrame& frame){WNDCLASSW cls={0};cls.lpfnWndProc=procedure;cls.hInstance=AfxGetInstanceHandle();cls.lpszClassName=L"MUSHclientSceneDirector";cls.hCursor=LoadCursor(NULL,IDC_ARROW);cls.hbrBackground=(HBRUSH)(COLOR_BTNFACE+1);RegisterClassW(&cls);Director* u=new Director();HWND w=CreateWindowExW(0,cls.lpszClassName,L"Scene director",WS_OVERLAPPEDWINDOW,CW_USEDEFAULT,CW_USEDEFAULT,1000,735,frame.GetSafeHwnd(),NULL,cls.hInstance,u);if(w)ShowWindow(w,SW_SHOW);else delete u;return w;}

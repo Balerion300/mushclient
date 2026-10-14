@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="Inline_Image_Compatibility_Test" author="MUSHclient contributors"
+ id="b9d3e1d15637c81273480a62" language="Lua" version="1.0" requires="5.07"
+ purpose="Check selection, copy, multiline triggers, resizing and miniwindows against a local image fixture" />
+<script><![CDATA[
+local enabled, marker_seen, phase = false, false, 'waiting'
+local marker_time, multiline_hits, image_callbacks = 0, 0, 0
+local before_line, image_line, after_line, end_line, wide_image_line
+local image_source, wide_source
+local prior_clipboard, miniwindow
+local fixture_ports = {
+  ['Inline images - MXP test'] = 18766,
+  ['Inline images - Pueblo test'] = 18767,
+}
+local output = GetPluginInfo(GetPluginID(), 6) .. '.compat-results.txt'
+local function record(message)
+  local f = assert(io.open(output, 'a'))
+  f:write(message, '\n'); f:close()
+end
+local function check(condition, message)
+  record((condition and 'PASS ' or 'FAIL ') .. message)
+  if not condition then error(message) end
+end
+local function safe_run(fn)
+  local ok, err = pcall(fn)
+  if not ok then
+    record('ERROR ' .. tostring(err))
+    Pause(false)
+    if prior_clipboard then SetClipboard(prior_clipboard) end
+    phase = 'failed'
+  end
+end
+function OnPluginInstall()
+  local expected_port = fixture_ports[WorldName()]
+  if not expected_port or GetAlphaOption('site') ~= '127.0.0.1' or
+     GetOption('port') ~= expected_port then return end
+  enabled = true
+  local f = assert(io.open(output, 'w')); f:close()
+  miniwindow = 'inline_compat_' .. GetPluginID()
+  check(AddTriggerEx('compat_multiline',
+    'COMPAT_BEFORE[^\n]*\nCOMPAT_AFTER[^\n]*\n', '', 41, -1, 0,
+    '', 'OnCompatMultiline', 12, 100) == 0,
+    'multiline trigger installed before fixture output')
+  check(SetTriggerOption('compat_multiline', 'multi_line', 'y') == 0 and
+        SetTriggerOption('compat_multiline', 'lines_to_match', '2') == 0,
+    'multiline trigger spans two received text lines')
+  record('START compatibility test')
+end
+function OnPluginConnect()
+  if enabled then Send('compat') end
+end
+function OnCompatMultiline()
+  multiline_hits = multiline_hits + 1
+  record('MULTILINE match=' .. tostring(GetRecentLines(2)))
+end
+function OnPluginLineReceived(line)
+  if not enabled then return true end
+  record('CALLBACK ' .. string.format('%q', line))
+  if line:find('^%[https?://') then image_callbacks = image_callbacks + 1 end
+  if line:find('COMPAT_END', 1, true) then
+    marker_seen, marker_time = true, os.time()
+  end
+  return true
+end
+local function scan_rows()
+  local images = {}
+  for line = 1, GetLinesInBufferCount() do
+    local text = GetLineInfo(line, 1)
+    if text:find('COMPAT_BEFORE', 1, true) then before_line = line end
+    if text:find('COMPAT_AFTER', 1, true) then after_line = line end
+    if text:find('COMPAT_END', 1, true) then end_line = line end
+    if GetLineInfo(line, 14) then images[#images+1] = line end
+  end
+  image_line, wide_image_line = images[1], images[2]
+  image_source = image_line and GetLineInfo(image_line, 15)
+  wide_source = wide_image_line and GetLineInfo(wide_image_line, 15)
+  return images
+end
+-- Reproduce the line/text/newline API usage of the bundled Copy_Output plugin.
+local function plugin_style_copy()
+  local first, last = GetSelectionStartLine(), GetSelectionEndLine()
+  local first_column, last_column = GetSelectionStartColumn(), GetSelectionEndColumn()
+  local parts = {}
+  for line = first, last do
+    local info = GetLineInfo(line)
+    if line < last then
+      parts[#parts+1] = info.text:sub(first_column)
+      if info.newline then parts[#parts+1] = '\r\n' end
+      first_column = 1
+    else
+      parts[#parts+1] = info.text:sub(first_column, last_column-1)
+    end
+  end
+  return table.concat(parts)
+end
+local function assert_row_geometry(message)
+  check(GetLineInfo(after_line, 19) ==
+        GetLineInfo(image_line, 19) + GetLineInfo(image_line, 20), message)
+end
+function CaptureCompatibilityClipboard()
+  if not enabled then return end
+  local copied = GetClipboard()
+  record(string.format('MANUAL clipboard length=%d tall_url=%s wide_url=%s',
+    #copied, tostring(image_source and copied:find(image_source, 1, true) ~= nil),
+    tostring(wide_source and copied:find(wide_source, 1, true) ~= nil)))
+  record(string.format('MANUAL selection lines=%s..%s columns=%s..%s',
+    tostring(GetSelectionStartLine()), tostring(GetSelectionEndLine()),
+    tostring(GetSelectionStartColumn()), tostring(GetSelectionEndColumn())))
+end
+function OnPluginTick()
+  if not enabled or not marker_seen or phase == 'failed' or phase == 'done' then return end
+  if phase == 'waiting' then
+    if os.time() - marker_time < 4 then return end
+    local images = scan_rows()
+    if not image_line or not wide_image_line or
+       GetLineInfo(image_line, 18) == 0 or
+       GetLineInfo(wide_image_line, 18) == 0 then
+      if os.time() - marker_time > 30 then
+        record('FAIL compatibility image missing or still loading after 30 seconds')
+        phase = 'failed'
+      end
+      return
+    end
+    safe_run(function()
+      check(before_line and after_line and before_line < image_line and image_line < after_line,
+        'image remains between compatibility paragraphs')
+      check(#images == 2 and GetLineInfo(image_line, 18) == 1 and
+            GetLineInfo(wide_image_line, 18) == 1,
+        'compatibility fixture creates tall and wide loaded image rows')
+      check(GetLineInfo(image_line, 17) == 4096,
+        'tall image preserves intrinsic height')
+      check(GetLineInfo(image_line, 16) == 64 and
+            GetLineInfo(wide_image_line, 16) == 640,
+        'fixture images preserve their different intrinsic widths')
+      record(string.format('TRIGGERS hits=%d image_callbacks=%d recent=%q',
+        multiline_hits, image_callbacks, tostring(GetRecentLines(6))))
+      check(multiline_hits == 1 and image_callbacks == 0,
+        'multiline trigger bridges image without synthetic text callbacks')
+      check(GetLineInfo(image_line, 1):find(image_source, 1, true) ~= nil,
+        'plain-text image fallback contains the source URL')
+      assert_row_geometry('paragraph below image follows displayed image bottom')
+      check(end_line and GetLineInfo(end_line, 19) ==
+            GetLineInfo(wide_image_line, 19) + GetLineInfo(wide_image_line, 20),
+        'final marker follows wide image bottom')
+
+      check(WindowCreate(miniwindow, 0, 0, 140, 28, 5, 0, 0x202020) == 0 and
+            WindowShow(miniwindow, true) == 0 and
+            WindowInfo(miniwindow, 3) == 140 and
+            WindowInfo(miniwindow, 5),
+        'plugin miniwindow coexists with image transcript')
+      assert_row_geometry('miniwindows do not change transcript image layout')
+
+      SetSelection(before_line, end_line, 1, #GetLineInfo(end_line, 1)+1)
+      check(GetSelectionStartLine() == before_line and
+            GetSelectionEndLine() == end_line,
+        'selection spans text and both image rows')
+      local reconstructed = plugin_style_copy()
+      check(reconstructed:find('COMPAT_BEFORE', 1, true) and
+            reconstructed:find(image_source, 1, true) and
+            reconstructed:find(wide_source, 1, true) and
+            reconstructed:find('COMPAT_AFTER', 1, true),
+        'Copy_Output-style plugin can reconstruct both image fallbacks')
+      prior_clipboard = GetClipboard()
+      check(DoCommand('Copy') == 0, 'plain copy command accepted')
+      phase = 'plain_copy'
+    end)
+  elseif phase == 'plain_copy' then
+    safe_run(function()
+      local copied = GetClipboard()
+      check(copied:find('COMPAT_BEFORE', 1, true) and
+            copied:find(image_source, 1, true) and
+            copied:find(wide_source, 1, true) and
+            copied:find('COMPAT_AFTER', 1, true),
+        'plain copied selection contains both image URL fallbacks and paragraphs')
+      check(DoCommand('CopyAsHTML') == 0, 'CopyAsHTML command accepted')
+      phase = 'html_copy'
+    end)
+  elseif phase == 'html_copy' then
+    safe_run(function()
+      local copied = GetClipboard()
+      local has_signature = copied:find('Produced by MUSHclient', 1, true) ~= nil
+      local has_tall_url = copied:find(image_source, 1, true) ~= nil
+      local has_wide_url = copied:find(wide_source, 1, true) ~= nil
+      local has_after = copied:find('COMPAT_AFTER', 1, true) ~= nil
+      record(string.format('HTML clipboard length=%d signature=%s tall_url=%s wide_url=%s after=%s',
+        #copied, tostring(has_signature), tostring(has_tall_url),
+        tostring(has_wide_url), tostring(has_after)))
+      check(has_signature and has_tall_url and has_wide_url and has_after,
+        'HTML copy includes both readable image URL fallbacks')
+      SetClipboard(prior_clipboard)
+      prior_clipboard = nil
+      MoveWorldWindow(40, 40, 1050, 500)
+      local wide_height = GetLineInfo(image_line, 20)
+      MoveWorldWindow(40, 40, 1050, 800)
+      local taller_height = GetLineInfo(image_line, 20)
+      check(taller_height > wide_height and wide_height > 100,
+        'height-only resize adjusts tall image to viewport cap')
+      assert_row_geometry('height-only resize preserves following paragraph position')
+
+      MoveWorldWindow(40, 40, 1050, 500)
+      Pause(true)
+      local image_top = GetLineInfo(image_line, 19)
+      local image_height = GetLineInfo(image_line, 20)
+      local requested_anchor = image_top + math.min(120, math.floor(image_height / 2))
+      SetScroll(requested_anchor, true)
+      local anchor_before = GetInfo(296)
+      record(string.format('SCROLL anchor requested=%d actual=%d image_top=%d image_height=%d',
+        requested_anchor, anchor_before, image_top, image_height))
+      check(anchor_before >= image_top and anchor_before < image_top + image_height,
+        'paused scroll anchor falls inside the tall image row')
+      MoveWorldWindow(40, 40, 1050, 800)
+      local anchor_after = GetInfo(296)
+      record(string.format('SCROLL paused resize before=%d after=%d image_top=%d',
+        anchor_before, anchor_after, image_top))
+      check(anchor_after == anchor_before,
+        'paused height resize preserves position inside image row')
+      Pause(false)
+
+      SetScroll(-1, true)
+      local tall_bottom_before = GetInfo(296)
+      MoveWorldWindow(40, 40, 1050, 500)
+      local followed_short = GetInfo(296)
+      SetScroll(-1, true)
+      local short_bottom = GetInfo(296)
+      check(followed_short == short_bottom,
+        'unpaused shorter window keeps transcript at bottom')
+      MoveWorldWindow(40, 40, 1050, 800)
+      local followed_tall = GetInfo(296)
+      SetScroll(-1, true)
+      local tall_bottom_after = GetInfo(296)
+      record(string.format('SCROLL bottom tall_before=%d short=%d tall_after=%d',
+        tall_bottom_before, short_bottom, tall_bottom_after))
+      check(followed_tall == tall_bottom_after and
+            tall_bottom_after == tall_bottom_before,
+        'unpaused taller window follows the revised transcript bottom')
+
+      local wide_image_height = GetLineInfo(wide_image_line, 20)
+      MoveWorldWindow(40, 40, 520, 800)
+      local narrow_height = GetLineInfo(wide_image_line, 20)
+      local first = GetWorldWindowPosition(1, false, true)
+      record(string.format('RESIZE tall-short=%d tall-tall=%d wide-image-narrow=%d first=%dx%d',
+        wide_height, taller_height, narrow_height,
+        first.width, first.height))
+      check(narrow_height < wide_image_height,
+        'narrower world window scales wide image and its display height')
+      assert_row_geometry('width resize keeps following paragraph adjacent to image')
+      check(GetLineInfo(end_line, 19) ==
+            GetLineInfo(wide_image_line, 19) + narrow_height,
+        'width resize keeps final marker adjacent to wide image')
+      MoveWorldWindow(40, 40, 1050, 800)
+      check(DoCommand('NewWindow') == 0, 'second output window creation requested')
+      phase = 'split'
+    end)
+  elseif phase == 'split' then
+    safe_run(function()
+      local second = GetWorldWindowPosition(2, false, true)
+      record('SPLIT second=' .. (second and string.format('%dx%d',
+        second.width, second.height) or 'nil'))
+      check(type(second) == 'table' and second.width > 0,
+        'second output window exists for split-view compatibility')
+      MoveWorldWindow(80, 80, 580, 560, 2)
+      assert_row_geometry('first output view retains image layout after split')
+      check(WindowInfo(miniwindow, 5), 'miniwindow remains shown after split')
+      record('PASS compatibility checks completed; selection and transcript remain visible')
+      phase = 'done'
+    end)
+  end
+end
+]]></script>
+</muclient>

@@ -1,0 +1,23 @@
+{
+  "duration_seconds": 660,
+  "warmup_seconds": 60,
+  "cycles": 329,
+  "unique_requests": 5264,
+  "sample_count_post_warmup": 299,
+  "released_private_bytes_min": 6873088,
+  "released_private_bytes_max": 8470528,
+  "first_minute_mean_private_bytes": 7264529,
+  "last_minute_mean_private_bytes": 8414276,
+  "mean_private_bytes_growth": 1149747,
+  "released_gdi_min": 1,
+  "released_gdi_max": 1,
+  "released_gdi_first_minute_min": 1,
+  "released_gdi_last_minute_max": 1,
+  "all_references_expired": true,
+  "memory_growth_within_32_mib": true,
+  "gdi_handles_within_four": true,
+  "passed": true,
+  "native_exit_code": 0,
+  "created_utc": "20261011T172215Z",
+  "csv_path": "loader-memory.csv"
+}

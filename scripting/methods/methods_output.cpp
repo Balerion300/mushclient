@@ -5,6 +5,7 @@
 #include "stdafx.h"
 #include "..\..\MUSHclient.h"
 #include "..\..\doc.h"
+#include "..\..\WorkspaceIntegration.h"
 #include "..\..\MUSHview.h"
 #include "..\..\mainfrm.h"
 #include "..\errors.h"
@@ -240,6 +241,8 @@ POSITION pos;
   if (Count <= 0) 
      return;        // nothing to do
 
+  ++m_inlineImageRevision;
+
   // if we have the empty line at the end of the buffer, delete that too
   if (m_pCurrentLine && m_pCurrentLine->len == 0)
     Count++;
@@ -304,6 +307,7 @@ POSITION pos;
   		}	  // end of being an output view
   	}   // end of doing each view
 
+  WorkspaceRebuildOutput(this);
 }  // end of DeleteLines
 
 
@@ -739,7 +743,6 @@ long CMUSHclientDoc::SetScroll(long Position, BOOL Visible)
 {
 
 CPoint pt (0, 0);
-int lastline = GetLastLine ();
 bool will_change_visibility = (Visible != m_bScrollBarWanted);
 
   for(POSITION pos = GetFirstViewPosition(); pos != NULL; )
@@ -752,7 +755,7 @@ bool will_change_visibility = (Visible != m_bScrollBarWanted);
 
       CPoint cur_pt = pmyView->GetScrollPosition();
       bool will_scroll = (Position != cur_pt.y) && (Position != -2); // if -2, do not change position
-      int highest = (lastline * m_FontHeight) - pmyView->GetOutputWindowHeight ();
+      int highest = MAX (0, pmyView->GetBufferPixelHeight () - pmyView->GetOutputWindowHeight ());
       will_scroll = will_scroll && ((Position != -1) || (cur_pt.y != highest));
 
       if (will_change_visibility) {

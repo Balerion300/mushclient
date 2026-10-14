@@ -4766,6 +4766,12 @@ static int L_OpenLog (lua_State *L)
   return 1;  // number of result fields
   } // end of L_OpenLog
 
+static int L_OpenLogExclusive(lua_State *L)
+  {
+  lua_pushnumber(L,doc(L)->OpenLogExclusive(my_checkstring(L,1)));
+  return 1;
+  }
+
 
 //----------------------------------------
 //  world.PasteCommand
@@ -7007,6 +7013,7 @@ static const struct luaL_Reg worldlib [] =
   {"Open", L_Open},
   {"OpenBrowser", L_OpenBrowser},
   {"OpenLog", L_OpenLog},
+  {"OpenLogExclusive", L_OpenLogExclusive},
   {"PasteCommand", L_PasteCommand},
   {"Pause", L_Pause},
   {"PickColour", L_PickColour},

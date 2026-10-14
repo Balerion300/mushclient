@@ -1,0 +1,5 @@
+/bin/*.dll
+/bin/*.lib
+/bin/*.exp
+/bin/*.pdb
+/win32/obj/

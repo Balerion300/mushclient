@@ -6,6 +6,7 @@
 #include "mainfrm.h"
 
 #include "doc.h"
+#include "WorkspaceIntegration.h"
 #include "genprint.h"
 #include "dialogs\QuickConnectDlg.h"
 #include "UDPsocket.h"
@@ -238,6 +239,7 @@ int i;
 	m_pSocket = NULL;
   m_pChatListenSocket = NULL;    // no listening socket
   m_logfile = NULL;
+  m_bLogStartExecuting = false;
   m_match_width = 30;
 
   m_bSelected = true;
@@ -249,6 +251,8 @@ int i;
 
   m_bMXP = false;   // no MXP yet
   m_bPuebloActive = false; // no Pueblo yet either <evil grin>
+  m_bConnectStartupPending = false;
+  m_dwConnectStartupStarted = 0;
   m_bInParagraph = false;
   m_bMXP_script = false;
   m_bPreMode = false;
@@ -483,6 +487,7 @@ void closepane (pair<string, CPaneView *> item)
 
 CMUSHclientDoc::~CMUSHclientDoc()
 {
+  WorkspaceCloseDocument(this);
 int i;
 
   // stop sounds playing, release sound buffers

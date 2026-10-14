@@ -1,0 +1,5 @@
+START issue 82 regression
+PASS exact issue input and print
+PASS 20000 repetitions each of issue input and all nonzero byte values
+PASS empty string
+PASS COMPLETE

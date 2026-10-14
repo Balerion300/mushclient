@@ -10,6 +10,7 @@
 #include "doc.h"
 #include "MUSHview.h"
 #include "mainfrm.h"
+#include "WorkspaceIntegration.h"
 #include "childfrm.h"
 #include "sendvw.h"
 #include "TextView.h"
@@ -627,6 +628,8 @@ BEGIN_DISPATCH_MAP(CMUSHclientDoc, CDocument)
 	DISP_PROPERTY_PARAM(CMUSHclientDoc, "CustomColourText", GetCustomColourText, SetCustomColourText, VT_I4, VTS_I2)
 	DISP_PROPERTY_PARAM(CMUSHclientDoc, "CustomColourBackground", GetCustomColourBackground, SetCustomColourBackground, VT_I4, VTS_I2)
 	//}}AFX_DISPATCH_MAP
+  // Append with an explicit new ID; preserve every existing automation ID.
+  DISP_FUNCTION_ID(CMUSHclientDoc, "OpenLogExclusive", 419, OpenLogExclusive, VT_I4, VTS_BSTR)
 END_DISPATCH_MAP()
 
 /*
@@ -1355,6 +1358,7 @@ CString str = strText;
 
 void CMUSHclientDoc::ReceiveMsg()
 {
+WorkspaceRenderBatch workspaceRenderBatch;
 char buff [9000];   // must be less than COMPRESS_BUFFER_LENGTH or it won't fit
 
   // if we are in the middle of a TLS handshake, continue it
@@ -2164,9 +2168,17 @@ CString strLine (lpszText, size);
           continue;   // discard incoming script
         } // end of not having an opening tag
 
-      // in <p> mode treat tabs as spaces
+      // Collapse interior paragraph tabs, but keep explicit indentation at
+      // the start of a line (including the text line created after an image).
       if (c == '\t' && m_bInParagraph)
-        c = ' ';
+        {
+        bool indentation = true;
+        for (int column = 0; column < m_pCurrentLine->len; ++column)
+          if (m_pCurrentLine->text[column] != ' ')
+            { indentation = false; break; }
+        if (!indentation)
+          c = ' ';
+        }
 
       } // end of special MXP tests on incoming data
 
@@ -2463,7 +2475,7 @@ POSITION pos;
     // new - for people on the forum who insist on getting lines without a \n at
     // the end - tell plugins about this line
 
-    if (!(flags & NOTE_OR_COMMAND))
+    if (!(flags & NOTE_OR_COMMAND) && !m_pCurrentLine->IsInlineImage ())
       SendLineToPlugin ();
 
   //  TRACE1 ("Received line: %s\n", (LPCTSTR) CString (m_pCurrentLine->text, m_pCurrentLine->len));
@@ -2863,6 +2875,8 @@ void CMUSHclientDoc::ExecuteHotspotScript (DISPID & dispid,  // dispatch ID, wil
 
 void CMUSHclientDoc::OnFileLogsession() 
 {
+  if(m_bLogStartExecuting)
+    {ColourNote("red","","The log-start script cannot recursively start logging. Use OpenLogExclusive to create its file.");return;}
 
 // close log file if already open
 
@@ -2882,6 +2896,39 @@ void CMUSHclientDoc::OnFileLogsession()
     CloseLog ();    // this writes out the log file postamble as well
     return;
     }
+
+// Explicit per-world start action; scripts can collect metadata with triggers
+// before naming/opening the file. Automatic connection logging is unchanged.
+if (!m_strLogStartScript.IsEmpty ())
+  {
+  struct LogStartContext {
+    CMUSHclientDoc* document;CPlugin* previous;
+    LogStartContext(CMUSHclientDoc* doc,bool world):document(doc),previous(doc->m_CurrentPlugin)
+      {doc->m_bLogStartExecuting=true;if(world)doc->m_CurrentPlugin=NULL;}
+    ~LogStartContext(){document->m_CurrentPlugin=previous;document->m_bLogStartExecuting=false;}
+  } context(this,m_strLogStartPlugin.IsEmpty()!=FALSE);
+  const CString function=m_strLogStartScript;
+  if (!m_strLogStartPlugin.IsEmpty ())
+    {
+    const long result=CallPlugin(m_strLogStartPlugin,function,"start");
+    if (result!=eOK)
+      ColourNote("red","",CFormat("The configured log-start script could not run (error %ld). No fallback log was started.",result));
+    }
+  else if (!m_ScriptEngine || !SeeIfHandlerCanExecute(function))
+    ColourNote("red","","The configured log-start world script is unavailable. Check Logging setup; no log was started.");
+  else
+    {
+    DISPID handler=m_ScriptEngine->GetDispid(function);
+    if (handler==DISPID_UNKNOWN)
+      ColourNote("red","","The configured log-start function was not found. No log was started.");
+    else
+      {
+      DISPPARAMS parameters={NULL,NULL,0,0};long calls=0;
+      ExecuteScript(handler,function,eWorldAction,"start log","starting a user-configured log",parameters,calls);
+      }
+    }
+  return;
+  }
 
 BOOL bAppendToLogFile = false;
 int iLines = 0;  
@@ -4529,6 +4576,8 @@ long CMUSHclientDoc::GetLastLine (void)
    {
   int i;
 
+  ++m_inlineImageRevision;
+
 // remove JUMP_SIZE lines
 
   for (i = 0; i < JUMP_SIZE; i++)
@@ -4552,6 +4601,7 @@ long CMUSHclientDoc::GetLastLine (void)
   if (m_DisplayFindInfo.m_nCurrentLine < 0)
     m_DisplayFindInfo.m_nCurrentLine = 0;
 
+  WorkspacePruneOutput(this);
    }  // end of CMUSHclientDoc::RemoveChunk
 
 
@@ -4912,6 +4962,7 @@ BOOL bEnable = TRUE;
 
 void CMUSHclientDoc::ClearOutput (void)
   {
+  WorkspaceClearOutput(this);
 
   if (m_pLinePositions == NULL)
     return;
@@ -4921,6 +4972,7 @@ POSITION pos;
 // delete lines list
 
   DELETE_LIST (m_LineList);
+  ++m_inlineImageRevision;
 
 // put one line in line list
 
@@ -6837,6 +6889,7 @@ void CMUSHclientDoc::ConnectionEstablished (void)
 
   m_iConnectPhase = eConnectConnectedToMud;
   m_tConnectTime = CTime::GetCurrentTime();           
+  m_bConnectStartupPending = false;
   m_tLastPlayerInput = CTime::GetCurrentTime();           
 	m_bEnableAutoSay = FALSE;		// auto-say off at start of session
   App.m_bUpdateActivity = TRUE;   // new activity!
@@ -7000,6 +7053,39 @@ CString strIpAddress = inet_ntoa (*((struct in_addr *) lpHostEntry->h_addr));
       }   // end of opened OK
     } // end of auto log file name
 
+  // Give an enabled Pueblo server time to announce itself before automatic
+  // login requests the first room. Keep receiving normally; never wait here.
+  m_bConnectStartupPending = true;
+  m_dwConnectStartupStarted = GetTickCount ();
+  if (!(m_bPueblo && m_iUseMXP != eNoMXP &&
+        (m_connect_now != eNoAutoConnect || !m_connect_text.IsEmpty ())))
+    CompleteConnectionStartup ();
+
+  } // end of CMUSHclientDoc::ConnectionEstablished
+
+void CMUSHclientDoc::CheckConnectionStartup (void)
+  {
+  if (!m_bConnectStartupPending)
+    return;
+  if (m_iConnectPhase != eConnectConnectedToMud || !m_pSocket)
+    {
+    m_bConnectStartupPending = false;
+    return;
+    }
+  // Unsigned subtraction also handles GetTickCount wrapping.
+  if (GetTickCount () - m_dwConnectStartupStarted >= 1000)
+    CompleteConnectionStartup ();
+  }
+
+void CMUSHclientDoc::CompleteConnectionStartup (void)
+  {
+  if (!m_bConnectStartupPending ||
+      m_iConnectPhase != eConnectConnectedToMud || !m_pSocket)
+    return;
+  // Clear before modal dialogs/scripts so reentrant receive/timer calls cannot
+  // send a second login. All existing startup callbacks keep their ordering.
+  m_bConnectStartupPending = false;
+
 // ask for password if necessary, and send connection string
 
   CString password = m_password;
@@ -7021,6 +7107,10 @@ CString strIpAddress = inet_ntoa (*((struct in_addr *) lpHostEntry->h_addr));
           password = dlg.m_password;
 
       }
+
+  // The password prompt pumps messages; the connection may close meanwhile.
+  if (m_iConnectPhase != eConnectConnectedToMud || !m_pSocket)
+    return;
 
   switch (m_connect_now)
     {
@@ -7111,7 +7201,7 @@ CString strIpAddress = inet_ntoa (*((struct in_addr *) lpHostEntry->h_addr));
 
   SendToAllPluginCallbacks (ON_PLUGIN_CONNECT);
 
-  } // end of CMUSHclientDoc::ConnectionEstablished
+  } // end of CMUSHclientDoc::CompleteConnectionStartup
 
 
 int CMUSHclientDoc::ProcessProxyResponse1 (char * buff, const int count)

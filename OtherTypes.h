@@ -4,6 +4,10 @@
 
 #pragma once
 
+#include <memory>
+
+class CInlineImage;
+
 #define DEFAULT_TRIGGER_SEQUENCE 100
 #define DEFAULT_ALIAS_SEQUENCE 100
 
@@ -311,6 +315,7 @@ const int USER_INPUT = 0x02;     // this is echoed user input
 const int LOG_LINE = 0x04;       // this line is to be logged
 const int BOOKMARK = 0x08;       // line is bookmarked
 const int HORIZ_RULE = 0x10;     // line is a horizontal rule
+const int INLINE_IMAGE = 0x20;   // synthetic image entry in the transcript
 
 const int NOTE_OR_COMMAND = 0x03;         // for testing if line is an output line or not
 
@@ -324,10 +329,19 @@ class CLine : public CObject
   int len;
   char * text;          // allocated as necessary and then resized
   CStyleList styleList; // list of styles applying to text, see above
+
+  // An image occupies a real transcript line. text remains the URL fallback
+  // for copy, scripting and plain-text logs.
+  std::shared_ptr<CInlineImage> m_inlineImage;
+  CString m_imageSource;
+  int m_imageWidth;   // requested pixels, or 0 for intrinsic width
+  int m_imageHeight;  // requested pixels, or 0 for intrinsic height
+  bool IsInlineImage () const { return (flags & INLINE_IMAGE) != 0; }
   CTime m_theTime;      // time this line arrived
   LARGE_INTEGER m_lineHighPerformanceTime;  
   int iMemoryAllocated; // size of buffer allocated for "text"
 
+  unsigned __int64 m_workspaceCookie; // Immutable object identity across clear/delete and number reuse.
   long m_nLineNumber;
   short m_iPreambleOffset;  // how far in the preamble took us
 

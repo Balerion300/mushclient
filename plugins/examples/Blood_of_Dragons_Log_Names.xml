@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="Blood_of_Dragons_Log_Names" author="MUSHclient contributors"
+ id="c2d903ce670f4e018bca7f66" language="Lua" version="1.1" save_state="y"
+ purpose="Optional Blood of Dragons log-name preset" requires="5.00">
+<description trim="y"><![CDATA[
+Select this plugin's StartLog function in Logging Setup, then start logging normally.
+Installing or connecting never starts a log or sends a command. Edit the configuration
+below if your +loginfo reply differs. Manual StartLog sends +loginfo; see docs/SCRIPTED_LOGGING.md.
+CancelLog cancels a pending request. Existing logs are never overwritten.
+]]></description>
+</plugin>
+<script><![CDATA[
+-- BEGIN SCRIPTED LOG CONFIG
+local default_folder = GetInfo(58)
+if not default_folder or default_folder == "" then default_folder = "logs" end
+if not default_folder:match("^%a:[/\\]") and not default_folder:match("^\\\\") then
+  default_folder = GetInfo(66):gsub("[/\\]+$", "") .. "/" .. default_folder
+end
+local ic = [[^IC-Date: Day (\d+) of Month (\d+), (\d+) AC\.(?:\s+.*)?$]]
+local rl = [[^RL-Date: ([A-Za-z]+) (\d+),\s*(\d+)\.(?:\s+.*)?$]]
+ScriptedLogConfig = {
+  folder = default_folder,
+  template = "{game_year}-{game_month}-{game_day} - {real_year}-{real_month}-{real_day}.txt",
+  request_command = "+loginfo",
+  start_regex = [[^=+<Log Info>=+$]],
+  end_regex = [[^={20,}$]],
+  preserve_header = true,
+  required = {"game_year","game_month","game_day","real_year","real_month","real_day"},
+  fields = {
+    {name="game_day",   regex=ic, capture=1, transform="pad2"},
+    {name="game_month", regex=ic, capture=2, transform="pad2"},
+    {name="game_year",  regex=ic, capture=3, transform="number"},
+    {name="real_month", regex=rl, capture=1, transform="month_number"},
+    {name="real_day",   regex=rl, capture=2, transform="pad2"},
+    {name="real_year",  regex=rl, capture=3, transform="number"},
+  },
+  timeout = 30, max_records = 100, max_bytes = 65536,
+  collision_attempts = 100,
+}
+-- END SCRIPTED LOG CONFIG
+
+-- Host wrapper copied unchanged from plugins/Scripted_Log_Names.xml; unit tests enforce parity.
+local starter
+local function Notify(message) ColourNote("orange", "", message) end
+local function LoadStarter(override)
+  local helper = require "scripted_log_start"
+  local host = {
+    ok = error_code.eOK,
+    world_id = GetWorldID,
+    world_name = function() return GetInfo(2) end,
+    connected = IsConnected,
+    is_open = IsLogOpen,
+    now = function() return utils.timer() end,
+    timestamp = os.time,
+    text_mode = function() return GetOption("log_html") == 0 and GetOption("log_raw") == 0 end,
+    send = Send,
+    open_exclusive = function(path) return OpenLogExclusive(path) end,
+    write = WriteLog,
+    close = CloseLog,
+    notify = Notify,
+    exists = function(path)
+      local file = io.open(path,"rb")
+      if file then file:close();return true end
+      return false
+    end,
+    compile = function(pattern)
+      local expression = rex.new(pattern)
+      return function(line)
+        local first,last,captures = expression:match(line)
+        if first then return captures or {} end
+      end
+    end,
+  }
+  local config = override or ScriptedLogConfig
+  if not override and GetVariable then
+    local saved = GetVariable("scripted_log_configuration")
+    if saved and saved ~= "" then config = helper.decode_configuration(saved) end
+  end
+  return helper.new(config,host)
+end
+function ConfigureLogNames(data)
+  SetVariable("scripted_log_configuration_result", "")
+  if starter and starter.pending then Notify("Cancel the pending log start before changing filename settings.");return end
+  local ok,config = pcall(function() return require("scripted_log_start").decode_configuration(data) end)
+  if ok then ok,config = pcall(LoadStarter,config) end
+  if not ok then Notify("Filename settings were not saved: "..tostring(config));return end
+  local previous = GetVariable("scripted_log_configuration")
+  if SetVariable("scripted_log_configuration",data) ~= error_code.eOK then
+    Notify("Filename settings could not be stored.");return
+  end
+  if SaveState() ~= error_code.eOK then
+    if previous then SetVariable("scripted_log_configuration",previous)
+    else DeleteVariable("scripted_log_configuration") end
+    Notify("Filename settings could not be saved. Previous settings remain active.");return
+  end
+  SetVariable("scripted_log_configuration_result", "ok")
+  Notify("Filename settings saved. Start Logging will use them; no command was sent.")
+end
+function StartLog(action)
+  if action ~= nil and action ~= "start" then Notify("Log start failed: unrecognized start action.");return end
+  if starter and starter.pending then starter:cancel("requested by another start action");return end
+  local ok,result = pcall(LoadStarter)
+  if not ok then Notify("Log start failed: "..tostring(result));return end
+  starter=result
+  local started,problem=pcall(function() return starter:start() end)
+  if not started then starter:cancel("script error",true);Notify("Log start failed: "..tostring(problem)) end
+end
+function CancelLog()
+  if starter then starter:cancel("requested by user") end
+end
+function OnPluginLineReceived(line)
+  if starter then starter:on_line(line) end
+  return true
+end
+function OnPluginTick()
+  if starter then starter:tick() end
+end
+function OnPluginDisconnect()
+  if starter then starter:cancel("originating world disconnected") end
+end
+function OnPluginDisable()
+  if starter then starter:cancel("plugin disabled") end
+end
+function OnPluginClose()
+  if starter then starter:cancel("plugin closed") end
+end
+]]></script>
+</muclient>

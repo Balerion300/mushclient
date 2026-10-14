@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="Image_Indent_Test" author="MUSHclient contributors" id="e73b8923fa1337938bddd141" language="Lua" version="1.0" requires="5.07"/>
+<script><![CDATA[
+local done=false
+local report=GetPluginInfo(GetPluginID(),6)..'.results.txt'
+function OnPluginInstall()
+  local f=assert(io.open(report,'w'))
+  f:write('START indentation regression\n');f:close()
+end
+local function RunIndentTest()
+  if done then return end
+  if GetAlphaOption('site') ~= '127.0.0.1' or IsConnected() then return end
+  done=true
+  local pueblo=GetOption('port')==18767
+  if pueblo then
+    SetOption('use_mxp',0)
+    Simulate('This world is Pueblo 1.10 enhanced.\r\n</xch_mudtext>')
+  else SetOption('use_mxp',2) end
+  DeleteOutput()
+  local url='https://raw.githubusercontent.com/Balerion300/mushclient/codex/inline-static-images/tests/fixture-scene.png'
+  Simulate(pueblo and ('<img src="'..url..'">') or ('\027[1z<image url="'..url..'">'))
+  Simulate('<p>\tFIRST_PARAGRAPH</p>\r\n\tSECOND_PARAGRAPH\r\n')
+  Simulate('<p>\t\tDOUBLE_INDENT</p>\r\n<p>TEXT\tINTERIOR_TAB</p>\r\n')
+  local f=assert(io.open(report,'w'))
+  local expected={FIRST_PARAGRAPH=8,SECOND_PARAGRAPH=8,DOUBLE_INDENT=16,INTERIOR_TAB=0}
+  local seen={}
+  for line=1,GetLinesInBufferCount() do
+    local text=GetLineInfo(line,1)
+    for marker,spaces in pairs(expected) do
+      if text:find(marker,1,true) then
+        local ok
+        if marker=='INTERIOR_TAB' then
+          ok=text==(pueblo and 'TEXT INTERIOR_TAB' or 'TEXT    INTERIOR_TAB')
+        else ok=text==string.rep(' ',spaces)..marker end
+        seen[marker]=true
+        f:write(ok and 'PASS ' or 'FAIL ',marker,' ',string.format('%q',text),'\n')
+      end
+    end
+  end
+  for marker in pairs(expected) do if not seen[marker] then f:write('FAIL missing ',marker,'\n') end end
+  f:close()
+end
+function OnPluginTick()
+  if done then return end
+  local ok,err=pcall(RunIndentTest)
+  if not ok then
+    done=true
+    local f=assert(io.open(report,'a'))
+    f:write('ERROR ',tostring(err),'\n');f:close()
+  end
+end
+]]></script></muclient>

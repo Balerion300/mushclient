@@ -11,6 +11,7 @@
 #include "TextDocument.h"
 
 #include "mainfrm.h"
+#include "WorkspaceTools.h"
 #include "childfrm.h"
 #include "activitychildfrm.h"
 #include "textchildfrm.h"
@@ -1002,6 +1003,16 @@ BOOL CMUSHclientApp::SaveAllModified()
 
 BOOL CMUSHclientApp::OnIdle(LONG lCount) 
 {
+  // Native pane repaint messages can repeatedly restart idle processing.
+  // Coalesce menu/toolbar updates while still running MFC's phase-1 cleanup.
+  if (lCount <= 0)
+    {
+    static DWORD lastCommandUpdate = 0;
+    const DWORD now = GetTickCount ();
+    if (now - lastCommandUpdate < 100)
+      return TRUE;
+    lastCommandUpdate = now;
+    }
 	
 	if (CWinApp::OnIdle(lCount))
     return 1;
@@ -1070,6 +1081,7 @@ void CMUSHclientApp::OnGameMinimiseprogram()
 
 BOOL CMUSHclientApp::PreTranslateMessage(MSG* pMsg)
 {
+  if(WorkspaceTranslateMessage(pMsg))return TRUE;
 	// CG: The following lines were added by the Splash Screen component.
 	if (CSplashWnd::PreTranslateAppMessage(pMsg))
 		return TRUE;

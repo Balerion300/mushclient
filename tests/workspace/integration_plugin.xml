@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="Workspace_Integration_Fixture" author="MUSHclient contributors"
+ id="fc82493146084b18a037d251" language="Lua" version="1.0" requires="5.07"
+ purpose="Offline loopback workspace pipeline assertions; no user worlds" />
+<script><![CDATA[
+local path=GetPluginInfo(GetPluginID(),6)
+local receipt=path..'.receipt.txt'
+local control=path..'.control.txt'
+local enabled=false
+local received,triggers={},{}
+local function record(message)
+ local f=assert(io.open(receipt,'a'));f:write(message,'\n');f:close()
+end
+local function check(condition,label)
+ record((condition and 'PASS ' or 'FAIL ')..label)
+end
+function OnPluginInstall()
+ if WorldName()~='Workspace isolated integration' or GetAlphaOption('site')~='127.0.0.1' then return end
+ enabled=true
+ local f=assert(io.open(receipt,'w'));f:write('PLUGIN_PATH '..path..'\n');f:close()
+ local ok,err=pcall(function()
+  assert(AddTriggerEx('pipeline_count','^WS_.*$','',41,-1,0,'','CountTrigger',12,100)==0)
+  record('READY plugin initialized')
+ end)
+ if not ok then record('ERROR '..tostring(err)) end
+end
+function CountTrigger(name,line,wildcards)
+ local key=line:match('^(WS_[A-Z]+)')
+ triggers[key]=(triggers[key] or 0)+1
+ if key=='WS_REENTRANT' then Note('LOCAL_REENTRANT_NOTE') end
+ if key=='WS_TRIMOMIT' then Note('LOCAL_TRIM_NOTE') end
+end
+function OnPluginLineReceived(line)
+ if not enabled then return true end
+ if line:match('^%x+ JlRFU1QgIzE9RklYVFVSRV9QUklWQVRFX0NPREVfT1dORURfUkVQTFk=$') then
+  record('PRIVATE_REPLY_PLUGIN_OMITTED');return false
+ end
+ local key=line:match('^(WS_[A-Z]+)')
+ if key then received[key]=(received[key] or 0)+1 end
+ if key=='WS_PARENT' then Simulate('WS_CHILD omitted nested\r\n') end
+ if key=='WS_CHILD' then return false end
+ if key=='WS_CLEARVIA' then DeleteOutput();Note('AFTER_CALLBACK_CLEAR');return true end
+ if key=='WS_OMIT' or key=='WS_TRIMOMIT' then return false end
+ return true
+end
+function OnPluginTick()
+ if not enabled then return end
+ local f=io.open(control,'r');if not f then return end
+ local command=f:read('*a');f:close();os.remove(control)
+ local ok,err=pcall(function()
+  if command=='assert' then
+   for _,key in ipairs({'WS_NORMAL','WS_WRAP','WS_REENTRANT','WS_OMIT'}) do
+    check(received[key]==1,key..' plugin exactly once: '..tostring(received[key]))
+    check(triggers[key]==1,key..' trigger exactly once: '..tostring(triggers[key]))
+   end
+   local omitted,notes=0,0
+   for i=1,GetLinesInBufferCount() do
+    local text=GetLineInfo(i,1)
+    if text:find('WS_OMIT',1,true) then omitted=omitted+1 end
+    if text:find('LOCAL_REENTRANT_NOTE',1,true) then notes=notes+1 end
+   end
+   check(omitted==0,'plugin omitted line absent from native output')
+   check(notes==1,'reentrant trigger note appears once')
+   record('ASSERT COMPLETE')
+  elseif command=='trim' then
+   local maximum=GetOption('max_output_lines')-1
+   for i=1,maximum do
+    if GetLinesInBufferCount()>=maximum then break end
+    Simulate('FILL_'..i..'\r\n')
+   end
+   record('TRIM BEFORE '..GetLinesInBufferCount())
+   Simulate('WS_TRIMOMIT private pending\r\n')
+   local leaked=0
+   for i=1,GetLinesInBufferCount() do
+    if GetLineInfo(i,1):find('WS_TRIMOMIT',1,true) then leaked=leaked+1 end
+   end
+   check(leaked==0,'trim reentrant omitted line absent from original buffer')
+   record('TRIM COMPLETE '..GetLinesInBufferCount())
+  elseif command=='delete' then
+   Simulate('DELETE_ME visible tail\r\n')
+   DeleteLines(1)
+   record('DELETE COMPLETE')
+  elseif command=='pane' then
+   for i=1,2100 do Simulate('PANE_ROUTE_'..i..'\r\n') end
+   record('PANE COMPLETE')
+  elseif command=='nested' then
+   Simulate('WS_PARENT visible outer\r\n')
+   local parent,child=0,0
+   for i=1,GetLinesInBufferCount() do
+    local text=GetLineInfo(i,1)
+    if text:find('WS_PARENT',1,true) then parent=parent+1 end
+    if text:find('WS_CHILD',1,true) then child=child+1 end
+   end
+   record('NESTED_RESULT parentrows='..parent..' childrows='..child..' parentcallbacks='..tostring(received.WS_PARENT)..' childcallbacks='..tostring(received.WS_CHILD))
+  elseif command=='callbackclear' then
+   Simulate('WS_CLEARVIA deleted callback source\r\n')
+   local leaked=0
+   for i=1,GetLinesInBufferCount() do
+    if GetLineInfo(i,1):find('WS_CLEARVIA',1,true) then leaked=leaked+1 end
+   end
+   check(leaked==0,'clear inside callback does not resurrect source')
+   record('CALLBACK CLEAR COMPLETE')
+  elseif command=='clear' then DeleteOutput();record('CLEAR COMPLETE')
+  elseif command=='disconnect' then Disconnect();record('DISCONNECT COMPLETE')
+  elseif command=='close' then Close();record('CLOSE REQUESTED')
+  else record('ERROR unknown fixture control') end
+ end)
+ if not ok then record('ERROR '..tostring(err)) end
+end
+]]></script>
+</muclient>

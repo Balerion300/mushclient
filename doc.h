@@ -773,6 +773,8 @@ public:
   unsigned int m_iTabCompletionLines;          // lines to search
   unsigned short m_bTabCompletionSpace;        // insert space after word?
   CString m_strAutoLogFileName;          // name of file to log to
+  CString m_strLogStartScript, m_strLogStartPlugin;
+  bool m_bLogStartExecuting;
   CString m_strLogLinePreambleOutput;          // put at start of each log line - output
   CString m_strLogLinePreambleInput;          // put at start of each log line - input
   CString m_strLogLinePreambleNotes;          // put at start of each log line - world.Note
@@ -1051,6 +1053,9 @@ public:
 
   CLineList m_LineList;
 
+  // Changes when image rows are inserted or output rows are removed.
+  unsigned long m_inlineImageRevision = 0;
+
   CLine * m_pCurrentLine;   // the line we are currently receiving
 
   CString m_strCurrentLine;   // line currently received from MUD (excluding control codes)
@@ -1071,6 +1076,8 @@ public:
   long m_last_line_with_IAC_GA;
 
   CTime m_tConnectTime;       // time we connected to the world
+  bool m_bConnectStartupPending;
+  DWORD m_dwConnectStartupStarted;
   CTime m_tLastPlayerInput;   // time the player last typed something (for <afk> )
   CTimeSpan m_tsConnectDuration;  // timespan we have been connected
   CTime m_whenWorldStarted;   // when world document started
@@ -1863,6 +1870,8 @@ public:
   bool LookupHostName (LPCTSTR sName);
   void InitiateConnection (void);
   void ConnectionEstablished (void);
+  void CompleteConnectionStartup (void);
+  void CheckConnectionStartup (void);
 
   int ProcessProxyResponse1 (char * buff, const int count);
   int ProcessProxyResponse2 (char * buff, const int count);
@@ -2479,6 +2488,7 @@ public:
 	afx_msg long IsAlias(LPCTSTR AliasName);
 	afx_msg long CloseLog();
 	afx_msg long OpenLog(LPCTSTR LogFileName, BOOL Append);
+  afx_msg long OpenLogExclusive(LPCTSTR LogFileName);
 	afx_msg long WriteLog(LPCTSTR Message);
 	afx_msg BOOL IsLogOpen();
 	afx_msg long EnableTimer(LPCTSTR TimerName, BOOL Enabled);

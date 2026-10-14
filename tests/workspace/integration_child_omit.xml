@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="Workspace_Nested_Child_Omit" author="MUSHclient contributors"
+ id="fc82493146084b18a037d252" language="Lua" version="1.0" requires="5.07"
+ purpose="Independent callback for nested synthetic child omission" />
+<script><![CDATA[
+local path=GetPluginInfo(GetPluginID(),6)
+local enabled=WorldName()=='Workspace isolated integration' and GetAlphaOption('site')=='127.0.0.1'
+function OnPluginLineReceived(line)
+ if enabled and line:find('WS_CHILD',1,true) then
+  local f=io.open(path..'.receipt.txt','a');if f then f:write('CHILD_CALLBACK_OMIT\n');f:close() end
+  return false
+ end
+ return true
+end
+]]></script>
+</muclient>

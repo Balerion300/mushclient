@@ -6,6 +6,8 @@
 #include "..\..\MUSHclient.h"
 #include "..\..\doc.h"
 #include "..\errors.h"
+#include <io.h>
+#include <fcntl.h>
 
 // Implements:
 
@@ -54,6 +56,23 @@ long CMUSHclientDoc::OpenLog(LPCTSTR LogFileName, BOOL Append)
     return eCouldNotOpenFile;
 
 }   // end of CMUSHclientDoc::OpenLog
+
+// Opt-in atomic creation for script/template logging. Legacy OpenLog retains
+// its existing overwrite/append semantics.
+long CMUSHclientDoc::OpenLogExclusive(LPCTSTR LogFileName)
+{
+  if(m_logfile)return eLogFileAlreadyOpen;
+  if(!LogFileName || !*LogFileName)return eCouldNotOpenFile;
+  HANDLE handle=CreateFile(LogFileName,GENERIC_WRITE,FILE_SHARE_READ,NULL,
+                           CREATE_NEW,FILE_ATTRIBUTE_NORMAL,NULL);
+  if(handle==INVALID_HANDLE_VALUE)return eCouldNotOpenFile;
+  const int descriptor=_open_osfhandle((intptr_t)handle,_O_WRONLY|_O_TEXT);
+  if(descriptor<0){CloseHandle(handle);return eCouldNotOpenFile;}
+  FILE* stream=_fdopen(descriptor,"w");
+  if(!stream){_close(descriptor);return eCouldNotOpenFile;}
+  m_logfile=stream;m_logfile_name=LogFileName;
+  return eOK;
+}
 
 long CMUSHclientDoc::CloseLog() 
 {

@@ -74,7 +74,7 @@
     <ClCompile>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>$(SolutionDir);$(SolutionDir)luacom\;$(SolutionDir)openssl\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_WIN32_WINNT=0x0501;NO_HTMLHELP;_DEBUG;WIN32;_WINDOWS;LUA51;_CRT_SECURE_NO_WARNINGS;_CRT_NON_CONFORMING_SWPRINTFS;NO_WARN_MBCS_MFC_DEPRECATION;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WIN32_WINNT=0x0601;NO_HTMLHELP;_DEBUG;WIN32;_WINDOWS;LUA51;_CRT_SECURE_NO_WARNINGS;_CRT_NON_CONFORMING_SWPRINTFS;NO_WARN_MBCS_MFC_DEPRECATION;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>
@@ -126,7 +126,7 @@
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <AdditionalIncludeDirectories>$(SolutionDir);$(SolutionDir)luacom\;$(SolutionDir)openssl\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_WIN32_WINNT=0x0501;NO_HTMLHELP;NDEBUG;WIN32;_WINDOWS;ZLIB_DLL;LUA51;_CRT_SECURE_NO_WARNINGS;_CRT_NON_CONFORMING_SWPRINTFS;NO_WARN_MBCS_MFC_DEPRECATION;$(PRE_RELEASE);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WIN32_WINNT=0x0601;NO_HTMLHELP;NDEBUG;WIN32;_WINDOWS;ZLIB_DLL;LUA51;_CRT_SECURE_NO_WARNINGS;_CRT_NON_CONFORMING_SWPRINTFS;NO_WARN_MBCS_MFC_DEPRECATION;$(PRE_RELEASE);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -243,6 +243,45 @@
     <ClCompile Include="HyprLink.cpp">
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ClCompile Include="InlineImage.cpp" />
+    <ClCompile Include="WorkspacePane.cpp" />
+    <ClCompile Include="WorkspaceIntegration.cpp" />
+    <ClCompile Include="WorkspaceTools.cpp" />
+    <ClCompile Include="WorkspaceRouteManager.cpp" />
+    <ClCompile Include="workspace\WorkspaceInputPolicy.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="workspace\WorkspaceInputEncoding.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="WorkspaceSceneDirector.cpp" />
+    <ClCompile Include="AgentWorkspaceCore.cpp" />
+    <ClCompile Include="AgentBridgeHost.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="AgentBridgeProtocol.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="workspace\PennLanguage.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="workspace\PennEditorWindow.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="workspace\LogStartSetup.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="workspace\AgentReviewPane.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <ClCompile Include="Line.cpp">
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -1421,6 +1460,12 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="WorkspaceFrame.h" />
+    <ClInclude Include="workspace\LogStartSetup.h" />
+    <ClInclude Include="WorkspaceResources.h" />
+    <ClInclude Include="WorkspaceRouteManager.h" />
+    <ClInclude Include="workspace\WorkspaceInputPolicy.h" />
+    <ClInclude Include="workspace\WorkspaceInputEncoding.h" />
     <ClInclude Include="dialogs\global_prefs\GlobalPrefsSheet.h" />
     <ClInclude Include="dialogs\world_prefs\themeglue.h" />
     <ClInclude Include="luacom\LuaAux.h" />

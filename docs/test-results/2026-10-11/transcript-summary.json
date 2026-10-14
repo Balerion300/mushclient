@@ -1,0 +1,11 @@
+{
+  "private_growth_bytes": -106155,
+  "private_min_bytes": 7827456,
+  "private_max_bytes": 8282112,
+  "gdi_min": 118,
+  "gdi_max": 121,
+  "user_min": 106,
+  "user_max": 107,
+  "bounded_resources": true,
+  "executable_sha256": "e7e20d0e6edde3381a6f4feea8d3bed87b55621daae30619a6e137015a2657a6"
+}

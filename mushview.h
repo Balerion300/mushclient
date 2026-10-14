@@ -2,6 +2,11 @@
 //
 /////////////////////////////////////////////////////////////////////////////
 
+#include <memory>
+#include <vector>
+
+class CInlineImage;
+
 #define PALETTE 0x02000000    // makes RGB calls palletized (See PALETTERGB)
 
 #define MXP_FIRST_MENU 10000
@@ -79,6 +84,20 @@ public:
         m_ScrollbarSizeLine,
         m_ScrollbarPosition;
 
+  // Pixel layout belongs to the view: the same transcript can be shown at
+  // different widths in split views.  tops has one sentinel at its end.
+  std::vector<int> m_lineTops;
+  std::vector<CLine *> m_layoutLines;
+  std::vector<long> m_layoutLineNumbers;
+  std::vector<std::shared_ptr<CInlineImage> > m_pendingImages;
+  int m_layoutWidth;
+  int m_layoutFontHeight;
+  int m_layoutViewportHeight;
+  int m_layoutPixelOffset;
+  unsigned long m_layoutRevision;
+  int m_layoutAnchorShift;
+  bool m_imageTimerRunning;
+
   string m_sPreviousMiniWindow;
 
   BOOL m_mousedover;
@@ -89,6 +108,15 @@ public:
 void sizewindow (void);
 
 void addedstuff (void);
+
+void EnsureLineLayout (void);
+int GetLineTop (int line);
+int GetLineHeight (int line);
+int FindLineAtY (int y);
+int GetBufferPixelHeight (void);
+CRect GetInlineImageRect (int line, const CLine * pLine);
+CSize MeasureInlineImage (const CLine * pLine, int availableWidth);
+long GetClickableLineRight (int line, const CLine * pLine, CClientDC & dc);
 
 int mouse_still_down (void);
 
@@ -254,6 +282,7 @@ protected:
 	afx_msg void OnDisplayGotobookmark();
 	afx_msg void OnDisplayBookmarkselection();
 	afx_msg BOOL OnMouseWheel(UINT nFlags, short zDelta, CPoint pt);
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
 	afx_msg void OnAltUparrow();
 	afx_msg void OnAltDownarrow();
 	afx_msg void OnDisplayTextattributes();

@@ -1,0 +1,23 @@
+START transcript soak; disconnected simulated input only
+SAMPLE elapsed=29 cycles=30 ready=47 loading=0 lines=111
+SAMPLE elapsed=59 cycles=60 ready=47 loading=0 lines=111
+SAMPLE elapsed=89 cycles=90 ready=45 loading=0 lines=101
+SAMPLE elapsed=119 cycles=120 ready=45 loading=0 lines=101
+SAMPLE elapsed=149 cycles=150 ready=45 loading=0 lines=101
+SAMPLE elapsed=179 cycles=180 ready=45 loading=0 lines=101
+SAMPLE elapsed=209 cycles=210 ready=45 loading=0 lines=101
+SAMPLE elapsed=239 cycles=240 ready=45 loading=0 lines=101
+SAMPLE elapsed=269 cycles=270 ready=45 loading=0 lines=101
+SAMPLE elapsed=299 cycles=300 ready=45 loading=0 lines=101
+SAMPLE elapsed=329 cycles=330 ready=45 loading=0 lines=101
+SAMPLE elapsed=359 cycles=360 ready=45 loading=0 lines=101
+SAMPLE elapsed=389 cycles=390 ready=45 loading=0 lines=101
+SAMPLE elapsed=419 cycles=420 ready=45 loading=0 lines=101
+SAMPLE elapsed=449 cycles=450 ready=45 loading=0 lines=101
+SAMPLE elapsed=479 cycles=480 ready=45 loading=0 lines=101
+SAMPLE elapsed=509 cycles=510 ready=45 loading=0 lines=101
+SAMPLE elapsed=539 cycles=540 ready=45 loading=0 lines=101
+SAMPLE elapsed=569 cycles=570 ready=45 loading=0 lines=101
+SAMPLE elapsed=599 cycles=600 ready=45 loading=0 lines=101
+END cycles=600 ready_peak=47 failures=0
+PASS COMPLETE

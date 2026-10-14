@@ -7,6 +7,7 @@
 #include "MUSHview.h"
 #include "mxp\mxp.h"
 #include "scripting\errors.h"
+#include "WorkspaceIntegration.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -176,6 +177,57 @@ assemble the full text of the original line.
   if (m_pCurrentLine->hard_return)
     return false;
 
+  // An image is a transcript entry, not received text to match. Keep
+  // its fallback in logs and copy, but do not feed it to triggers. Existing
+  // received-text history remains available for multi-line triggers.
+  if (m_pCurrentLine->IsInlineImage ())
+    {
+    m_pCurrentLine->hard_return = true;
+    WorkspacePublishGuard workspaceRecord(this, false);
+
+    if (m_bLogOutput)
+      {
+      m_pCurrentLine->flags |= LOG_LINE;
+      if (m_logfile && !m_bLogRaw)
+        {
+        CString strPreamble = m_strLogLinePreambleOutput;
+        CString strPostamble = m_strLogLinePostambleOutput;
+        strPreamble.Replace ("%n", "\n");
+        strPostamble.Replace ("%n", "\n");
+        if (strPreamble.Find ('%') != -1)
+          strPreamble = FormatTime (m_pCurrentLine->m_theTime, strPreamble, m_bLogHTML);
+        if (strPostamble.Find ('%') != -1)
+          strPostamble = FormatTime (m_pCurrentLine->m_theTime, strPostamble, m_bLogHTML);
+
+        WriteToLog (strPreamble);
+        CString strFallback (m_pCurrentLine->text, m_pCurrentLine->len);
+        if (m_bLogHTML && m_bLogInColour)
+          LogLineInHTMLcolour (m_LineList.GetTailPosition ());
+        else if (m_bLogHTML)
+          WriteToLog (FixHTMLString (strFallback));
+        else
+          WriteToLog (strFallback);
+        WriteToLog (strPostamble);
+        if (!(m_bLogHTML && m_bLogInColour))
+          WriteToLog ("\n", 1);
+        }
+      }
+    if(workspaceRecord.PublishBeforeOmit())
+      {
+      // An image is one physical entry. Routing must hide it in the original
+      // transcript too, while the spawned pane retains its shared payload.
+      if(m_LineList.GetCount()%JUMP_SIZE==1)
+        m_pLinePositions[m_LineList.GetCount()/JUMP_SIZE]=NULL;
+      delete m_LineList.GetTail();m_LineList.RemoveTail();--m_total_lines;
+      ++m_inlineImageRevision;
+      m_pCurrentLine=new CLine(++m_total_lines,m_nWrapColumn,m_iFlags,m_iForeColour,m_iBackColour,m_bUTF_8);
+      POSITION fresh=m_LineList.AddTail(m_pCurrentLine);
+      if(m_LineList.GetCount()%JUMP_SIZE==1)m_pLinePositions[m_LineList.GetCount()/JUMP_SIZE]=fresh;
+      return true;
+      }
+    return false;
+    }
+
   // get tail of list
   
   flags = m_pCurrentLine->flags;
@@ -240,6 +292,8 @@ assemble the full text of the original line.
 // *this* line ends with a hard break
 
   m_pCurrentLine->hard_return = true;
+
+  WorkspacePublishGuard workspaceRecord(this, (flags & NOTE_OR_COMMAND)==0);
 
 // for people with screen-readers
 
@@ -533,6 +587,9 @@ assemble the full text of the original line.
         SendMsg (CFormat (PUEBLO_REPLY2), false, false, false);
 
       MXP_Off (true);   // turn MXP off so the initialisation string will be accepted
+      // The reply is queued before the login on the same stream, so the server
+      // knows this client's capabilities when it generates the first room.
+      CompleteConnectionStartup ();
       } // end of Pueblo not active yet
     } // end of getting Pueblo initiation string
 
@@ -734,6 +791,9 @@ assemble the full text of the original line.
 
 
 // if omitting from output do that now
+
+  if(workspaceRecord.PublishBeforeOmit())
+    m_bLineOmittedFromOutput=true;
 
   if (m_bLineOmittedFromOutput)
     {

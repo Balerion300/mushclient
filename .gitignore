@@ -81,3 +81,31 @@ TinyGL*
 #
 git_diff_output.txt
 git_log_output.txt
+
+# Local test/build outputs
+__pycache__/
+*.pyc
+*.obj
+*.pch
+*.log
+*.results.txt
+
+# Native workspace test output and vendor build products
+workspace/test-build/
+third_party/scintilla/bin/
+third_party/scintilla/win32/obj/
+*.pdb
+*.ilk
+*.lib
+*.exp
+tests/workspace/probe-build.rsp
+
+# Personal worlds and private test/runtime state never belong in source control.
+*.mcl
+*.mcl.bak
+App.db
+mushclient_prefs.sqlite*
+editor-state/
+private-test-settings/
+.env
+.env.*

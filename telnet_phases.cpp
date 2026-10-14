@@ -305,7 +305,9 @@ void CMUSHclientDoc::Phase_WILL (const unsigned char c)
           else
             {
             Send_IAC_DO (c);
-            if (m_iUseMXP == eQueryMXP)     // turn MXP on now
+            if (m_iUseMXP == eQueryMXP || m_iUseMXP == eUseMXP)
+              // A server may revoke and re-offer MXP on the same socket.
+              // Always-on MXP was turned off by DONT, so restore it now.
               MXP_On ();
             } // end of MXP wanted
           break;  // end of MXP
@@ -420,7 +422,8 @@ void CMUSHclientDoc::Phase_DO (const unsigned char c)
           else
             {
             Send_IAC_WILL (c);
-            if (m_iUseMXP == eQueryMXP)     // turn MXP on now
+            if (m_iUseMXP == eQueryMXP || m_iUseMXP == eUseMXP)
+              // A fresh DO after DONT must re-enable always-on MXP too.
               MXP_On ();
             } // end of MXP wanted
           break;  // end of MXP

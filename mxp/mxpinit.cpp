@@ -48,8 +48,8 @@ tMXP_element MXP_elements [] =
 
     { "frame",    TAG_NOT_IMP,  MXP_ACTION_FRAME , "" },    // frame   (secure)                
     { "dest",     TAG_NOT_IMP,  MXP_ACTION_DEST , "" },     // destination frame  (secure)                 
-    { "image",    TAG_COMMAND | TAG_NOT_IMP,  MXP_ACTION_IMAGE ,          // show image  (secure)  
-                                "url,fname" },    
+    { "image",    TAG_COMMAND,  MXP_ACTION_IMAGE ,          // static image (secure)
+                                "url,fname,width,height" },
     { "filter",   TAG_NOT_IMP,  MXP_ACTION_FILTER , "" },   // sound/image filter  (secure)                 
     { "a",        0,            MXP_ACTION_HYPERLINK ,      // Hyperlink (secure) 
                                 "href,xch_cmd,xch_hint" },         
@@ -109,8 +109,8 @@ tMXP_element MXP_elements [] =
     { "head",    TAG_PUEBLO | TAG_NO_RESET, MXP_ACTION_HEAD   , "" },   // document header 
     { "html",    TAG_PUEBLO | TAG_NO_RESET, MXP_ACTION_HTML   , "" },   // html mode
     { "title",   TAG_PUEBLO,    MXP_ACTION_TITLE  , "" },   // document title 
-    { "img",     TAG_PUEBLO | TAG_COMMAND,  MXP_ACTION_IMG,  // an image ;)
-                                "src,xch_mode" },   
+    { "img",     TAG_PUEBLO | TAG_COMMAND,  MXP_ACTION_IMG,
+                                "src,xch_mode,width,height" },
     { "xch_page",TAG_PUEBLO | TAG_COMMAND,  MXP_ACTION_XCH_PAGE    , "" },   // starting a new page
     { "xch_pane",TAG_PUEBLO | TAG_COMMAND | TAG_NOT_IMP,  MXP_ACTION_XCH_PANE    , "" },   // starting a new pane
 

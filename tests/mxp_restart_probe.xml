@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="MXP_Restart_Probe" author="MUSHclient contributors"
+ id="b9d3e1d15637c81273480a63" language="Lua" version="1.0" requires="5.07"
+ purpose="Isolated same-socket and hard-reconnect MXP state probe for upstream issue 87" />
+<script><![CDATA[
+local enabled, phase = false, 'initial'
+local lines, connected, disconnected, starts, stops = {}, 0, 0, 0, 0
+local phase_started = os.time()
+local output = GetPluginInfo(GetPluginID(), 6) .. '.restart-results.txt'
+local function record(message)
+  local f = assert(io.open(output, 'a'))
+  f:write(message, '\n'); f:close()
+end
+local function check(value, message)
+  record((value and 'PASS ' or 'FAIL ') .. message)
+  return value
+end
+local function check_red_style(marker, message)
+  local count = GetLinesInBufferCount()
+  for line = count, math.max(1, count - 100), -1 do
+    local content = GetLineInfo(line, 1)
+    if content and content:find(marker, 1, true) then
+      local styles = GetLineInfo(line, 11) or 0
+      for style = 1, styles do
+        local styled_text = GetStyleInfo(line, style, 1)
+        if styled_text and styled_text:find(marker, 1, true) then
+          local foreground = GetStyleInfo(line, style, 14)
+          record(string.format('STYLE %s line=%d style=%d foreground=%s',
+            marker, line, style, tostring(foreground)))
+          return check(foreground == 255, message)
+        end
+      end
+      record(string.format('STYLE %s line=%d style_missing count=%d',
+        marker, line, styles))
+      return check(false, message)
+    end
+  end
+  record('STYLE ' .. marker .. ' line_missing')
+  return check(false, message)
+end
+local function advance(next_phase)
+  phase, phase_started = next_phase, os.time()
+end
+function OnPluginInstall()
+  if WorldName() ~= 'Inline images - MXP test' or
+     GetAlphaOption('site') ~= '127.0.0.1' or GetOption('port') ~= 18766 then return end
+  enabled = true
+  local f = assert(io.open(output, 'w')); f:close()
+  check(SetOption('use_mxp', 2) == 0 and GetOption('use_mxp') == 2,
+        'fixture enables Always On MXP mode')
+  record('START issue-87 restart probe')
+end
+function OnPluginConnect()
+  if not enabled then return end
+  connected = connected + 1
+  record(string.format('EVENT connected=%d mxp_active=%s', connected, tostring(GetInfo(104))))
+end
+function OnPluginDisconnect()
+  if not enabled then return end
+  disconnected = disconnected + 1
+  record(string.format('EVENT disconnected=%d mxp_active=%s', disconnected, tostring(GetInfo(104))))
+end
+function OnPluginMXPstart()
+  if enabled then starts = starts + 1; record('EVENT mxp_start=' .. starts) end
+end
+function OnPluginMXPstop()
+  if enabled then stops = stops + 1; record('EVENT mxp_stop=' .. stops) end
+end
+function OnPluginLineReceived(line)
+  if not enabled then return true end
+  local marker = line:match('(RESTART_[A-Z_0-9]+)')
+  if marker then
+    lines[marker] = {active=GetInfo(104), raw=line:find('<color', 1, true) ~= nil,
+                     text=line}
+    record(string.format('LINE %s active=%s raw_tag=%s starts=%d stops=%d',
+      marker, tostring(lines[marker].active), tostring(lines[marker].raw), starts, stops))
+  end
+  return true
+end
+function OnPluginTick()
+  if not enabled or phase == 'done' or phase == 'failed' then return end
+  if os.time() - phase_started > 20 then
+    record('FAIL timed out waiting in phase ' .. phase)
+    advance('failed')
+    return
+  end
+  if phase == 'initial' and lines.RESTART_INITIAL_1 then
+    if not check(lines.RESTART_INITIAL_1.active and not lines.RESTART_INITIAL_1.raw,
+        'initial connection parses MXP color markup') then advance('failed'); return end
+    check_red_style('RESTART_INITIAL_1', 'initial MXP marker has red foreground COLORREF 255')
+    Send('silent')
+    advance('silent')
+  elseif phase == 'silent' and lines.RESTART_SERVER_SILENT then
+    check(lines.RESTART_SERVER_SILENT.active and not lines.RESTART_SERVER_SILENT.raw,
+      'server ceasing markup does not itself reset client MXP state')
+    Send('soft-no-neg')
+    advance('soft-no-neg')
+  elseif phase == 'soft-no-neg' and lines.RESTART_SOFT_NO_NEG then
+    check(lines.RESTART_SOFT_NO_NEG.active and not lines.RESTART_SOFT_NO_NEG.raw,
+      'same-socket soft restart without renegotiation retains MXP parsing')
+    check_red_style('RESTART_SOFT_NO_NEG', 'same-socket marker retains red foreground')
+    Send('reoffer')
+    advance('reoffer')
+  elseif phase == 'reoffer' and lines.RESTART_REOFFER then
+    local row = lines.RESTART_REOFFER
+    record(string.format('STATE same_socket_reoffer active=%s raw_tag=%s starts=%d stops=%d',
+      tostring(row.active), tostring(row.raw), starts, stops))
+    if row.active and not row.raw then
+      record('PASS same-socket DONT then DO restores MXP parsing')
+    elseif not row.active and row.raw then
+      record('REPRODUCED same-socket DONT then DO leaves MXP off despite Always On')
+    else
+      record('FAIL reoffer produced an unexpected mixed MXP state')
+    end
+    check_red_style('RESTART_REOFFER', 'DONT then DO marker has red foreground COLORREF 255')
+    Send('reoffer-will')
+    advance('reoffer-will')
+  elseif phase == 'reoffer-will' and lines.RESTART_REOFFER_WILL then
+    local row = lines.RESTART_REOFFER_WILL
+    check(row.active and not row.raw,
+      'same-socket DONT then WILL restores Always On MXP parsing')
+    check_red_style('RESTART_REOFFER_WILL', 'DONT then WILL marker has red foreground COLORREF 255')
+    check(SetOption('use_mxp', 1) == 0, 'switch to Query MXP mode')
+    Send('query-reoffer')
+    advance('query-reoffer')
+  elseif phase == 'query-reoffer' and lines.RESTART_QUERY_REOFFER then
+    local row = lines.RESTART_QUERY_REOFFER
+    check(row.active and not row.raw,
+      'Query mode still enables MXP on renewed DO')
+    check_red_style('RESTART_QUERY_REOFFER', 'Query reoffer marker has red foreground')
+    check(SetOption('use_mxp', 3) == 0, 'switch to No MXP mode')
+    Send('no-offer')
+    advance('no-offer')
+  elseif phase == 'no-offer' and lines.RESTART_NO_MXP then
+    local row = lines.RESTART_NO_MXP
+    check(not row.active and row.raw,
+      'No MXP mode refuses both DO and WILL offers')
+    check(SetOption('use_mxp', 0) == 0, 'switch to On Command MXP mode')
+    Send('oncommand-before')
+    advance('oncommand-before')
+  elseif phase == 'oncommand-before' and lines.RESTART_ONCOMMAND_BEFORE then
+    local row = lines.RESTART_ONCOMMAND_BEFORE
+    check(not row.active and row.raw,
+      'On Command mode waits for MXP subnegotiation')
+    Send('oncommand-start')
+    advance('oncommand-start')
+  elseif phase == 'oncommand-start' and lines.RESTART_ONCOMMAND_STARTED then
+    local row = lines.RESTART_ONCOMMAND_STARTED
+    check(row.active and not row.raw,
+      'On Command mode enables MXP after subnegotiation')
+    check_red_style('RESTART_ONCOMMAND_STARTED', 'On Command marker has red foreground')
+    check(SetOption('use_mxp', 2) == 0, 'restore Always On mode before reconnect')
+    Send('hard-close')
+    advance('hard-close')
+  elseif phase == 'hard-close' and disconnected > 0 then
+    local status = Connect()
+    record('ACTION hard reconnect status=' .. tostring(status))
+    advance('hard-reconnect')
+  elseif phase == 'hard-reconnect' and lines.RESTART_INITIAL_2 then
+    check(connected >= 2 and lines.RESTART_INITIAL_2.active and
+          not lines.RESTART_INITIAL_2.raw,
+      'new socket restores MXP parsing and color markup')
+    check_red_style('RESTART_INITIAL_2', 'hard reconnect marker has red foreground COLORREF 255')
+    record('PASS issue-87 restart probe completed')
+    advance('done')
+  end
+end
+]]></script>
+</muclient>
