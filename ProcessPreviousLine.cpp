@@ -587,6 +587,9 @@ assemble the full text of the original line.
         SendMsg (CFormat (PUEBLO_REPLY2), false, false, false);
 
       MXP_Off (true);   // turn MXP off so the initialisation string will be accepted
+      // The reply is queued before the login on the same stream, so the server
+      // knows this client's capabilities when it generates the first room.
+      CompleteConnectionStartup ();
       } // end of Pueblo not active yet
     } // end of getting Pueblo initiation string
 

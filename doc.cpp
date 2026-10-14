@@ -6852,6 +6852,7 @@ void CMUSHclientDoc::ConnectionEstablished (void)
 
   m_iConnectPhase = eConnectConnectedToMud;
   m_tConnectTime = CTime::GetCurrentTime();           
+  m_bConnectStartupPending = false;
   m_tLastPlayerInput = CTime::GetCurrentTime();           
 	m_bEnableAutoSay = FALSE;		// auto-say off at start of session
   App.m_bUpdateActivity = TRUE;   // new activity!
@@ -7015,6 +7016,39 @@ CString strIpAddress = inet_ntoa (*((struct in_addr *) lpHostEntry->h_addr));
       }   // end of opened OK
     } // end of auto log file name
 
+  // Give an enabled Pueblo server time to announce itself before automatic
+  // login requests the first room. Keep receiving normally; never wait here.
+  m_bConnectStartupPending = true;
+  m_dwConnectStartupStarted = GetTickCount ();
+  if (!(m_bPueblo && m_iUseMXP != eNoMXP &&
+        (m_connect_now != eNoAutoConnect || !m_connect_text.IsEmpty ())))
+    CompleteConnectionStartup ();
+
+  } // end of CMUSHclientDoc::ConnectionEstablished
+
+void CMUSHclientDoc::CheckConnectionStartup (void)
+  {
+  if (!m_bConnectStartupPending)
+    return;
+  if (m_iConnectPhase != eConnectConnectedToMud || !m_pSocket)
+    {
+    m_bConnectStartupPending = false;
+    return;
+    }
+  // Unsigned subtraction also handles GetTickCount wrapping.
+  if (GetTickCount () - m_dwConnectStartupStarted >= 1000)
+    CompleteConnectionStartup ();
+  }
+
+void CMUSHclientDoc::CompleteConnectionStartup (void)
+  {
+  if (!m_bConnectStartupPending ||
+      m_iConnectPhase != eConnectConnectedToMud || !m_pSocket)
+    return;
+  // Clear before modal dialogs/scripts so reentrant receive/timer calls cannot
+  // send a second login. All existing startup callbacks keep their ordering.
+  m_bConnectStartupPending = false;
+
 // ask for password if necessary, and send connection string
 
   CString password = m_password;
@@ -7036,6 +7070,10 @@ CString strIpAddress = inet_ntoa (*((struct in_addr *) lpHostEntry->h_addr));
           password = dlg.m_password;
 
       }
+
+  // The password prompt pumps messages; the connection may close meanwhile.
+  if (m_iConnectPhase != eConnectConnectedToMud || !m_pSocket)
+    return;
 
   switch (m_connect_now)
     {
@@ -7126,7 +7164,7 @@ CString strIpAddress = inet_ntoa (*((struct in_addr *) lpHostEntry->h_addr));
 
   SendToAllPluginCallbacks (ON_PLUGIN_CONNECT);
 
-  } // end of CMUSHclientDoc::ConnectionEstablished
+  } // end of CMUSHclientDoc::CompleteConnectionStartup
 
 
 int CMUSHclientDoc::ProcessProxyResponse1 (char * buff, const int count)

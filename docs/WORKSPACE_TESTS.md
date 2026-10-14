@@ -187,8 +187,40 @@ presence. Temporary evidence, binaries, SQLite databases and worlds remain ignor
 Exact arbitrary nested splitter-tree restoration and auto-hide restoration are
 not implemented. Mixed-monitor DPI moves, prolonged daily use and full physical
 drag/detach/join acceptance remain broader release gates. The initial-login Pueblo
-negotiation ordering issue is separate and unchanged by this docking migration.
+negotiation ordering issue was repaired in the subsequent checkpoint below.
 
 See [PERFORMANCE_TESTS.md](PERFORMANCE_TESTS.md) for the fictional traffic fixture,
 font comparison, process-local sampling and administrator-only Windows CPU tracing.
 Performance stress results are separate from component correctness passes.
+
+## First-login Pueblo checkpoint
+
+The pre-change Release executable (`39e0523cb20427d7bd5230dff9a7bd121c5f21d6c33e0bb1cd41f0effb1e6c82`)
+reproduced login-before-Pueblo-reply with immediate and delayed Telnet greetings
+and a delayed TLS greeting. The initial room was plain in all three cases.
+
+`pueblo_login_probe.py` uses fresh temporary profiles, fictional credentials,
+loopback servers and an ephemeral localhost TLS certificate. The repaired
+Release client passes seven cases: immediate Telnet, 200 ms Telnet/TLS greetings,
+800 ms Telnet greeting, silent-server fallback, disabled detection and disconnect
+before login. Server receipts verify exactly one login following the Pueblo
+reply; client receipts verify the initial image record, command-link action and
+exactly one connect callback. Silent-server login proceeds at approximately one
+second, and an early disconnect sends no login or connect callback.
+
+The final repaired Release executable has SHA256
+`ca99ed37362762fb99af0f3670933374cedc8286f92f7b4fa4c89750cb87cb59`.
+All seven cases pass against that binary; integrated Release and Debug builds
+pass after the final reentrant-timer guard.
+
+The one-second wait is asynchronous and applies only when Pueblo detection and
+MXP/Pueblo are enabled and automatic login/connect text is configured. Normal
+startup callback order is retained; timer callbacks pause during negotiation.
+Disconnect cancels pending startup. The existing TLS transport and login text
+are retained. Servers announcing Pueblo after the fallback can still generate
+a plain initial room; this does not attempt indefinite negotiation or change
+manual/script-managed login. The image check verifies the actual transcript
+record, not a screenshot or fresh pixel/decode acceptance run.
+
+Reproduce with `python tests/pueblo_login_probe.py`; TLS fixtures require Python
+`cryptography`. Raw receipts, synthetic worlds and certificates stay in Temp.

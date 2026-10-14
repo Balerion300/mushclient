@@ -135,6 +135,7 @@ bool bWasClosed = m_pDoc->m_iConnectPhase == eConnectNotConnected;
   m_pDoc->SSLCleanup ();
 
   m_pDoc->m_iConnectPhase = eConnectDisconnecting;
+  m_pDoc->m_bConnectStartupPending = false;
 
   m_pDoc->UpdateAllViews (NULL);
 

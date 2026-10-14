@@ -1074,6 +1074,8 @@ public:
   long m_last_line_with_IAC_GA;
 
   CTime m_tConnectTime;       // time we connected to the world
+  bool m_bConnectStartupPending;
+  DWORD m_dwConnectStartupStarted;
   CTime m_tLastPlayerInput;   // time the player last typed something (for <afk> )
   CTimeSpan m_tsConnectDuration;  // timespan we have been connected
   CTime m_whenWorldStarted;   // when world document started
@@ -1866,6 +1868,8 @@ public:
   bool LookupHostName (LPCTSTR sName);
   void InitiateConnection (void);
   void ConnectionEstablished (void);
+  void CompleteConnectionStartup (void);
+  void CheckConnectionStartup (void);
 
   int ProcessProxyResponse1 (char * buff, const int count);
   int ProcessProxyResponse2 (char * buff, const int count);

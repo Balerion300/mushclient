@@ -62,8 +62,8 @@ this separate candidate passes integrated acceptance. See `WORKSPACE_TESTS.md`
 for the measured build and any remaining gates; component tests alone are not
 proof of all physical dragging, display scaling or daily-use behavior.
 
-Separate known regression: automatic MUSH login precedes the Pueblo greeting
-reply. A fictional server reproduced an initial plain room followed by a rich
-manual look with one image and command link on both Telnet and TLS. The docking
-migration leaves connection handling intact; a bounded negotiation-before-login
-repair requires its own protocol regression gate.
+The initial-login Pueblo regression is repaired in the subsequent connection
+checkpoint. Pueblo-enabled automatic login waits asynchronously for the greeting
+reply or a one-second fallback. Actual-client Telnet/TLS regression receipts
+verify that the initial room already contains its image record and command link;
+silent servers and disconnects are covered. See `WORKSPACE_TESTS.md` for scope.

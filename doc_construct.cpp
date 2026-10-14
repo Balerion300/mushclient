@@ -250,6 +250,8 @@ int i;
 
   m_bMXP = false;   // no MXP yet
   m_bPuebloActive = false; // no Pueblo yet either <evil grin>
+  m_bConnectStartupPending = false;
+  m_dwConnectStartupStarted = 0;
   m_bInParagraph = false;
   m_bMXP_script = false;
   m_bPreMode = false;
