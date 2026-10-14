@@ -495,6 +495,16 @@ bool EncodeRecovery(const std::vector<std::string> &sources,
 }
 bool DecodeRecovery(const std::string &bytes,
                     std::vector<std::string> &sources) {
+  if (bytes.compare(0, 9, "PENNIDE2\n") == 0) {
+    std::vector<RecoveryEntry> entries;
+    if (!DecodeRecoveryEntries(bytes, entries))
+      return false;
+    std::vector<std::string> result;
+    for (const auto &entry : entries)
+      result.push_back(entry.source);
+    sources = result;
+    return true;
+  }
   if (bytes.size() > 8 * 1024 * 1024 || bytes.compare(0, 9, "PENNIDE1\n") != 0)
     return false;
   std::vector<std::string> result;
@@ -521,6 +531,76 @@ bool DecodeRecovery(const std::string &bytes,
     i += n;
   }
   sources = result;
+  return true;
+}
+static bool RecoveryIdentity(const std::string &id) {
+  return !id.empty() && id.size() <= 64 &&
+         id.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstu"
+                              "vwxyz0123456789_-") == std::string::npos;
+}
+bool EncodeRecoveryEntries(const std::vector<RecoveryEntry> &entries,
+                           std::string &bytes) {
+  if (entries.size() > 32)
+    return false;
+  std::set<std::string> identities;
+  std::string result = "PENNIDE2\n";
+  for (const auto &entry : entries) {
+    if (!RecoveryIdentity(entry.id) || !identities.insert(entry.id).second ||
+        !ValidUtf8(entry.source) || entry.source.size() > 4 * 1024 * 1024)
+      return false;
+    result += entry.id + "\n" + std::to_string(entry.source.size()) + "\n";
+    result += entry.source;
+    if (result.size() > 8 * 1024 * 1024)
+      return false;
+  }
+  bytes = result;
+  return true;
+}
+bool DecodeRecoveryEntries(const std::string &bytes,
+                           std::vector<RecoveryEntry> &entries) {
+  std::vector<RecoveryEntry> result;
+  if (bytes.compare(0, 9, "PENNIDE1\n") == 0) {
+    std::vector<std::string> sources;
+    if (!DecodeRecovery(bytes, sources))
+      return false;
+    for (size_t i = 0; i < sources.size(); ++i)
+      result.push_back({"legacy-" + std::to_string(i), sources[i]});
+  } else {
+    if (bytes.size() > 8 * 1024 * 1024 ||
+        bytes.compare(0, 9, "PENNIDE2\n") != 0)
+      return false;
+    std::set<std::string> identities;
+    size_t i = 9;
+    while (i < bytes.size()) {
+      size_t end = bytes.find('\n', i);
+      if (end == std::string::npos || end - i > 64)
+        return false;
+      auto id = bytes.substr(i, end - i);
+      if (!RecoveryIdentity(id) || !identities.insert(id).second)
+        return false;
+      i = end + 1;
+      end = bytes.find('\n', i);
+      if (end == std::string::npos || end == i || end - i > 10)
+        return false;
+      size_t n = 0;
+      for (size_t p = i; p < end; ++p) {
+        if (bytes[p] < '0' || bytes[p] > '9')
+          return false;
+        n = n * 10 + bytes[p] - '0';
+        if (n > 4 * 1024 * 1024)
+          return false;
+      }
+      i = end + 1;
+      if (n > bytes.size() - i || result.size() >= 32)
+        return false;
+      auto source = bytes.substr(i, n);
+      if (!ValidUtf8(source))
+        return false;
+      result.push_back({id, source});
+      i += n;
+    }
+  }
+  entries = result;
   return true;
 }
 bool AcceptDiscovery(ReadRequest &r, const std::string &endpoint,

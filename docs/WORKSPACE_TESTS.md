@@ -303,3 +303,62 @@ still needs user acceptance; fixtures use only synthetic loopback replies.
 
 See `SCRIPTED_LOGGING.md` for configuration, templates, optional preset, callback
 bounds, collision behavior and the limitation of uncorrelated late replies.
+
+## Review fixes and usability checks
+
+The independent review reproduced three lifecycle defects. Focused native
+regressions now verify that explicitly kept recovery sources survive another
+window's autosave, opening a blank editor, and a separate process restart;
+draft object/attribute targets survive New, tab navigation and neighboring tab
+closure; and surviving selections/reading anchors remain attached to retained
+records after inactive or paused transcript pruning.
+
+`workspace/PennRecoverySmoke.cpp` tests native close/keep/discard, legacy
+migration, stable local recovery identities, duplicate restoration, capacity,
+malformed input and failed writes. The original review reproduction was also
+rebuilt against the fixes: two drafts remain two after the second window's
+timer, including the closed draft, and a blank autosave preserves both.
+Recovery remains source-only; old clients cannot read new PENNIDE2 bundles.
+Concurrent separate client processes sharing one recovery directory have not
+been validated.
+
+`workspace/PennEditorTargetTests.cpp` exercises real edit controls and owned
+approval dialogs, including target edit/revert during outstanding replies and
+modal reviews. Targets participate in revision checks without altering source
+dirty/undo state. Friendly world names and session labels replace runtime IDs
+in editor captions/previews; original destination routing remains separate.
+
+`tests/workspace/run_deferred_view_probe.ps1` builds a fresh Temp-only native
+fixture. All 13 focused cases pass: exact RECORD-1200 reproduction, repeated
+pruning, partial/all eviction, UTF-16/styles, image placeholder changes,
+reading pixel anchor, follow-bottom, paused selection changes, pause without
+new output, record boundaries, mid-batch deactivation and clear/reset.
+The existing native workspace and 24-transition docking/image-reflow fixtures
+also pass. Single-run latency comparisons were mixed; this selection repair
+does not establish a new docking speed improvement. Physical mouse and daily
+use acceptance remain separate.
+
+Logging Setup adds a native automatic-filenames form for the optional generic
+helper: folder/template, an optional explicit request, reply delimiters,
+captured fields, transforms and required/header switches. The native form
+fixture verifies field editing, opt-in, data round-trip and outer Cancel;
+standalone native Lua/PCRE checks pass 185 assertions. Configuration alone
+neither sends traffic nor opens a log. Advanced script hooks remain available.
+
+The final review-fix Release executable has SHA256
+`d08f3b83eecf79bbe5a42019c2f9c275476df18654cf916598ed3c2d8152e94b`.
+Release and Debug integrated Win32 builds pass. All 13 actual-client logging
+cases pass on that Release binary, including saved-form configuration,
+invalid-PCRE preservation, refusal to reconfigure a pending start, and plugin
+save/reload. Native XML variables restore structural line endings as CRLF;
+both configuration decoders accept that persistence round-trip without
+changing hex-encoded setting values. A failed configuration save reopens setup
+with the entered values intact. The native form is 696 pixels tall at the
+fixture's 96-DPI setting; mixed-DPI physical acceptance remains untested.
+Explicit source saves check flush/close success before discarding recovery.
+An owned-Temp-file write-denial regression preserves the prior file, recovery
+and open source; it does not simulate a full-disk failure during late flush.
+Debug SHA256
+`a582f7c79226c49fbdbd7c95e3bfcb149acd628a39407c14e0e267e8373b8b27`
+also passes isolated actual-client plugin-hook and configured-reload startup
+cases without resource assertions.

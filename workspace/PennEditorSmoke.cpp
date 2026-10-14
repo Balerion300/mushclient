@@ -1,8 +1,10 @@
 #define NOMINMAX
 #include "../third_party/scintilla/include/Scintilla.h"
 #include "PennEditorWindow.h"
+#include "PennLanguage.h"
 #include <cassert>
 #include <commctrl.h>
+#include <fstream>
 #include <iostream>
 #include <thread>
 #include <wincrypt.h>
@@ -289,8 +291,19 @@ int main() {
   wchar_t temporary[MAX_PATH], path[MAX_PATH];
   GetTempPathW(MAX_PATH, temporary);
   assert(GetTempFileNameW(temporary, L"ide", 0, path));
+  DeleteFileW(path);
   assert(PennEditorSaveRecoveryFile(path));
   auto before = PennEditorListSnapshots();
+  // Explicit import of a legacy source-only fixture. Already-open recovery
+  // identities are deliberately excluded from normal retained-draft recovery.
+  std::string legacyRecovery;
+  assert(PennIDE::EncodeRecovery({before[0].source, before[1].source},
+                                legacyRecovery));
+  {
+    std::ofstream fixture(path, std::ios::binary | std::ios::trunc);
+    fixture << legacyRecovery;
+    assert(fixture.good());
+  }
   approve = Approve(editor, L"Review draft recovery");
   assert(PennEditorRestoreRecoveryFile(editor, path));
   approve.join();

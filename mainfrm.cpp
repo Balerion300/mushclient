@@ -10,6 +10,7 @@
 #include "WorkspaceTools.h"
 #include "WorkspaceResources.h"
 #include "workspace/LogStartSetup.h"
+#include "scripting/errors.h"
 #include "MUSHview.h"
 #include "sendvw.h"
 
@@ -2782,6 +2783,14 @@ bool LogSetupNarrow(const std::wstring& value,CString& result)
   result.ReleaseBuffer(written);
   return written==count && !substituted;
 }
+CString LogSetupVariable(CMUSHclientDoc* document,const CString& plugin,const char* name)
+{
+  VARIANT value=document->GetPluginVariable(plugin,name);
+  CString result;
+  if(value.vt==VT_BSTR && value.bstrVal)result=CString(value.bstrVal);
+  VariantClear(&value);
+  return result;
+}
 }
 void CMainFrame::OnUpdateWorkspaceLogStartSetup(CCmdUI* command)
 {
@@ -2798,9 +2807,26 @@ void CMainFrame::OnWorkspaceLogStartSetup()
   options.worldName=LogSetupWide(doc->m_mush_name);
   options.script=LogSetupWide(doc->m_strLogStartScript);
   options.plugin=LogSetupWide(doc->m_strLogStartPlugin);
+  options.defaultFolder=LogSetupWide(App.m_strDefaultLogFileDirectory);
+  if(options.defaultFolder.empty())options.defaultFolder=L"logs";
+  if(!(options.defaultFolder.size()>2 && options.defaultFolder[1]==L':') &&
+     options.defaultFolder.substr(0,2)!=L"\\\\")
+    {
+    wchar_t executable[32768]={};GetModuleFileNameW(NULL,executable,32768);
+    std::wstring folder=executable;folder=folder.substr(0,folder.find_last_of(L"\\/")+1);
+    options.defaultFolder=folder+options.defaultFolder;
+    }
   for(PluginListIterator plugin=doc->m_PluginList.begin();plugin!=doc->m_PluginList.end();++plugin)
     if((*plugin)->m_bEnabled)
-      options.plugins.push_back({LogSetupWide((*plugin)->m_strName),LogSetupWide((*plugin)->m_strID)});
+      {
+      LogStartSetupPlugin choice;
+      choice.name=LogSetupWide((*plugin)->m_strName);choice.id=LogSetupWide((*plugin)->m_strID);
+      CString saved=LogSetupVariable(doc,(*plugin)->m_strID,"scripted_log_configuration");
+      choice.namingConfiguration=std::string(saved,saved.GetLength());
+      options.plugins.push_back(choice);
+      }
+  for(;;)
+    {
   if(!ShowLogStartSetup(m_hWnd,options))return;
   // The modal message loop can run scripts that close a world. Locate the
   // original document afresh; a newly active or reused document is not a target.
@@ -2822,11 +2848,36 @@ void CMainFrame::OnWorkspaceLogStartSetup()
       if((*plugin)->m_bEnabled && (*plugin)->m_strID.CompareNoCase(pluginID)==0){enabled=true;break;}
     if(!enabled){AfxMessageBox("The selected plugin is no longer enabled in the original world. Logging settings were not saved.");return;}
     }
+  if(options.saveNamingConfiguration && script=="StartLog" &&
+     pluginID.CompareNoCase("7c1e480cf1d24cb28f9a1062")==0)
+    {
+    const CString data(options.namingConfiguration.data(),(int)options.namingConfiguration.size());
+    const long status=original->CallPlugin(pluginID,"ConfigureLogNames",data);
+    // Plugin state saving can pump callbacks. Resolve the original world and
+    // enabled plugin again before checking its result or applying the hook.
+    original=NULL;
+    for(POSITION position=App.m_pWorldDocTemplate->GetFirstDocPosition();position;)
+      {
+      CMUSHclientDoc* candidate=(CMUSHclientDoc*)App.m_pWorldDocTemplate->GetNextDoc(position);
+      if(candidate->m_iUniqueDocumentNumber==documentID){original=candidate;break;}
+      }
+    if(!original){AfxMessageBox("The original world closed. Its logging hook was not changed.");return;}
+    CPlugin* selected=original->GetPlugin(pluginID);
+    if(status!=eOK || !selected || !selected->m_bEnabled ||
+       LogSetupVariable(original,pluginID,"scripted_log_configuration_result")!="ok" ||
+       LogSetupVariable(original,pluginID,"scripted_log_configuration")!=data)
+      {
+      AfxMessageBox("Automatic filename settings could not be saved. Check the world's message for a rule or folder error. Your entered settings have been kept; reopen automatic file names to correct them, or Cancel. The logging hook was not changed.");
+      continue;
+      }
+    }
   if(original->m_strLogStartScript!=script || original->m_strLogStartPlugin!=pluginID)
     {
     original->m_strLogStartScript=script;
     original->m_strLogStartPlugin=pluginID;
     original->SetModifiedFlag(TRUE);
+    }
+  return;
     }
 }
 

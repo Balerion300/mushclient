@@ -7,7 +7,8 @@
 // The editor owns local unsent drafts. It has no network or game-send
 // capability.
 HWND OpenPennEditor(HWND owner, const std::string &endpointIdentity,
-                    const std::string &initialUtf8 = "");
+                    const std::string &initialUtf8 = "",
+                    const std::string &destinationNameUtf8 = "");
 // Optional before opening windows; default is exe-relative editor-state.
 bool PennEditorConfigureStorage(const std::wstring &folder);
 bool PennEditorSnapshot(HWND window, std::string &utf8, uint64_t &revision,

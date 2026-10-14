@@ -79,4 +79,14 @@ bool EncodeRecovery(const std::vector<std::string> &sources,
                     std::string &bytes);
 bool DecodeRecovery(const std::string &bytes,
                     std::vector<std::string> &sources);
+// Persistent identities belong only to local source recovery. They never
+// restore destinations, runtime document identities or sharing grants.
+struct RecoveryEntry {
+  std::string id, source;
+};
+bool EncodeRecoveryEntries(const std::vector<RecoveryEntry> &entries,
+                           std::string &bytes);
+// Also accepts PENNIDE1, assigning stable legacy entry identities for migration.
+bool DecodeRecoveryEntries(const std::string &bytes,
+                           std::vector<RecoveryEntry> &entries);
 } // namespace PennIDE

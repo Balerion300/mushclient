@@ -295,14 +295,19 @@ HWND WorkspaceOpenDraft(HWND parent,const agent_workspace::Draft& draft)
   if(scene && !agentStore.validateStagedDraft(draft.id,draft.text))throw std::runtime_error("Scene draft has expired or has already been queued.");
   std::string endpoint=WorkspaceEndpointForWindow(draft.window);
   if(endpoint.empty())throw std::runtime_error("Draft destination no longer exists.");
-  HWND editor=OpenPennEditor(parent,endpoint,draft.text);
+  HWND editor=OpenPennEditor(parent,endpoint,draft.text,WorkspaceWorldName(endpoint.c_str()));
   if(scene){PennEditorInfo info;if(!PennEditorSnapshotInfo(editor,info))throw std::runtime_error("Could not create the scene review document.");WorkspaceBindSceneDraft(info.documentID,draft.id);}
   return editor;
 }
 void WorkspaceReviewInput(const CString& connectionId,const std::wstring& command)
 {
   PennEditorSetTransport(WorkspaceSendEditorRead);PennEditorSetSendPrepared(WorkspaceSendPreparedEditor);
-  OpenPennEditor(Frame.GetSafeHwnd(),(LPCTSTR)connectionId,utf8(command));
+  OpenPennEditor(Frame.GetSafeHwnd(),(LPCTSTR)connectionId,utf8(command),WorkspaceWorldName(connectionId));
+}
+std::string WorkspaceWorldName(const CString& connectionId)
+{
+  CMUSHclientDoc* doc=liveDocument(connectionId);
+  return doc?utf8(wide(doc->m_mush_name,doc->m_mush_name.GetLength(),false)):std::string();
 }
 bool WorkspaceIsConnectionLive(const CString& connectionId)
 {
@@ -439,5 +444,5 @@ void ActivateWorkspaceAction(const CString& connectionId,unsigned short actionTy
   PennEditorSetTransport(WorkspaceSendEditorRead);PennEditorSetSendPrepared(WorkspaceSendPreparedEditor);
   // A transcript command link opens an unsent destination-bound editor.
   // Agent bridge operations never enter this human click callback.
-  OpenPennEditor(Frame.GetSafeHwnd(),(LPCTSTR)connectionId,utf8(wide(action,action.GetLength(),doc->m_bUTF_8)));
+  OpenPennEditor(Frame.GetSafeHwnd(),(LPCTSTR)connectionId,utf8(wide(action,action.GetLength(),doc->m_bUTF_8)),WorkspaceWorldName(connectionId));
 }

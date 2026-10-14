@@ -7,9 +7,10 @@ plugin function is called through `CallPlugin` with the string `"start"`. Custom
 scripts choose their own formats and workflow.
 
 The optional `plugins/Scripted_Log_Names.xml` provides a configurable **text**
-workflow. Install it in the intended world, select plugin
-`7c1e480cf1d24cb28f9a1062` and function `StartLog` in Logging Setup, and use Start
-Logging. Save the world to retain that selection. Its default uses the configured
+workflow. Install and enable it in the intended world, open Logging Setup, and
+choose **Set up automatic file names**. Choose an existing folder and file name,
+then **Use settings** and **Save**. This selects the helper's `StartLog` function
+for you. Save the world to retain that selection. Its default uses the configured
 log folder (`GetInfo(58)`, resolving relative folders against the client folder),
 world name, local date, safe local time, and a number:
 
@@ -26,8 +27,40 @@ those modes without changing them.
 
 ## Configuration
 
-Edit the `ScriptedLogConfig` table between the marked comments in a copy of the
-plugin. The folder must already exist and be absolute. Templates name files
+The automatic file names form configures ordinary naming without editing XML or
+Lua. Leave the request empty for names based on the world and local clock. To
+collect server details, enter one request command, the regex marking the start
+of its reply, and the regex marking its end. Add up to 16 captured fields using
+the field name, matching regex, capture number or named group, value format,
+and Required checkbox. **Add / update field** keeps a rule and clears the entry
+boxes for another; selecting a rule lets you edit or remove it. Changes to the
+current rule are also kept when you select another rule or use the settings.
+
+For example, a reply line `Year: 0178` can use field `game_year`, match
+`^Year: (\d+)$`, capture `1`, and **Unsigned number**. A file name
+`{game_year}-{number}.txt` then produces `178-001.txt`. **Two or more digits**
+pads day/month numbers; **Month name to 01-12** handles full English month names.
+Choose **Keep the entire reply block** to place the received metadata at the
+start of the log.
+
+Use settings prepares the form; the outer Logging Setup **Save** validates and
+saves the rules in that world's helper plugin state. Cancel leaves saved
+settings unchanged. Invalid PCRE or failed state writes leave the previous
+configuration active and do not change the logging hook. Cancel a pending log
+start before changing its configuration. Saving, installing, connecting and
+opening these forms send no request and open no log. Only a later manual
+**Start Logging** runs the selected request.
+
+The form uses the client's existing local script character set and rejects
+unrepresentable text. Saved settings are bounded, hex-encoded data, never Lua
+code. Custom scripts and the optional game preset remain available through the
+advanced source/function controls. The form currently configures the generic
+helper, leaving preset and custom script configuration independent.
+
+For advanced configuration, edit the `ScriptedLogConfig` table between the
+marked comments in a copy of the plugin. Saved form settings override this
+default table in the generic helper. The folder must already exist and be
+absolute. Templates name files
 inside that folder; slash, backslash, control characters, Windows device names,
 and other unsafe filename characters cannot turn parsed values into paths.
 Empty or oversized filenames fail visibly.
@@ -151,3 +184,9 @@ Run `tests/scripted_logging/run_helper_tests.ps1` for standalone native Lua 5.1
 and the client's PCRE engine. It uses fictional host adapters and existing
 runtime/build dependencies; it does not run the integrated client, open
 personal worlds, or contact a game server.
+`tests/scripted_logging/naming_setup.cpp` is a separate native form fixture;
+compile it with `/EHsc /std:c++17 /MT` and link `user32.lib gdi32.lib`, using an
+executable name such as `lognames-ui-probe.exe`. Run it with a fresh Temp folder.
+It checks form capture, data round-trip and Cancel, and writes an own-window
+`names-ui.bmp` for layout inspection. It never creates a client world or sends
+traffic.

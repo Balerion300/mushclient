@@ -219,4 +219,53 @@ function methods:tick()
   if self.pending.phase=='ready' then return self:finish() end
   return true,'pending'
 end
+function M.decode_configuration(data)
+  assert(type(data)=='string' and #data<=65536,
+    'Unrecognized automatic filename settings.')
+  -- Native XML variable loading restores structural LF as CRLF. Settings
+  -- themselves are hex encoded, so this cannot alter literal field bytes.
+  data=data:gsub('\r\n','\n')
+  assert(data:sub(1,5)=='SLN1\n','Unrecognized automatic filename settings.')
+  local offset=6
+  local function value()
+    local ending=data:find('\n',offset,true)
+    assert(ending and (ending-offset)%2==0 and ending-offset<=8192,'Invalid setting length.')
+    local encoded=data:sub(offset,ending-1);offset=ending+1
+    assert(not encoded:find('[^0-9a-f]'),'Invalid setting encoding.')
+    local text=encoded:gsub('..',function(pair) return string.char(tonumber(pair,16)) end)
+    assert(not text:find('%z'),'NUL is not a valid setting.')
+    return text
+  end
+  local cfg={folder=value(),template=value(),request_command=value(),start_regex=value(),end_regex=value()}
+  local header=value();assert(header=='0' or header=='1','Invalid header setting.')
+  cfg.preserve_header=header=='1'
+  local count=value();assert(count:match('^%d%d?$') and tonumber(count)<=16,'At most 16 captured fields are supported.')
+  cfg.fields={};cfg.required={}
+  local names={}
+  for i=1,tonumber(count) do
+    local rule={name=value(),regex=value(),capture=value(),transform=value()}
+    local required=value()
+    assert(rule.name:match('^[A-Za-z_][A-Za-z0-9_]*$') and rule.name~='number' and not names[rule.name],
+      'Captured fields need unique names; number is reserved.')
+    names[rule.name]=true
+    if rule.capture:match('^%d+$') then
+      rule.capture=tonumber(rule.capture)
+      assert(rule.capture>=1 and rule.capture<=99,'Capture numbers must be from 1 to 99.')
+    else assert(rule.capture:match('^[A-Za-z_][A-Za-z0-9_]*$'),'Invalid capture number or name.') end
+    assert(rule.transform=='' or rule.transform=='number' or rule.transform=='pad2' or rule.transform=='month_number',
+      'Invalid captured field format.')
+    if rule.transform=='' then rule.transform=nil end
+    assert(required=='0' or required=='1','Invalid required field setting.')
+    cfg.fields[#cfg.fields+1]=rule
+    if required=='1' then cfg.required[#cfg.required+1]=rule.name end
+  end
+  assert(offset==#data+1,'Unexpected settings data.')
+  if cfg.request_command=='' then
+    assert(#cfg.fields==0 and cfg.start_regex=='' and cfg.end_regex=='','Reply rules need a request command.')
+    cfg.request_command=nil;cfg.start_regex=nil;cfg.end_regex=nil
+  end
+  return cfg
+end
+
+
 return M

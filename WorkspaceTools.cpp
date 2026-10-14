@@ -479,9 +479,9 @@ void OpenWorkspaceTool(CMainFrame &frame, UINT command) {
     CMUSHclientDoc *d =
         child ? DYNAMIC_DOWNCAST(CMUSHclientDoc, child->GetActiveDocument())
               : NULL;
-    OpenPennEditor(frame.GetSafeHwnd(),
-                   d ? std::string((LPCTSTR)WorkspaceConnectionId(d))
-                     : "local:unsent");
+    const CString connectionId = d ? WorkspaceConnectionId(d) : "local:unsent";
+    OpenPennEditor(frame.GetSafeHwnd(), (LPCTSTR)connectionId, "",
+                   WorkspaceWorldName(connectionId));
     return;
   }
   WNDCLASSW cls = {0};

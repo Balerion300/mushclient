@@ -2,7 +2,7 @@
 <!DOCTYPE muclient>
 <muclient>
 <plugin name="Blood_of_Dragons_Log_Names" author="MUSHclient contributors"
- id="c2d903ce670f4e018bca7f66" language="Lua" version="1.0"
+ id="c2d903ce670f4e018bca7f66" language="Lua" version="1.1" save_state="y"
  purpose="Optional Blood of Dragons log-name preset" requires="5.00">
 <description trim="y"><![CDATA[
 Select this plugin's StartLog function in Logging Setup, then start logging normally.
@@ -44,7 +44,7 @@ ScriptedLogConfig = {
 -- Host wrapper copied unchanged from plugins/Scripted_Log_Names.xml; unit tests enforce parity.
 local starter
 local function Notify(message) ColourNote("orange", "", message) end
-local function LoadStarter()
+local function LoadStarter(override)
   local helper = require "scripted_log_start"
   local host = {
     ok = error_code.eOK,
@@ -73,7 +73,30 @@ local function LoadStarter()
       end
     end,
   }
-  return helper.new(ScriptedLogConfig,host)
+  local config = override or ScriptedLogConfig
+  if not override and GetVariable then
+    local saved = GetVariable("scripted_log_configuration")
+    if saved and saved ~= "" then config = helper.decode_configuration(saved) end
+  end
+  return helper.new(config,host)
+end
+function ConfigureLogNames(data)
+  SetVariable("scripted_log_configuration_result", "")
+  if starter and starter.pending then Notify("Cancel the pending log start before changing filename settings.");return end
+  local ok,config = pcall(function() return require("scripted_log_start").decode_configuration(data) end)
+  if ok then ok,config = pcall(LoadStarter,config) end
+  if not ok then Notify("Filename settings were not saved: "..tostring(config));return end
+  local previous = GetVariable("scripted_log_configuration")
+  if SetVariable("scripted_log_configuration",data) ~= error_code.eOK then
+    Notify("Filename settings could not be stored.");return
+  end
+  if SaveState() ~= error_code.eOK then
+    if previous then SetVariable("scripted_log_configuration",previous)
+    else DeleteVariable("scripted_log_configuration") end
+    Notify("Filename settings could not be saved. Previous settings remain active.");return
+  end
+  SetVariable("scripted_log_configuration_result", "ok")
+  Notify("Filename settings saved. Start Logging will use them; no command was sent.")
 end
 function StartLog(action)
   if action ~= nil and action ~= "start" then Notify("Log start failed: unrecognized start action.");return end

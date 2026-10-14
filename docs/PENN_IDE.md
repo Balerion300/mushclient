@@ -1,7 +1,11 @@
 # Native PennMUSH editor checkpoints
 
-`OpenPennEditor(owner, endpointIdentity, initialUtf8)` creates a native modeless
+`OpenPennEditor(owner, endpointIdentity, initialUtf8, destinationNameUtf8)` creates a native modeless
 window; endpoint identity must identify the original world and connection session.
+The optional friendly world name appears in the caption, status and request
+previews with a session number that distinguishes duplicate names. The original
+endpoint remains the routing identity; disconnected windows retain their name
+and display their disconnected state.
 The editor has no socket. Attribute review shows the exact
 single-line command, destination and source revision, then offers copying through
 the Unicode clipboard. A changed draft or destination invalidates review.
@@ -103,9 +107,21 @@ Notepad automation adapters. Draft tabs can be renamed without changing their
 document identity, or closed with a save-before-close choice for nonempty source.
 Ctrl+W closes the active draft; closing the last tab leaves a new empty draft.
 Ctrl+Space completes, Ctrl+F focuses search, F3 finds next, Ctrl+S saves source,
-and Ctrl+N opens an unsent tab. Recovery is an atomically replaced temporary
-source-only bundle (32 tabs, 4 MiB per source, 8 MiB aggregate), excludes reference
-windows and carries no destination or permission grants. A malformed bundle is
+and Ctrl+N opens an unsent tab. Recovery is an atomically replaced source-only
+bundle (32 retained/open nonempty drafts, 4 MiB per source, 8 MiB aggregate).
+Stable local recovery identities preserve drafts explicitly kept from closed
+windows and from a previous process, even while other windows autosave or a new
+blank editor opens. Recover restores retained drafts as unsent tabs; drafts
+already open in any editor are not duplicated. Restored tabs receive fresh
+runtime document identities and no saved destination bindings or permission
+grants. Reference windows and blank drafts do not consume recovery capacity.
+Closing a window with No, or completing a tab close after its save/discard
+choice, removes only those drafts' recovery copies. A failed update blocks the
+close and preserves the prior bundle. Capacity never silently evicts older
+drafts: save source files explicitly, then close/discard tabs to free space.
+The PENNIDE2 bundle reads legacy PENNIDE1 source-only recovery and migrates it
+on the next successful write; older clients cannot read PENNIDE2. Unreadable or
+malformed bundles are preserved rather than replaced by autosave, and are
 rejected before altering current drafts. Recovery never transmits. Full IDE completion must not
 be claimed until integrated UI and lifecycle acceptance pass.
 `PennEditorSaveRecoveryFile(path)` and `PennEditorRestoreRecoveryFile(window,
@@ -131,6 +147,20 @@ generated attribute-read and discovery commands, wrong-endpoint/replayed output,
 multiline Unicode base64 response, all-tab recovery and disconnect invalidation.
 A separate mocked reviewed-send callback runs exactly once after its own human
 review dialog; proposals and recovery do not invoke it. No live game is contacted.
+
+Object and attribute fields belong to their draft and survive New, tab switches
+and neighboring tab closure. Every target edit advances the draft revision,
+including an edit followed by restoring the previous value, without changing
+source dirty state or undo history. Read responses, source proposals and reviewed
+commands reject a stale revision; modal approval also rechecks the selected
+document and original destination. Recovery continues to omit target bindings.
+`workspace/PennEditorTargetTests.cpp` includes the production editor implementation
+directly; compile it with `PennLanguage.cpp` and run beside `Scintilla.dll` in a
+fictional Temp folder. Its native edit controls and own-window approvals cover
+target retention, unchanged and stale background replies, target changes during
+read/send/clipboard/proposal review, source dirty/undo state, recovery, friendly
+world captions and duplicate names. Clipboard authorization is observed through
+a test wrapper without accessing or changing the system clipboard.
 
 Legacy Notepad adapter boundary: retain existing ODL dispatch IDs, signatures,
 title lookup and return codes for SendToNotepad(51), AppendToNotepad(52),

@@ -276,13 +276,14 @@ bool CWorkspacePane::AppendRecord(const CString& name, const WorkspaceRecord& re
   CBaseTabbedPane* group=IsTabbed()?GetParentTabbedPane():NULL;
   const bool inactive=group && group->GetUnderlyingWindow() && group->GetUnderlyingWindow()->GetActiveWnd()!=this;
   if(transcript->paused || inactive){
-    if(inactive)transcript->deferred=true;
+    transcript->deferred=true;
     transcript->records.push_back(record);
     transcript->retainedBytes+=incoming*sizeof(wchar_t)+(record.image?512*384*4:0);
     if(transcript->records.size()>2000 || transcript->retainedBytes>8*1024*1024){
       while(transcript->records.size()>1000 || (transcript->retainedBytes>4*1024*1024 && transcript->records.size()>1)){
         const auto& oldest=transcript->records.front();for(const auto& run:oldest.runs)transcript->retainedBytes-=run.text.size()*sizeof(wchar_t);
         if(oldest.image)transcript->retainedBytes-=512*384*4;transcript->records.pop_front();
+        if(transcript->deferredRemoved<transcript->renderedEnds.size())++transcript->deferredRemoved;
       }
       if(name!="Output" && m_pruneHandler)m_pruneHandler(record.connectionId,name,transcript->records);
     }
@@ -507,6 +508,7 @@ bool CWorkspacePane::RetainedSourceAfter(const CString& id,const CString& name,u
 void CWorkspacePane::Rebuild(Transcript& transcript)
 {
   transcript.deferred=false;
+  transcript.deferredRemoved=0;
   CRect viewport;transcript.text.GetClientRect(viewport);transcript.renderedWidth=viewport.Width();
   transcript.text.SetWindowText(""); transcript.links.clear(); transcript.imageStates.clear();transcript.renderedEnds.clear();
   for (size_t i=0;i<transcript.records.size();++i) RenderRecord(transcript,transcript.records[i]);
@@ -537,8 +539,37 @@ void CWorkspacePane::RefreshDeferred()
   CBaseTabbedPane* group=IsTabbed()?GetParentTabbedPane():NULL;
   if(group && group->GetUnderlyingWindow() && group->GetUnderlyingWindow()->GetActiveWnd()!=this)return;
   for(auto* transcript:m_transcripts)if(transcript->deferred && !transcript->paused){
-    const ViewState view=SaveView(transcript->text);transcript->text.SetRedraw(FALSE);
-    Rebuild(*transcript);RestoreView(transcript->text,view);
+    ViewState view=transcript->batchPending?transcript->batchView:SaveView(transcript->text);
+    // Capture positions in the still-frozen rendered records, rather than in
+    // the already-pruned model. The prefix count also handles repeated prunes
+    // that remove records which were never rendered. Sequence may be zero, so
+    // record order is the identity here; every model mutation removes a prefix.
+    struct Position { size_t record;long offset;bool atEnd; } positions[3];
+    const long offsets[]={view.start,view.end,view.anchor};
+    const size_t removed=transcript->deferredRemoved;
+    for(size_t i=0;i<3;++i){
+      const auto& ends=transcript->renderedEnds;
+      size_t index=std::upper_bound(ends.begin(),ends.end(),offsets[i])-ends.begin();
+      if(index==ends.size() && index)--index;
+      const long first=index?ends[index-1]:0;
+      positions[i].record=index;positions[i].offset=max(0L,offsets[i]-first);
+      positions[i].atEnd=index<ends.size() && offsets[i]==ends[index];
+    }
+    transcript->text.SetRedraw(FALSE);Rebuild(*transcript);
+    const auto restorePosition=[&](const Position& position){
+      const auto& ends=transcript->renderedEnds;
+      if(position.record<removed || position.record-removed>=ends.size())return 0L;
+      const size_t index=position.record-removed;
+      const long first=index?ends[index-1]:0;
+      // An image loading label can become a one-character OLE object during
+      // deferral. Keep record-end endpoints at the new paragraph boundary.
+      return position.atEnd?ends[index]:min(first+position.offset,ends[index]);
+    };
+    view.start=restorePosition(positions[0]);view.end=restorePosition(positions[1]);
+    view.anchor=restorePosition(positions[2]);
+    if(positions[2].record<removed)view.anchorY=0;
+    if(transcript->batchPending)transcript->batchView=view;
+    RestoreView(transcript->text,view);
     transcript->text.SetRedraw(TRUE);transcript->text.Invalidate();
   }
 }
@@ -829,7 +860,7 @@ bool CWorkspacePane::HasTranscript(const CString& id,const CString& name) const
 bool CWorkspacePane::ClearTranscript(const CString& id,const CString& name)
 {
   Transcript* transcript=Find(id,name);if(!transcript)return false;
-  transcript->records.clear();transcript->links.clear();transcript->imageStates.clear();transcript->renderedEnds.clear();transcript->retainedBytes=0;transcript->deferred=false;transcript->unread=0;
+  transcript->records.clear();transcript->links.clear();transcript->imageStates.clear();transcript->renderedEnds.clear();transcript->deferredRemoved=0;transcript->retainedBytes=0;transcript->deferred=false;transcript->unread=0;
   for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]==transcript)UpdateTabLabel(i);
   ::SetWindowTextW(transcript->text.m_hWnd,L"");
   if(name!="Output" && m_pruneHandler)m_pruneHandler(id,name,transcript->records);
@@ -851,7 +882,7 @@ void CWorkspacePane::OnPause()
 {
   const int selected=m_tabs.GetCurSel();if(selected<0 || selected>=(int)m_transcripts.size())return;
   Transcript& transcript=*m_transcripts[selected];transcript.paused=m_pause.GetCheck()==BST_CHECKED;
-  if(!transcript.paused) {transcript.unread=0;UpdateTabLabel(selected);transcript.text.SetRedraw(FALSE);Rebuild(transcript);transcript.text.SetRedraw(TRUE);transcript.text.Invalidate();}
+  if(!transcript.paused) {transcript.unread=0;UpdateTabLabel(selected);RefreshDeferred();}
 }
 
 void CWorkspacePane::UpdateTabLabel(size_t index)

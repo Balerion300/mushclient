@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import xml.etree.ElementTree as ET
 from xml.sax.saxutils import quoteattr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,13 @@ local enabled=false
 local base=GetPluginInfo(GetPluginID(),6)
 local function record(text)
  local f=assert(io.open(base..'.receipt','a'));f:write(text,'\n');f:close()
+end
+local function configuration_snapshot()
+ local value=GetPluginVariable('HELPER_ID','scripted_log_configuration')
+ local result=GetPluginVariable('HELPER_ID','scripted_log_configuration_result')
+ local f=assert(io.open(base..'.configuration','wb'));f:write(value or '');f:close()
+ f=assert(io.open(base..'.configuration-result','wb'));f:write(result or '');f:close()
+ return result or ''
 end
 function OnPluginInstall()
  enabled=GetAlphaOption('site')=='127.0.0.1' and WorldName():find('Logging Fictional ',1,true)==1
@@ -66,6 +74,13 @@ function OnPluginTick()
   elseif command=='exclusive-new' then record('exclusive-new:'..tostring(OpenLogExclusive('exclusive-new.txt')));WriteLog('EXCLUSIVE_DATA')
   elseif command=='exclusive-active' then record('exclusive-active:'..tostring(OpenLogExclusive('must-not-exist.txt')))
   elseif command=='exclusive-missing-parent' then record('exclusive-missing-parent:'..tostring(OpenLogExclusive('missing-parent/no-file.txt')))
+  elseif command=='configure' then
+   local f=assert(io.open(base..'.settings','rb'));local settings=f:read('*a');f:close()
+   local result=CallPlugin('HELPER_ID','ConfigureLogNames',settings)
+   record('configure:'..tostring(result)..':'..configuration_snapshot())
+  elseif command=='reload-helper' then
+   local result=ReloadPlugin('HELPER_ID');configuration_snapshot()
+   record('reload-helper:'..tostring(result))
   end
  end
  local f=assert(io.open(base..'.status','w'))
@@ -187,6 +202,9 @@ class Fixture:
         for source in (exe, runtime/'lua5.1.dll', ROOT/'third_party/scintilla/bin/Scintilla.dll'):
             shutil.copy2(source, directory/source.name)
         (directory/'lua').mkdir()
+        # SaveState stays entirely inside this copied runtime, including the
+        # new configuration persistence/reload cases.
+        (directory/'state').mkdir()
         if (ROOT/'lua/scripted_log_start.lua').exists():
             shutil.copy2(ROOT/'lua/scripted_log_start.lua', directory/'lua/scripted_log_start.lua')
         worlds = []
@@ -208,7 +226,7 @@ class Fixture:
         with sqlite3.connect(directory/'mushclient_prefs.sqlite') as db:
             db.executescript('CREATE TABLE control(name TEXT PRIMARY KEY,value INT);CREATE TABLE prefs(name TEXT PRIMARY KEY,value TEXT);CREATE TABLE worlds(name TEXT PRIMARY KEY,value TEXT);')
             db.executemany('INSERT INTO control VALUES(?,?)',[('database_version',1),('First time',0),('Version',507),('Tip_StartUp',1)])
-            db.executemany('INSERT INTO prefs VALUES(?,?)',[('WorldList','*'.join(worlds)),('EnableSpellCheck','0'),('AutoConnectWorlds','1'),('ConfirmLogFileClose','0'),('ConfirmBeforeClosingMushclient','0'),('ConfirmBeforeClosingWorld','0')])
+            db.executemany('INSERT INTO prefs VALUES(?,?)',[('WorldList','*'.join(worlds)),('EnableSpellCheck','0'),('AutoConnectWorlds','1'),('ConfirmLogFileClose','0'),('ConfirmBeforeClosingMushclient','0'),('ConfirmBeforeClosingWorld','0'),('StateFilesDirectory',str(directory/'state')+'\\')])
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 0
@@ -248,6 +266,16 @@ class Fixture:
         path = Path(str(self.drivers[label])+'.receipt')
         return path.read_text() if path.exists() else ''
 
+    def configure(self, data, label='Alpha'):
+        Path(str(self.drivers[label])+'.settings').write_bytes(data)
+        self.control('configure', label)
+        return self.configuration(label)
+
+    def configuration(self, label='Alpha'):
+        base = str(self.drivers[label])
+        return (Path(base+'.configuration').read_bytes(),
+                Path(base+'.configuration-result').read_text())
+
     def evidence(self):
         return {'statuses': {label:self.status(label) for label in self.drivers}, 'driver': {label:self.receipt(label) for label in self.drivers}, 'commands': {label:endpoint.commands[:] for label,endpoint in self.endpoints.items()}, 'logs':[path.name for path in self.directory.glob('*.txt')]}
 
@@ -282,6 +310,22 @@ def configure_helper(source, directory):
     return source[:source.index(begin)+len(begin)]+'\n'+config+'\n'+source[source.index(end):]
 
 
+def saved_name_settings(directory, *, invalid_pcre=False, prefix='configured',
+                        request='fixture-config-date'):
+    """The data-only SLN1 format produced by the native automatic-names form."""
+    fields = [
+        ('day', '[' if invalid_pcre else '^Day: ([0-9][0-9])$', '1', 'pad2', '1'),
+        ('month', '^Month: ([0-9][0-9])$', '1', 'pad2', '1'),
+        ('year', '^Year: ([0-9][0-9][0-9])$', '1', 'number', '1'),
+    ]
+    values = [str(directory).replace('\\', '/'),
+              prefix+'-{world}-{year}-{month}-{day}-{number}.txt', request,
+              '^=== Fictional Calendar ===$', '^=== End Calendar ===$',
+              '1', str(len(fields))]
+    values.extend(value for field in fields for value in field)
+    return ('SLN1\n'+''.join(value.encode('ascii').hex()+'\n' for value in values)).encode('ascii')
+
+
 def run_case(root, exe, helper, name):
     directory = root/name
     fixture = Fixture(directory, exe, helper, ('Alpha','Beta') if name == 'two-worlds' else ('Alpha',), 'world' if name == 'world-hook' else ('plugin' if name == 'plugin-hook' else 'helper'))
@@ -311,6 +355,60 @@ def run_case(root, exe, helper, name):
             assert (directory/'prior.txt').read_bytes() == b'PRIOR_LOG_MUST_SURVIVE\r\n'
             assert not (directory/'must-not-exist.txt').exists()
             assert 'EXCLUSIVE_DATA' in (directory/'exclusive-new.txt').read_text()
+        elif name in ('configured-success','configured-invalid-pcre',
+                      'configured-pending','configured-reload'):
+            saved = saved_name_settings(directory)
+            actual, result = fixture.configure(saved)
+            assert actual == saved and result == 'ok', fixture.evidence()
+            assert fixture.endpoints['Alpha'].commands == [], fixture.evidence()
+            assert not list(directory.glob('*.txt')), 'Saving settings started a log'
+            state_files = list((directory/'state').glob('*-'+HELPER_ID+'-state.xml'))
+            assert len(state_files) == 1, fixture.evidence()
+            stored = {node.attrib.get('name'):node.text or ''
+                      for node in ET.parse(state_files[0]).iter('variable')}
+            assert stored.get('scripted_log_configuration', '').encode('ascii') == saved, stored
+            if name == 'configured-invalid-pcre':
+                actual, result = fixture.configure(saved_name_settings(directory, invalid_pcre=True))
+                assert actual == saved and result == '', fixture.evidence()
+                assert fixture.endpoints['Alpha'].commands == []
+                assert not list(directory.glob('*.txt')), 'Invalid rules started a log'
+                stored = {node.attrib.get('name'):node.text or ''
+                          for node in ET.parse(state_files[0]).iter('variable')}
+                assert stored.get('scripted_log_configuration', '').encode('ascii') == saved, stored
+            elif name == 'configured-reload':
+                # Reload destroys the helper's Lua state and imports its saved
+                # variables. Its XML defaults request fixture-date and use a
+                # different filename, so the manual start below proves the
+                # persisted UI settings were loaded and actually used.
+                fixture.control('reload-helper')
+                assert 'reload-helper:0' in fixture.receipt(), fixture.evidence()
+                actual, _ = fixture.configuration()
+                # The client's XML variable loader restores structural LF as
+                # CRLF. The configuration decoders must accept that native
+                # persistence roundtrip; the next Start must still use it.
+                assert actual.replace(b'\r\n', b'\n') == saved, fixture.evidence()
+                assert fixture.endpoints['Alpha'].commands == [], 'Reload sent a metadata request'
+                assert not list(directory.glob('*.txt')), 'Reload started a log'
+            fixture.control('start')
+            assert wait_until(lambda: fixture.endpoints['Alpha'].commands), fixture.evidence()
+            assert fixture.endpoints['Alpha'].commands == ['fixture-config-date'], fixture.evidence()
+            assert '|false|' in fixture.status(), 'Log opened before configured reply'
+            if name == 'configured-pending':
+                actual, result = fixture.configure(saved_name_settings(
+                    directory, prefix='must-not-use', request='must-not-send'))
+                assert actual == saved and result == '', fixture.evidence()
+                assert fixture.endpoints['Alpha'].commands == ['fixture-config-date'], fixture.evidence()
+            fixture.endpoints['Alpha'].header(tail='CONFIGURED_TAIL\r\n')
+            assert wait_until(lambda: '|true|' in fixture.status()), fixture.evidence()
+            fixture.endpoints['Alpha'].send('CONFIGURED_PAYLOAD\r\n')
+            time.sleep(.15)
+            fixture.control('close')
+            paths = list(directory.glob('configured-Logging Fictional Alpha-178-04-18-*.txt'))
+            assert len(paths) == 1, fixture.evidence()
+            text = paths[0].read_text()
+            assert all(text.count(line) == 1 for line in HEADER), text
+            assert text.count('CONFIGURED_TAIL') == 1 and text.count('CONFIGURED_PAYLOAD') == 1, text
+            assert fixture.endpoints['Alpha'].commands == ['fixture-config-date'], fixture.evidence()
         elif name in ('malformed','timeout','cancel','disconnect'):
             fixture.start()
             if name == 'malformed':
@@ -374,7 +472,7 @@ def main():
     parser.add_argument('--exe', type=Path, default=ROOT/'WinRel/MUSHclient.exe')
     parser.add_argument('--helper', type=Path, default=ROOT/'plugins/Scripted_Log_Names.xml')
     parser.add_argument('--destination', type=Path)
-    parser.add_argument('--cases', nargs='+', default=['plugin-hook','world-hook','success','malformed','timeout','cancel','disconnect','collision','two-worlds'])
+    parser.add_argument('--cases', nargs='+', default=['plugin-hook','world-hook','success','malformed','timeout','cancel','disconnect','collision','two-worlds','configured-success','configured-invalid-pcre','configured-pending','configured-reload'])
     args = parser.parse_args()
     root = args.destination or Path(tempfile.mkdtemp(prefix='mush-scripted-logging-'))
     root.mkdir(exist_ok=True)

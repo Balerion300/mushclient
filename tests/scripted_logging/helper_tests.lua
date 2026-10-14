@@ -233,4 +233,65 @@ do
   end
   check(scripts[1]:match('(local starter.*)')==scripts[2]:match('(local starter.*)'),'optional preset host wrapper drifted from generic')
 end
+do
+  local function wire(values)
+    local result='SLN1\n'
+    for _,value in ipairs(values) do
+      result=result..tostring(value):gsub('.',function(ch) return string.format('%02x',ch:byte()) end)..'\n'
+    end
+    return result
+  end
+  local values={'C:/fictional/logs','{game_year}-{number}.txt','fixture-date',
+    '^BEGIN$','^END$','1','1','game_year','^Year: (\\d+)$','1','number','1'}
+  local data=wire(values)
+  local cfg=helper.decode_configuration(data)
+  check(cfg.folder==values[1] and cfg.template==values[2] and cfg.fields[1].capture==1 and
+    cfg.fields[1].transform=='number' and cfg.required[1]=='game_year','native settings data did not decode')
+  local persisted=data:gsub('\n','\r\n')
+  local reloaded=helper.decode_configuration(persisted)
+  check(reloaded.request_command==cfg.request_command and reloaded.template==cfg.template and
+    reloaded.fields[1].regex==cfg.fields[1].regex,'native XML CRLF settings roundtrip failed')
+  check(not pcall(helper.decode_configuration,data:gsub('SLN1\n','SLN1\r')),'bare CR header accepted')
+  check(not pcall(helper.decode_configuration,data..'x'),'trailing settings data accepted')
+  check(not pcall(helper.decode_configuration,data:gsub('SLN1','SLN9')),'unknown settings version accepted')
+  check(not pcall(helper.decode_configuration,'SLN1\nzz\n'),'malformed settings hex accepted')
+  values[10]='0';check(not pcall(helper.decode_configuration,wire(values)),'zero capture accepted');values[10]='1'
+  values[8]='number';check(not pcall(helper.decode_configuration,wire(values)),'reserved field name accepted');values[8]='game_year'
+  values[3]='';check(not pcall(helper.decode_configuration,wire(values)),'reply rules without request accepted');values[3]='fixture-date'
+  local api,state=host();local variables={};local saves=0;local deny=false
+  local file=assert(io.open('plugins/Scripted_Log_Names.xml','rb'));local xml=file:read('*a');file:close()
+  local script=assert(xml:match('<script><!%[CDATA%[(.-)%]%]></script>'))
+  local env=setmetatable({
+    GetInfo=function(n) if n==58 then return 'C:/fictional/logs' elseif n==2 then return api.world_name() else return 'C:/fictional/client' end end,
+    GetWorldID=api.world_id,IsConnected=api.connected,IsLogOpen=api.is_open,GetOption=function() return 0 end,
+    OpenLogExclusive=api.open_exclusive,WriteLog=api.write,CloseLog=api.close,Send=api.send,
+    ColourNote=function(a,b,text) api.notify(text) end,error_code={eOK=0},utils={timer=api.now},
+    GetVariable=function(name) return variables[name] end,
+    SetVariable=function(name,value) variables[name]=value;return 0 end,
+    DeleteVariable=function(name) variables[name]=nil;return 0 end,
+    SaveState=function() saves=saves+1;return deny and 1 or 0 end,
+  },{__index=_G})
+  local chunk=assert(loadstring(script));setfenv(chunk,env);chunk()
+  env.ConfigureLogNames(data)
+  check(variables.scripted_log_configuration==data and variables.scripted_log_configuration_result=='ok' and saves==1,
+    'valid UI settings were not persisted')
+  check(#state.sent==0 and not state.open,'saving UI settings sent a command or opened a log')
+  values[9]='[';env.ConfigureLogNames(wire(values))
+  check(variables.scripted_log_configuration==data and saves==1 and variables.scripted_log_configuration_result=='',
+    'invalid PCRE overwrote saved settings')
+  values[9]='^Year: (\\d+)$';values[2]='changed-{number}.txt';deny=true
+  env.ConfigureLogNames(wire(values))
+  check(variables.scripted_log_configuration==data and variables.scripted_log_configuration_result=='',
+    'state save failure did not roll back settings')
+  deny=false
+  env.StartLog('start')
+  check(#state.sent==1 and state.sent[1]=='fixture-date' and not state.open,'saved UI request did not wait for manual start')
+  env.ConfigureLogNames(data)
+  check(#state.sent==1 and saves==2 and variables.scripted_log_configuration_result=='',
+    'settings changed while a request was pending')
+  for _,line in ipairs({'BEGIN','Year: 0178','END'}) do env.OnPluginLineReceived(line) end
+  env.OnPluginTick()
+  check(state.open and state.path=='C:/fictional/logs/178-001.txt','saved UI captured field did not name log')
+  check(state.writes[1]=='BEGIN\nYear: 0178\nEND','saved UI header option was ignored')
+end
 print('PASS '..checks..' scripted logging assertions; native Lua '.._VERSION..' / PCRE '..rex.version())

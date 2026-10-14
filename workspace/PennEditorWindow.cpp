@@ -108,6 +108,7 @@ struct Document {
   std::wstring title;
   bool lua = false;
   uint64_t id = 0;
+  std::string recoveryId;
 };
 struct Editor {
   HWND window = 0, text = 0, tabs = 0, status = 0, object = 0, attribute = 0,
@@ -119,6 +120,8 @@ struct Editor {
   int fontSize = 11;
   sptr_t lastCaret = -1;
   std::string endpoint;
+  std::string destinationName;
+  uint64_t destinationNumber = 0;
   PennIDE::ReadRequest read, discovery;
   size_t readDocument = 0;
   std::vector<std::string> discovered;
@@ -137,6 +140,17 @@ std::wstring Wide(const std::string &s) {
     MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), &w[0],
                         n);
   return w;
+}
+std::string Destination(const Editor *e) {
+  if (!e->destinationNumber)
+    return e->recoverable ? "Local drafts (unbound)" : "Offline reference";
+  return e->destinationName + " (session " +
+         std::to_string(e->destinationNumber) +
+         (e->endpoint.empty() ? ", disconnected)" : ")");
+}
+void Caption(Editor *e) {
+  SetWindowTextW(e->window,
+                 Wide("PennMUSH IDE - " + Destination(e)).c_str());
 }
 std::string Utf8(HWND h) {
   int n = GetWindowTextLengthW(h);
@@ -157,13 +171,40 @@ std::string Text(Editor *e) {
   s.resize(n);
   return s;
 }
+void SyncTargets(Editor *e) {
+  if (e->loading || e->docs.empty())
+    return;
+  auto object = Utf8(e->object), attribute = Utf8(e->attribute);
+  auto &d = e->docs[e->active].draft;
+  if (d.object != object || d.attribute != attribute) {
+    d.object = object;
+    d.attribute = attribute;
+    // Targets are part of the revision, including changes that are later undone.
+    // Outstanding reads, proposed edits and command reviews must stay stale.
+    ++d.revision;
+  }
+}
 void Sync(Editor *e) {
-  if (e->docs.empty() || static_cast<size_t>(Sci(e, SCI_GETLENGTH)) > MaxSource)
+  if (e->loading || e->docs.empty())
+    return;
+  SyncTargets(e);
+  if (static_cast<size_t>(Sci(e, SCI_GETLENGTH)) > MaxSource)
     return;
   auto &d = e->docs[e->active].draft;
   auto s = Text(e);
   if (s != d.source)
     d.Replace(s);
+}
+bool CurrentDraft(HWND window, Editor *e, uint64_t id, uint64_t revision,
+                  const std::string &endpoint) {
+  if (State(window) != e || e->docs.empty() ||
+      static_cast<size_t>(Sci(e, SCI_GETLENGTH)) > MaxSource)
+    return false;
+  Sync(e);
+  const auto &document = e->docs[e->active];
+  return e->endpoint == endpoint && document.id == id &&
+         document.draft.revision == revision &&
+         document.draft.endpoint == endpoint;
 }
 bool CompletionChar(int c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
@@ -249,7 +290,7 @@ void Analyze(Editor *e) {
   Sci(e, SCI_INDICATORCLEARRANGE, 0, s.size());
   for (auto &d : a.diagnostics)
     Sci(e, SCI_INDICATORFILLRANGE, d.byteOffset, 1);
-  std::string status = "Unsent draft | " + e->endpoint + " | revision " +
+  std::string status = "Unsent draft | " + Destination(e) + " | revision " +
                        std::to_string(e->docs[e->active].draft.revision) +
                        " | " + std::to_string(a.diagnostics.size()) +
                        " advisory bracket hints";
@@ -268,24 +309,27 @@ void Analyze(Editor *e) {
     status += " | " + hint;
   SetWindowTextW(e->status, Wide(status).c_str());
 }
-void Select(Editor *e, size_t i) {
+void Select(Editor *e, size_t i, bool syncCurrent = true) {
   if (i >= e->docs.size())
     return;
-  Sync(e);
+  if (syncCurrent)
+    Sync(e);
   Sci(e, SCI_AUTOCCANCEL);
   e->loading = true;
   e->active = i;
   Sci(e, SCI_SETDOCPOINTER, 0, e->docs[i].scintilla);
-  e->loading = false;
   TabCtrl_SetCurSel(e->tabs, static_cast<int>(i));
   SetWindowTextW(e->object, Wide(e->docs[i].draft.object).c_str());
   SetWindowTextW(e->attribute, Wide(e->docs[i].draft.attribute).c_str());
+  e->loading = false;
   Analyze(e);
   SetFocus(e->text);
 }
+std::string NewRecoveryIdentity();
 void Add(Editor *e, const std::string &s) {
   Sync(e);
   Document d;
+  d.recoveryId = NewRecoveryIdentity();
   d.draft.endpoint = e->endpoint;
   d.draft.source = s;
   static volatile LONG nextIdentity = 0;
@@ -305,10 +349,10 @@ void Add(Editor *e, const std::string &s) {
   Sci(e, SCI_SETDOCPOINTER, 0, d.scintilla);
   Sci(e, SCI_SETTEXT, 0, reinterpret_cast<sptr_t>(s.c_str()));
   Sci(e, SCI_EMPTYUNDOBUFFER);
-  e->loading = false;
   TabCtrl_SetCurSel(e->tabs, static_cast<int>(e->active));
   SetWindowTextW(e->object, L"");
   SetWindowTextW(e->attribute, L"");
+  e->loading = false;
   Analyze(e);
   if (!e->recoverable)
     Sci(e, SCI_SETREADONLY, 1);
@@ -352,43 +396,180 @@ void Preferences(Editor *e, bool save) {
 bool Write(const std::wstring &path, const std::string &s) {
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   out.write(s.data(), s.size());
+  out.flush();
+  out.close();
   return out.good();
 }
-bool SaveRecovery(const std::wstring &path = Recovery()) {
-  std::vector<std::string> sources;
+bool LegacyRecoveryPrefix(const std::wstring &path, const std::string &bytes,
+                          std::string &prefix) {
+  wchar_t absolute[32768];
+  DWORD length = GetFullPathNameW(path.c_str(), 32768, absolute, 0);
+  if (!length || length >= 32768)
+    return false;
+  CharLowerBuffW(absolute, length);
+  BCRYPT_ALG_HANDLE algorithm = 0;
+  BCRYPT_HASH_HANDLE hash = 0;
+  DWORD objectSize = 0, returned = 0;
+  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, 0, 0))
+    return false;
+  bool ok = BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH,
+                               reinterpret_cast<PUCHAR>(&objectSize),
+                               sizeof(objectSize), &returned, 0) == 0;
+  std::vector<unsigned char> object(objectSize);
+  unsigned char digest[32];
+  if (ok)
+    ok = BCryptCreateHash(algorithm, &hash, object.data(), objectSize, 0, 0, 0) == 0;
+  if (ok)
+    ok = BCryptHashData(hash, reinterpret_cast<PUCHAR>(absolute),
+                         (length + 1) * sizeof(wchar_t), 0) == 0 &&
+         BCryptHashData(hash, reinterpret_cast<PUCHAR>(const_cast<char *>(bytes.data())),
+                         static_cast<ULONG>(bytes.size()), 0) == 0 &&
+         BCryptFinishHash(hash, digest, sizeof(digest), 0) == 0;
+  if (hash) BCryptDestroyHash(hash);
+  BCryptCloseAlgorithmProvider(algorithm, 0);
+  if (!ok) return false;
+  prefix = "legacy-";
+  const char hex[] = "0123456789abcdef";
+  for (int i = 0; i < 16; ++i) {
+    prefix += hex[digest[i] >> 4]; prefix += hex[digest[i] & 15];
+  }
+  prefix += '-';
+  return true;
+}
+bool LoadRecovery(const std::wstring &path,
+                  std::vector<PennIDE::RecoveryEntry> &entries,
+                  bool missingAllowed = false) {
+  if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    auto error = GetLastError();
+    if (missingAllowed &&
+        (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)) {
+      entries.clear();
+      return true;
+    }
+    return false;
+  }
+  std::ifstream input(path, std::ios::binary | std::ios::ate);
+  auto size = input.tellg();
+  if (size < 0 || size > 8 * 1024 * 1024)
+    return false;
+  input.seekg(0);
+  std::string bytes(static_cast<size_t>(size), '\0');
+  if (size && !input.read(&bytes[0], size))
+    return false;
+  std::vector<PennIDE::RecoveryEntry> loaded;
+  if (!PennIDE::DecodeRecoveryEntries(bytes, loaded))
+    return false;
+  if (bytes.compare(0, 9, "PENNIDE1\n") == 0) {
+    // Index-only legacy IDs would collide across unrelated import/default
+    // files. Scope them to the canonical path and the original bundle.
+    std::string prefix;
+    if (!LegacyRecoveryPrefix(path, bytes, prefix)) return false;
+    for (size_t i = 0; i < loaded.size(); ++i)
+      loaded[i].id = prefix + std::to_string(i);
+  }
+  entries = loaded;
+  return true;
+}
+std::string NewRecoveryIdentity() {
+  unsigned char random[16];
+  if (BCryptGenRandom(0, random, sizeof(random),
+                      BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
+    return "";
+  const char hex[] = "0123456789abcdef";
+  std::string id = "draft-";
+  for (auto byte : random) {
+    id += hex[byte >> 4];
+    id += hex[byte & 15];
+  }
+  return id;
+}
+bool SaveRecovery(const std::wstring &path = Recovery(),
+                  const std::set<std::string> &discarded = {}) {
+  // Start from retained/restart entries, never just the open window inventory.
+  // An unreadable or malformed previous bundle must remain untouched.
+  std::vector<PennIDE::RecoveryEntry> entries;
+  if (!LoadRecovery(path, entries, true))
+    return false;
+  entries.erase(std::remove_if(entries.begin(), entries.end(),
+                               [&](const PennIDE::RecoveryEntry &entry) {
+                                 return discarded.count(entry.id) != 0;
+                               }), entries.end());
   for (auto h : Windows) {
     auto e = State(h);
     if (!e || !e->recoverable)
       continue;
+    if (!e->docs.empty() &&
+        !discarded.count(e->docs[e->active].recoveryId) &&
+        static_cast<size_t>(Sci(e, SCI_GETLENGTH)) > MaxSource)
+      return false;
     Sync(e);
-    for (auto &d : e->docs)
-      sources.push_back(d.draft.source);
+    for (auto &d : e->docs) {
+      if (discarded.count(d.recoveryId))
+        continue;
+      auto found = std::find_if(entries.begin(), entries.end(),
+                                 [&](const PennIDE::RecoveryEntry &entry) {
+                                   return entry.id == d.recoveryId;
+                                 });
+      if (d.draft.source.empty()) {
+        if (found != entries.end())
+          entries.erase(found);
+        continue;
+      }
+      if (d.recoveryId.empty()) {
+        d.recoveryId = NewRecoveryIdentity();
+        if (d.recoveryId.empty())
+          return false;
+      }
+      if (found == entries.end())
+        entries.push_back({d.recoveryId, d.draft.source});
+      else
+        found->source = d.draft.source;
+    }
   }
   std::string bytes;
-  if (!PennIDE::EncodeRecovery(sources, bytes))
+  if (!PennIDE::EncodeRecoveryEntries(entries, bytes))
     return false;
   auto temporary = path + L".tmp";
-  return Write(temporary, bytes) &&
-         MoveFileExW(temporary.c_str(), path.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+  std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+  out.write(bytes.data(), bytes.size());
+  out.flush();
+  out.close();
+  bool saved = out.good() &&
+               MoveFileExW(temporary.c_str(), path.c_str(),
+                           MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+  if (!saved)
+    DeleteFileW(temporary.c_str());
+  return saved;
+}
+void RemoveOpenRecovery(std::vector<PennIDE::RecoveryEntry> &entries) {
+  std::set<std::string> open;
+  for (auto h : Windows) {
+    auto editor = State(h);
+    if (editor && editor->recoverable)
+      for (auto &d : editor->docs)
+        if (!d.recoveryId.empty())
+          open.insert(d.recoveryId);
+  }
+  entries.erase(std::remove_if(entries.begin(), entries.end(),
+                               [&](const PennIDE::RecoveryEntry &entry) {
+                                 return open.count(entry.id) != 0;
+                               }), entries.end());
 }
 bool RestoreRecovery(Editor *e, const std::wstring &path = Recovery()) {
-  std::ifstream input(path, std::ios::binary | std::ios::ate);
-  auto size = input.tellg();
-  if (size < 0 || size > 8 * 1024 * 1024) {
-    MessageBoxW(e->window, L"Recovery is missing or exceeds the 8 MiB limit.",
+  auto owner = e->window;
+  std::vector<PennIDE::RecoveryEntry> entries;
+  if (!LoadRecovery(path, entries)) {
+    MessageBoxW(e->window,
+                L"Recovery is missing, unreadable, malformed or exceeds 8 MiB. "
+                L"The current drafts and recovery file remain unchanged.",
                 L"Draft recovery", MB_ICONWARNING);
     return false;
   }
-  input.seekg(0);
-  std::string bytes(static_cast<size_t>(size), '\0');
-  if (size)
-    input.read(&bytes[0], size);
-  std::vector<std::string> sources;
-  if (!PennIDE::DecodeRecovery(bytes, sources)) {
-    MessageBoxW(e->window,
-                L"Recovery is malformed. The current drafts remain unchanged.",
-                L"Draft recovery", MB_ICONWARNING);
+  RemoveOpenRecovery(entries);
+  if (entries.empty()) {
+    MessageBoxW(e->window, L"No retained drafts need recovery. Drafts already "
+                           L"open in any editor are not duplicated.",
+                L"Draft recovery", MB_ICONINFORMATION);
     return false;
   }
   if (MessageBoxW(
@@ -398,8 +579,17 @@ bool RestoreRecovery(Editor *e, const std::wstring &path = Recovery()) {
           L"the current destination before preparing a command.",
           L"Review draft recovery", MB_OKCANCEL) != IDOK)
     return false;
-  for (auto &source : sources)
-    Add(e, source);
+  if (!IsWindow(owner) || State(owner) != e)
+    return false;
+  // The approval dialog pumps timers and other windows. Reconcile again so
+  // another editor cannot restore the same retained document twice.
+  if (!LoadRecovery(path, entries))
+    return false;
+  RemoveOpenRecovery(entries);
+  for (auto &entry : entries) {
+    Add(e, entry.source);
+    e->docs.back().recoveryId = entry.id;
+  }
   return true;
 }
 void Load(Editor *e, const std::wstring &path) {
@@ -612,7 +802,8 @@ void Command(Editor *e, int id) {
     size_t closing = e->active;
     if (!e->docs[closing].draft.source.empty()) {
       int answer = MessageBoxW(
-          e->window, L"Save this draft to a source file before closing it?",
+          e->window, L"Save this draft to a source file before closing it? "
+                     L"No discards this draft, including its recovery copy.",
           L"Close unsent draft", MB_YESNOCANCEL);
       if (answer == IDCANCEL)
         break;
@@ -621,6 +812,14 @@ void Command(Editor *e, int id) {
         if (path.empty() || !Write(path, e->docs[closing].draft.source))
           break;
       }
+    }
+    if (e->docs[closing].recoveryId.empty() ||
+        !SaveRecovery(Recovery(), {e->docs[closing].recoveryId})) {
+      MessageBoxW(e->window,
+                  L"The recovery copy could not be removed. The draft remains "
+                  L"open; save source files explicitly.",
+                  L"Close unsent draft", MB_ICONERROR);
+      break;
     }
     if (e->docs.size() == 1)
       Add(e, "");
@@ -637,7 +836,7 @@ void Command(Editor *e, int id) {
         --e->readDocument;
     }
     Sci(e, SCI_RELEASEDOCUMENT, 0, pointer);
-    Select(e, e->active);
+    Select(e, e->active, false);
     break;
   }
   case LargerFont:
@@ -655,14 +854,8 @@ void Command(Editor *e, int id) {
       break;
     }
     Sync(e);
-    auto &document = e->docs[e->active];
-    auto &draft = document.draft;
-    auto object = Utf8(e->object), attribute = Utf8(e->attribute);
-    if (draft.object != object || draft.attribute != attribute) {
-      draft.object = object;
-      draft.attribute = attribute;
-      ++draft.revision;
-    }
+    const auto document = e->docs[e->active];
+    const auto &draft = document.draft;
     std::vector<std::string> commands;
     std::string error;
     if (!PennIDE::PrepareCommands(draft, commands, error)) {
@@ -672,19 +865,18 @@ void Command(Editor *e, int id) {
     }
     auto endpoint = draft.endpoint;
     auto documentID = document.id, revision = draft.revision;
-    std::string preview = "Destination: " + endpoint +
+    std::string preview = "Destination: " + Destination(e) +
                           "\nDocument: " + std::to_string(documentID) +
                           " revision " + std::to_string(revision) +
                           "\n\nExact commands:\n";
     for (auto &command : commands)
       preview += command + "\n";
     preview += "\nSend these commands once to this original destination?";
-    if (!ReviewCommands(e->window, preview))
+    const auto owner = e->window;
+    if (!ReviewCommands(owner, preview))
       break;
-    Sync(e);
-    if (e->endpoint != endpoint || e->docs[e->active].id != documentID ||
-        draft.revision != revision || draft.endpoint != endpoint) {
-      MessageBoxW(e->window, L"Draft or destination changed. Nothing was sent.",
+    if (!CurrentDraft(owner, e, documentID, revision, endpoint)) {
+      MessageBoxW(owner, L"Draft or destination changed. Nothing was sent.",
                   L"Prepared commands", MB_ICONWARNING);
       break;
     }
@@ -725,13 +917,8 @@ void Command(Editor *e, int id) {
     if (KnownReply(e->endpoint, nonce))
       break;
     Sync(e);
-    auto &draft = e->docs[e->active].draft;
-    auto object = Utf8(e->object), attribute = Utf8(e->attribute);
-    if (draft.object != object || draft.attribute != attribute) {
-      draft.object = object;
-      draft.attribute = attribute;
-      ++draft.revision;
-    }
+    const auto draft = e->docs[e->active].draft;
+    const auto documentID = e->docs[e->active].id;
     PennIDE::ReadRequest request;
     bool valid = id == ReadAttribute
                      ? PennIDE::PrepareAttributeRead(draft, nonce, request)
@@ -744,15 +931,17 @@ void Command(Editor *e, int id) {
       break;
     }
     std::string preview =
-        "Read-only request to " + request.endpoint + "\n\n" + request.command +
+        "Read-only request to " + Destination(e) + "\n\n" + request.command +
         "\n\nSend this exact read request? Loading an attribute replaces the "
-        "draft only if its source revision is unchanged.";
-    if (MessageBoxW(e->window, Wide(preview).c_str(),
+        "draft only if its source and targets are unchanged.";
+    const auto owner = e->window;
+    if (MessageBoxW(owner, Wide(preview).c_str(),
                     L"Approve explicit read request", MB_OKCANCEL) != IDOK)
       break;
-    Sync(e);
-    if (request.endpoint != e->endpoint ||
-        (!request.discovery && request.revision != draft.revision))
+    if (State(owner) != e || request.endpoint != e->endpoint ||
+        (!request.discovery &&
+         !CurrentDraft(owner, e, documentID, request.revision,
+                       request.endpoint)))
       break;
     if (!OwnReply(request.endpoint, request.nonce))
       break;
@@ -845,13 +1034,8 @@ void Command(Editor *e, int id) {
   }
   case Review: {
     Sync(e);
-    auto &d = e->docs[e->active].draft;
-    auto object = Utf8(e->object), attribute = Utf8(e->attribute);
-    if (d.object != object || d.attribute != attribute) {
-      d.object = object;
-      d.attribute = attribute;
-      ++d.revision;
-    }
+    const auto d = e->docs[e->active].draft;
+    const auto documentID = e->docs[e->active].id;
     PennIDE::Review r;
     std::string error;
     if (!PennIDE::PrepareReview(d, r, error)) {
@@ -859,13 +1043,14 @@ void Command(Editor *e, int id) {
                   MB_ICONWARNING);
       break;
     }
-    std::string preview = "Destination: " + r.endpoint +
+    std::string preview = "Destination: " + Destination(e) +
                           "\nRevision: " + std::to_string(r.revision) + "\n\n" +
                           r.command +
                           "\n\nCopy this reviewed command to the clipboard?";
-    if (MessageBoxW(e->window, Wide(preview).c_str(),
+    const auto owner = e->window;
+    if (MessageBoxW(owner, Wide(preview).c_str(),
                     L"Review exact command (unsent)", MB_OKCANCEL) == IDOK &&
-        PennIDE::ReviewCurrent(d, r, e->endpoint)) {
+        CurrentDraft(owner, e, documentID, r.revision, r.endpoint)) {
       auto wide = Wide(r.command);
       if (OpenClipboard(e->window)) {
         EmptyClipboard();
@@ -1057,6 +1242,14 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     return 0;
   }
   case WM_COMMAND:
+    if (HIWORD(w) == EN_CHANGE &&
+        (reinterpret_cast<HWND>(l) == e->object ||
+         reinterpret_cast<HWND>(l) == e->attribute)) {
+      SyncTargets(e);
+      if (!e->loading)
+        SetTimer(h, 1, 180, 0);
+      return 0;
+    }
     Command(e, LOWORD(w));
     return 0;
   case WM_NOTIFY: {
@@ -1123,12 +1316,23 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
           h,
           L"Keep the open unsent drafts in local recovery before closing? "
           L"Recovery stores source only, without destination bindings or "
-          L"grants.",
+          L"grants. No discards this window's drafts and their recovery copies; "
+          L"drafts kept from other windows remain available.",
           L"Unsent draft", MB_YESNOCANCEL);
       if (answer == IDCANCEL)
         return 0;
-      if (answer == IDYES && !SaveRecovery()) {
-        MessageBoxW(h, L"Recovery could not be saved.", L"PennMUSH IDE",
+      std::set<std::string> discarded;
+      if (answer == IDNO)
+        for (auto &d : e->docs) {
+          if (d.recoveryId.empty())
+            d.recoveryId = NewRecoveryIdentity();
+          if (d.recoveryId.empty())
+            return 0;
+          discarded.insert(d.recoveryId);
+        }
+      if (!SaveRecovery(Recovery(), discarded)) {
+        MessageBoxW(h, L"Recovery could not be updated. The window remains "
+                       L"open; save source files explicitly.", L"PennMUSH IDE",
                     MB_ICONERROR);
         return 0;
       }
@@ -1159,7 +1363,8 @@ bool PennEditorConfigureStorage(const std::wstring &folder) {
          GetLastError() == ERROR_ALREADY_EXISTS;
 }
 HWND OpenPennEditor(HWND owner, const std::string &endpoint,
-                    const std::string &source) {
+                    const std::string &source,
+                    const std::string &destinationName) {
   if (source.size() > MaxSource || !PennIDE::ValidUtf8(source))
     return 0;
   static HMODULE module = 0;
@@ -1191,12 +1396,23 @@ HWND OpenPennEditor(HWND owner, const std::string &endpoint,
   auto e = new Editor;
   e->endpoint = endpoint;
   e->recoverable = !endpoint.empty();
+  e->destinationName = destinationName.empty() ? "World" : destinationName;
+  if (!endpoint.empty() && endpoint != "local:unsent") {
+    static uint64_t nextDestination = 0;
+    for (auto existing : Windows) {
+      auto state = State(existing);
+      if (state && state->endpoint == endpoint)
+        e->destinationNumber = state->destinationNumber;
+    }
+    if (!e->destinationNumber)
+      e->destinationNumber = ++nextDestination;
+  }
   Preferences(e, false);
   HMENU menu = CreateMenu(), file = CreatePopupMenu(), edit = CreatePopupMenu();
   AppendMenuW(file, MF_STRING, New, L"New unsent draft");
   AppendMenuW(file, MF_STRING, Open, L"Open UTF-8 source...");
   AppendMenuW(file, MF_STRING, Save, L"Save source...");
-  AppendMenuW(file, MF_STRING, Recover, L"Recover last active draft");
+  AppendMenuW(file, MF_STRING, Recover, L"Recover retained drafts...");
   AppendMenuW(edit, MF_STRING, Undo, L"Undo");
   AppendMenuW(edit, MF_STRING, Redo, L"Redo");
   AppendMenuW(edit, MF_STRING, Complete, L"Complete at caret");
@@ -1260,6 +1476,7 @@ HWND OpenPennEditor(HWND owner, const std::string &endpoint,
     EnableWindow(e->replacement, FALSE);
   }
   Windows.push_back(h);
+  Caption(e);
   ShowWindow(h, SW_SHOW);
   return h;
 }
@@ -1395,6 +1612,7 @@ void PennEditorInvalidateEndpoint(const std::string &endpoint) {
         d.draft.endpoint.clear();
         ++d.draft.revision;
       }
+      Caption(e);
       SetWindowTextW(e->status, L"Destination disconnected. Drafts remain "
                                 L"unsent; game requests are disabled.");
     }
@@ -1474,7 +1692,8 @@ bool PennEditorApplyProposal(HWND h, uint64_t revision, size_t from, size_t to,
       static_cast<size_t>(Sci(e, SCI_GETLENGTH)) > MaxSource)
     return false;
   Sync(e);
-  auto &d = e->docs[e->active].draft;
+  const auto d = e->docs[e->active].draft;
+  const auto documentID = e->docs[e->active].id;
   PennIDE::Draft candidate = d;
   if (!candidate.Apply(from, to, replacement, revision))
     return false;
@@ -1484,8 +1703,7 @@ bool PennEditorApplyProposal(HWND h, uint64_t revision, size_t from, size_t to,
   if (MessageBoxW(h, Wide(preview).c_str(), L"Review proposed edit",
                   MB_OKCANCEL) != IDOK)
     return false;
-  Sync(e);
-  if (d.revision != revision)
+  if (!CurrentDraft(h, e, documentID, revision, d.endpoint))
     return false;
   Sci(e, SCI_BEGINUNDOACTION);
   Sci(e, SCI_SETTARGETSTART, from);

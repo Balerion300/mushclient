@@ -126,6 +126,9 @@ protected:
     std::vector<LinkRange> links;
     std::vector<int> imageStates;
     std::deque<long> renderedEnds;
+    // Model-only pruning leaves the frozen native surface intact. This counts
+    // the prefix of that surface whose records no longer exist in the model.
+    size_t deferredRemoved;
     size_t retainedBytes;
     std::wstring inputDraft, inputPrefix;
     workspace_input::InputHistory history;
@@ -136,7 +139,7 @@ protected:
     unsigned int unread;
     int renderedWidth,connectionState;
     COLORREF surfaceForeground,surfaceBackground;
-    Transcript():retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1),surfaceForeground(RGB(225,225,225)),surfaceBackground(RGB(25,25,28)){}
+    Transcript():deferredRemoved(0),retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1),surfaceForeground(RGB(225,225,225)),surfaceBackground(RGB(25,25,28)){}
   };
   std::vector<Transcript*> m_transcripts;
   CTabCtrl m_tabs;

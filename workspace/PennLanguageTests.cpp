@@ -126,6 +126,35 @@ int main() {
   assert(!DecodeRecovery("PENNIDE1\n99999999999\nx", restored));
   assert(!DecodeRecovery("PENNIDE1\n2\na", restored));
   assert(!EncodeRecovery(std::vector<std::string>(33, "x"), recovery));
+  std::vector<RecoveryEntry> entries = {{"draft-one", drafts[0]},
+                                        {"draft-two", drafts[1]}}, decoded;
+  assert(EncodeRecoveryEntries(entries, recovery));
+  assert(DecodeRecoveryEntries(recovery, decoded));
+  assert(decoded.size() == 2 && decoded[0].id == entries[0].id &&
+         decoded[1].source == entries[1].source);
+  assert(DecodeRecovery(recovery, restored));
+  assert(restored == std::vector<std::string>({drafts[0], drafts[1]}));
+  const auto validRecovery = recovery;
+  assert(!EncodeRecoveryEntries({{"same", "A"}, {"same", "B"}}, recovery));
+  assert(recovery == validRecovery);
+  assert(!EncodeRecoveryEntries({{"bad\nid", "A"}}, recovery));
+  assert(!DecodeRecoveryEntries("PENNIDE2\nsame\n1\nAsame\n1\nB", decoded));
+  assert(!DecodeRecoveryEntries("PENNIDE2\nid\n9999999999\n", decoded));
+  assert(!DecodeRecoveryEntries("PENNIDE2\nid\n2\na", decoded));
+  assert(!DecodeRecoveryEntries("PENNIDE2\nid\n1\n\xff", decoded));
+  assert(decoded.size() == 2 && decoded[0].id == entries[0].id);
+  assert(EncodeRecovery(drafts, recovery));
+  assert(DecodeRecoveryEntries(recovery, decoded));
+  assert(decoded.size() == 3 && decoded[0].id == "legacy-0" &&
+         decoded[0].source == drafts[0] && decoded[1].id == "legacy-1");
+  assert(EncodeRecoveryEntries(decoded, recovery));
+  assert(DecodeRecoveryEntries(recovery, entries));
+  assert(entries[0].id == decoded[0].id && entries[0].source == drafts[0]);
+  assert(!EncodeRecoveryEntries(std::vector<RecoveryEntry>(33, {"id", "x"}),
+                                recovery));
+  assert(!EncodeRecoveryEntries({{"a", std::string(4 * 1024 * 1024, 'x')},
+                                 {"b", std::string(4 * 1024 * 1024, 'y')}},
+                                recovery));
   Draft prepared;
   prepared.endpoint = "fixture";
   prepared.source = "say one\r\n\nsay two";
