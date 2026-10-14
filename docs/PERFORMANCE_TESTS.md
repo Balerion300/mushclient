@@ -270,3 +270,35 @@ never foreground during this run. It did not measure physical typing, a focused
 4K desktop session, multiple active panes, or higher sustained rates. The result
 supports retaining the current docking framework and continuing targeted
 renderer/heap investigation; it does not close the broader release gates.
+
+## Installed toolkit and heap follow-up
+
+The user subsequently installed Microsoft's Windows Performance Toolkit. Its
+`xperf` successfully analyzed the saved CPU trace and a new elevated heap trace
+of the isolated `MUSHclient-HeapFixture.exe`, using matching private symbols.
+The recording completed with zero lost events/buffers. Recording stopped and
+the unique executable's heap tracing setting was disabled afterwards.
+
+The heap-instrumented 360-second fixture completed all 3,575 batches at 80
+offered lines/second with two routed panes. Instrumentation increased latency;
+use the uninstrumented 600-second measurements above for responsiveness.
+Outstanding heap allocations at three late-idle checkpoints were 7,156.9,
+8,372.7 and 9,164.5 KiB. The checkpoints retained different amounts of output,
+so their difference is not a steady-state leak measurement.
+
+Two matched picture-storage stack families through `RenderImage`, OLE storage
+and RichEdit accounted for 1,457.5 KiB, or 72.6%, of the first-to-last 2,007.6
+KiB increase. Their retained picture counts increased from four to seven to
+nine. Transcript strings, record/run storage and RichEdit buffers also grew.
+This supports retained output history, including pictures, as the main cause
+of observed growth. Scripted command/echo probes do not measure human input
+history. Some smaller allocations remain unclassified; this is not proof that
+all allocation paths are leak-free.
+
+The performance priority is sustained responsiveness and stability. The current
+results do not justify a wholesale rendering or window-management rewrite.
+Continue normal-use acceptance, especially focused typing and foreground 4K
+window movement. At the user's direction, the memory investigation is closed;
+further work should advance feature and real-use acceptance, with responsiveness
+and stability as the criteria. Raw system traces and private analysis artifacts
+remain local only.
