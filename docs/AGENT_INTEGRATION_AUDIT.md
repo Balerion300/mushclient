@@ -163,3 +163,32 @@ labels, fields, buttons and status stayed within the window at 150% scaling. No
 scene was created or staged in this bounds check. Final scene-send UI acceptance
 and actual DeleteLines removal remain explicitly unverified; the earlier tick-based
 deletion fixture is still blocked by the legacy send-to-script guard.
+
+## Final private editor-read acceptance boundary
+
+Candidate `65F6C614D0CEF650C3DD930F3356F1997EFF0BBBC4977F3AE8BD110B09184FD4`
+was opened in another fresh fictional loopback fixture. Its docked review controls
+remained inside the frame at 150%. Main-only output sharing, a human-started future
+capture, a sentinel route matching potential nonce replies, and a prepared draft
+opened through human review were established. The native editor displayed the
+fictional object #1 and attribute TEST correctly.
+
+The actual private read was not executed. Sky activates the owner Main window
+before the next input action; this dismissed the owned editor's explicit Read
+menu before its command could be activated. Its accessibility menu item was also
+unavailable in the cached app state. The synthetic server receipt confirmed zero
+outgoing bytes and no read request. This is an automation boundary, not a passing
+private-read desktop test or evidence of a product privacy failure. The independent
+native privacy fixtures remain the evidence for owned-reply consumption, including
+plugin omission, stale/closed reads and wrong-nonce ordinary output. No real game
+or personal attribute was involved. Actual private-read UI acceptance, actual
+DeleteLines removal and final scene-send UI acceptance remain unverified.
+
+The complete `.workspace-preview-20261014` portable tree was then copied to a
+fresh temporary directory. Its final executable hash
+`54E0C1258D5B1182FBC585C35AC04514E52C8653B7F33BD42F1B0E044CE4FD05` started
+normally, displayed the Welcome output with Lua 5.1.4 and opened only a fictional
+offline world. No DLL error appeared. Normal Alt+F4 exited the copied client.
+All private-read test clients also exited normally and their grant endpoint was
+removed. The packaged manifest tree was left unchanged by this startup check;
+test preferences and fictional worlds existed only in the temporary copy.

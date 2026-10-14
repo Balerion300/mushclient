@@ -109,3 +109,17 @@ change preserves the bounded prefix of oversized logical paragraphs so routing
 and owned private-reply markers cannot be lost through tail truncation. Longer
 soak receipts above identify the earlier executable they actually measured;
 they are not represented as a soak of this final hash.
+
+The actual private-read acceptance attempt reached a correctly populated editor
+but automation activated its owner and dismissed the modeless Read menu before
+approval. No read request was sent. Consequently native private-reply fixtures
+pass, while the integrated human-approved private-read UI replay remains
+unverified. This is an acceptance gap rather than evidence of a successful read.
+
+The clean portable package contains 261 files, including Lua 5.1, Scintilla,
+the native MCP companion and the optional standalone runner. All 260 manifest
+hashes and the ZIP integrity check pass. It contains official example plugins,
+not personal worlds, saved credentials, recovery files or runtime grants.
+An isolated copy of that package starts the final executable successfully with
+Welcome output and Lua 5.1.4, opens only a fictional offline world, shows no
+missing-DLL error, and closes normally. No installed client was used or replaced.

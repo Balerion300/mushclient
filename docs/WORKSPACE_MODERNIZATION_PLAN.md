@@ -166,9 +166,9 @@ The fork default branch and installed clients have not been replaced.
 | C3 | Explicit per-agent/window grants, bounded stores, loopback authentication, UI-thread dispatch; actual-client grant/editor flow verified | Daily-use acceptance |
 | C4 | Route create/edit/delete, copy/hide, split, saved prefix/layout, unread counts, focus shortcuts; actual native restart placement verified | Optional mention/ordering/rebinding refinements |
 | C5 | Explicit correlated attribute/function reads, human reviewed sends, source recovery/preferences | Existing Notepad APIs retained; optional IDE adapter remains a later checkpoint |
-| C6 | Native conversation/review/capture/task UI and independent 22-tool stdio companion; actual native editor proposals and human acceptance verified | Final package startup |
+| C6 | Native conversation/review/capture/task UI and independent 22-tool stdio companion; actual native editor proposals and human acceptance verified | Human approved private-read UI replay |
 | C7 | Supervised scene director, private NPC assignment, unsent proposals, stale/turn binding, optional runner | Real model configuration/quality and game-specific rehearsal |
-| C8 | Component/native resource tests and complete portable packaging pipeline | Final candidate regressions, full ZIP and separate draft fork PR |
+| C8 | Release/Debug candidate builds, component/native resource tests, full portable ZIP with verified hashes, actual clean package startup, separate draft fork PR #2 | Extended daily-use acceptance |
 
 Implemented privacy fixes include original-line identities across deletion,
 canonical history trimming/clear, no capture replay on projection, late trigger
