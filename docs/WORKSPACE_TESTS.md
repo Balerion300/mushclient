@@ -269,3 +269,37 @@ bytes; completion does not copy an entire large draft.
 Reproduce the new transcript fixtures with `run_background_probe.ps1` and
 `run_docking_latency_probe.ps1` in `tests/workspace`. Their fixtures use synthetic
 output and independently built native windows, not personal profiles or games.
+
+## Optional game-independent log-start scripts
+
+Release SHA256
+`da9a36e9462962b2e6a3d33f88dff212d64876026770d734d6b4b1b2104c2c2b`
+passes all nine actual-client cases in `tests/scripted_logging_fixture.py`.
+Release and Debug integrated builds pass. The native setup dialog separately
+passes normal/world/plugin selection, blank fallback, Cancel and unavailable
+plugin checks; Save revalidates the original world and marks it modified.
+
+The native client stores only the selected world/plugin function. It has no
+game command, date parser or calendar assumptions. Unset start actions retain
+the original logging dialogs; automatic connection logging is unchanged.
+`OpenLogExclusive` atomically creates a new file without overwriting. All 418
+previous automation-map entries retain their order; the new API uses explicit
+DISPID 419. Existing `OpenLog` and `CloseLog` implementations are unchanged.
+
+The real-client fixtures verify world/plugin execution context and arguments,
+recursive start rejection (including asynchronous `DoCommand`), existing-file/
+missing-folder/already-open error paths, split ANSI replies, full header and
+buffered tail exactly once, missing metadata, timeout and cancellation, stale
+reply after disconnect/reconnect, same-date collision preservation and two
+worlds independently logging while active focus changes. Every case checks that
+installing/connecting alone sends no metadata command and creates no log.
+
+Standalone native Lua 5.1 and PCRE tests pass 168 assertions, including filename
+safety, regex captures, parsed-field overrides, bounds, relative default folders,
+text-mode guards and both optional plugin wrappers. The ready-to-load Blood of
+Dragons example parses both dates from the supplied reply and preserves the full
+header; it is not installed or selected automatically. Its live server format
+still needs user acceptance; fixtures use only synthetic loopback replies.
+
+See `SCRIPTED_LOGGING.md` for configuration, templates, optional preset, callback
+bounds, collision behavior and the limitation of uncorrelated late replies.

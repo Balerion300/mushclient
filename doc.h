@@ -773,6 +773,8 @@ public:
   unsigned int m_iTabCompletionLines;          // lines to search
   unsigned short m_bTabCompletionSpace;        // insert space after word?
   CString m_strAutoLogFileName;          // name of file to log to
+  CString m_strLogStartScript, m_strLogStartPlugin;
+  bool m_bLogStartExecuting;
   CString m_strLogLinePreambleOutput;          // put at start of each log line - output
   CString m_strLogLinePreambleInput;          // put at start of each log line - input
   CString m_strLogLinePreambleNotes;          // put at start of each log line - world.Note
@@ -2486,6 +2488,7 @@ public:
 	afx_msg long IsAlias(LPCTSTR AliasName);
 	afx_msg long CloseLog();
 	afx_msg long OpenLog(LPCTSTR LogFileName, BOOL Append);
+  afx_msg long OpenLogExclusive(LPCTSTR LogFileName);
 	afx_msg long WriteLog(LPCTSTR Message);
 	afx_msg BOOL IsLogOpen();
 	afx_msg long EnableTimer(LPCTSTR TimerName, BOOL Enabled);

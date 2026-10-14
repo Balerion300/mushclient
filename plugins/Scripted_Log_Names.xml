@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE muclient>
+<muclient>
+<plugin name="Scripted_Log_Names" author="MUSHclient contributors"
+ id="7c1e480cf1d24cb28f9a1062" language="Lua" version="1.0"
+ purpose="Optional configurable text-log names" requires="5.00">
+<description trim="y"><![CDATA[
+Select this plugin's StartLog function in Logging Setup, then start logging normally.
+Installing or connecting never starts a log or sends a command. Edit the configuration
+below to request and parse a game's metadata. See docs/SCRIPTED_LOGGING.md.
+CancelLog cancels a pending request. Existing logs are never overwritten.
+]]></description>
+</plugin>
+<script><![CDATA[
+-- BEGIN SCRIPTED LOG CONFIG
+local default_folder = GetInfo(58)
+if not default_folder or default_folder == "" then default_folder = "logs" end
+if not default_folder:match("^%a:[/\\]") and not default_folder:match("^\\\\") then
+  default_folder = GetInfo(66):gsub("[/\\]+$", "") .. "/" .. default_folder
+end
+ScriptedLogConfig = {
+  folder = default_folder,
+  template = "{world}-{real_date}-{real_time}-{number}.txt",
+  request_command = nil,
+  start_regex = nil,
+  end_regex = nil,
+  fields = {},
+  required = {},
+  preserve_header = false,
+  timeout = 30,
+  max_records = 100,
+  max_bytes = 65536,
+  collision_attempts = 100,
+}
+-- END SCRIPTED LOG CONFIG
+
+local starter
+local function Notify(message) ColourNote("orange", "", message) end
+local function LoadStarter()
+  local helper = require "scripted_log_start"
+  local host = {
+    ok = error_code.eOK,
+    world_id = GetWorldID,
+    world_name = function() return GetInfo(2) end,
+    connected = IsConnected,
+    is_open = IsLogOpen,
+    now = function() return utils.timer() end,
+    timestamp = os.time,
+    text_mode = function() return GetOption("log_html") == 0 and GetOption("log_raw") == 0 end,
+    send = Send,
+    open_exclusive = function(path) return OpenLogExclusive(path) end,
+    write = WriteLog,
+    close = CloseLog,
+    notify = Notify,
+    exists = function(path)
+      local file = io.open(path,"rb")
+      if file then file:close();return true end
+      return false
+    end,
+    compile = function(pattern)
+      local expression = rex.new(pattern)
+      return function(line)
+        local first,last,captures = expression:match(line)
+        if first then return captures or {} end
+      end
+    end,
+  }
+  return helper.new(ScriptedLogConfig,host)
+end
+function StartLog(action)
+  if action ~= nil and action ~= "start" then Notify("Log start failed: unrecognized start action.");return end
+  if starter and starter.pending then starter:cancel("requested by another start action");return end
+  local ok,result = pcall(LoadStarter)
+  if not ok then Notify("Log start failed: "..tostring(result));return end
+  starter=result
+  local started,problem=pcall(function() return starter:start() end)
+  if not started then starter:cancel("script error",true);Notify("Log start failed: "..tostring(problem)) end
+end
+function CancelLog()
+  if starter then starter:cancel("requested by user") end
+end
+function OnPluginLineReceived(line)
+  if starter then starter:on_line(line) end
+  return true
+end
+function OnPluginTick()
+  if starter then starter:tick() end
+end
+function OnPluginDisconnect()
+  if starter then starter:cancel("originating world disconnected") end
+end
+function OnPluginDisable()
+  if starter then starter:cancel("plugin disabled") end
+end
+function OnPluginClose()
+  if starter then starter:cancel("plugin closed") end
+end
+]]></script>
+</muclient>

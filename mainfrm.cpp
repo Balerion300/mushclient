@@ -9,6 +9,7 @@
 #include "WorkspaceIntegration.h"
 #include "WorkspaceTools.h"
 #include "WorkspaceResources.h"
+#include "workspace/LogStartSetup.h"
 #include "MUSHview.h"
 #include "sendvw.h"
 
@@ -293,6 +294,8 @@ BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWndEx)
   ON_COMMAND(59005, OnWorkspaceFloatTranscript)
   ON_COMMAND(59006, OnWorkspaceRoute)
   ON_COMMAND(59007, OnWorkspaceAgentReview)
+  ON_COMMAND(59008, OnWorkspaceLogStartSetup)
+  ON_UPDATE_COMMAND_UI(59008, OnUpdateWorkspaceLogStartSetup)
   ON_COMMAND_RANGE(59010,59018,OnWorkspaceFocus)
   ON_UPDATE_COMMAND_UI_RANGE(59010,59018,OnUpdateWorkspaceFocus)
   ON_COMMAND_RANGE(59001, 59004, OnWorkspaceTool)
@@ -2582,6 +2585,7 @@ void CMainFrame::EnsureWorkspaceMenu()
   workspace->AppendMenu(MF_STRING, ID_WORKSPACE_TRANSCRIPT, "Open &transcript for active world");
   workspace->AppendMenu(MF_STRING, 59006, "Manage named output &routes...");
   workspace->AppendMenu(MF_STRING, 59007, "Agent review and debug &captures...");
+  workspace->AppendMenu(MF_STRING, 59008, "&Logging Setup for active world...");
   workspace->AppendMenu(MF_STRING, 59005, "&Float selected transcript separately");
   workspace->AppendMenu(MF_STRING, 59001, "PennMUSH code &editor...");
   workspace->AppendMenu(MF_STRING, 59002, "Agent &access...");
@@ -2757,6 +2761,73 @@ void CMainFrame::OnWorkspaceTranscript()
 void CMainFrame::OnWorkspaceTool(UINT id)
 {
   OpenWorkspaceTool(*this,id);
+}
+
+namespace {
+std::wstring LogSetupWide(const CString& value)
+{
+  int count=MultiByteToWideChar(CP_ACP,0,value,value.GetLength(),NULL,0);
+  std::wstring result(count,L'\0');
+  if(count)MultiByteToWideChar(CP_ACP,0,value,value.GetLength(),&result[0],count);
+  return result;
+}
+bool LogSetupNarrow(const std::wstring& value,CString& result)
+{
+  if(value.empty()){result.Empty();return true;}
+  BOOL substituted=FALSE;
+  int count=WideCharToMultiByte(CP_ACP,WC_NO_BEST_FIT_CHARS,value.data(),(int)value.size(),NULL,0,NULL,&substituted);
+  if(!count || substituted)return false;
+  char* buffer=result.GetBuffer(count);
+  int written=WideCharToMultiByte(CP_ACP,WC_NO_BEST_FIT_CHARS,value.data(),(int)value.size(),buffer,count,NULL,&substituted);
+  result.ReleaseBuffer(written);
+  return written==count && !substituted;
+}
+}
+void CMainFrame::OnUpdateWorkspaceLogStartSetup(CCmdUI* command)
+{
+  CMDIChildWnd* child=MDIGetActive();
+  command->Enable(child && DYNAMIC_DOWNCAST(CMUSHclientDoc,child->GetActiveDocument()));
+}
+void CMainFrame::OnWorkspaceLogStartSetup()
+{
+  CMDIChildWnd* child=MDIGetActive();
+  CMUSHclientDoc* doc=child?DYNAMIC_DOWNCAST(CMUSHclientDoc,child->GetActiveDocument()):NULL;
+  if(!doc){AfxMessageBox("Open a world before setting up its logging.");return;}
+  const __int64 documentID=doc->m_iUniqueDocumentNumber;
+  LogStartSetupOptions options;
+  options.worldName=LogSetupWide(doc->m_mush_name);
+  options.script=LogSetupWide(doc->m_strLogStartScript);
+  options.plugin=LogSetupWide(doc->m_strLogStartPlugin);
+  for(PluginListIterator plugin=doc->m_PluginList.begin();plugin!=doc->m_PluginList.end();++plugin)
+    if((*plugin)->m_bEnabled)
+      options.plugins.push_back({LogSetupWide((*plugin)->m_strName),LogSetupWide((*plugin)->m_strID)});
+  if(!ShowLogStartSetup(m_hWnd,options))return;
+  // The modal message loop can run scripts that close a world. Locate the
+  // original document afresh; a newly active or reused document is not a target.
+  CMUSHclientDoc* original=NULL;
+  for(POSITION position=App.m_pWorldDocTemplate->GetFirstDocPosition();position;)
+    {
+    CMUSHclientDoc* candidate=(CMUSHclientDoc*)App.m_pWorldDocTemplate->GetNextDoc(position);
+    if(candidate->m_iUniqueDocumentNumber==documentID){original=candidate;break;}
+    }
+  if(!original){AfxMessageBox("The original world was closed. Logging settings were not saved.");return;}
+  CString script,pluginID;
+  if(!LogSetupNarrow(options.script,script) || !LogSetupNarrow(options.plugin,pluginID))
+    {AfxMessageBox("The function name contains characters this world's script interface cannot represent. Logging settings were not saved.");return;}
+  if(script.IsEmpty())pluginID.Empty();
+  if(!pluginID.IsEmpty())
+    {
+    bool enabled=false;
+    for(PluginListIterator plugin=original->m_PluginList.begin();plugin!=original->m_PluginList.end();++plugin)
+      if((*plugin)->m_bEnabled && (*plugin)->m_strID.CompareNoCase(pluginID)==0){enabled=true;break;}
+    if(!enabled){AfxMessageBox("The selected plugin is no longer enabled in the original world. Logging settings were not saved.");return;}
+    }
+  if(original->m_strLogStartScript!=script || original->m_strLogStartPlugin!=pluginID)
+    {
+    original->m_strLogStartScript=script;
+    original->m_strLogStartPlugin=pluginID;
+    original->SetModifiedFlag(TRUE);
+    }
 }
 
 void CMainFrame::OnWorkspaceFloatTranscript()

@@ -407,6 +407,11 @@ int nID = StringToCommandID (Command);
   if (nID == 0)
     return eNoSuchCommand;
 
+  // DoCommand posts asynchronously: rejecting recursion here prevents the
+  // queued toggle from closing the file after the start function returns.
+  if(nID==ID_FILE_LOGSESSION && m_bLogStartExecuting)
+    return eBadParameter;
+
   Frame.PostMessage(WM_COMMAND, nID, 0);
 
 	return eOK;

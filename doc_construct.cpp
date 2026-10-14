@@ -239,6 +239,7 @@ int i;
 	m_pSocket = NULL;
   m_pChatListenSocket = NULL;    // no listening socket
   m_logfile = NULL;
+  m_bLogStartExecuting = false;
   m_match_width = 30;
 
   m_bSelected = true;

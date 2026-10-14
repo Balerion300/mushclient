@@ -628,6 +628,8 @@ BEGIN_DISPATCH_MAP(CMUSHclientDoc, CDocument)
 	DISP_PROPERTY_PARAM(CMUSHclientDoc, "CustomColourText", GetCustomColourText, SetCustomColourText, VT_I4, VTS_I2)
 	DISP_PROPERTY_PARAM(CMUSHclientDoc, "CustomColourBackground", GetCustomColourBackground, SetCustomColourBackground, VT_I4, VTS_I2)
 	//}}AFX_DISPATCH_MAP
+  // Append with an explicit new ID; preserve every existing automation ID.
+  DISP_FUNCTION_ID(CMUSHclientDoc, "OpenLogExclusive", 419, OpenLogExclusive, VT_I4, VTS_BSTR)
 END_DISPATCH_MAP()
 
 /*
@@ -2873,6 +2875,8 @@ void CMUSHclientDoc::ExecuteHotspotScript (DISPID & dispid,  // dispatch ID, wil
 
 void CMUSHclientDoc::OnFileLogsession() 
 {
+  if(m_bLogStartExecuting)
+    {ColourNote("red","","The log-start script cannot recursively start logging. Use OpenLogExclusive to create its file.");return;}
 
 // close log file if already open
 
@@ -2892,6 +2896,39 @@ void CMUSHclientDoc::OnFileLogsession()
     CloseLog ();    // this writes out the log file postamble as well
     return;
     }
+
+// Explicit per-world start action; scripts can collect metadata with triggers
+// before naming/opening the file. Automatic connection logging is unchanged.
+if (!m_strLogStartScript.IsEmpty ())
+  {
+  struct LogStartContext {
+    CMUSHclientDoc* document;CPlugin* previous;
+    LogStartContext(CMUSHclientDoc* doc,bool world):document(doc),previous(doc->m_CurrentPlugin)
+      {doc->m_bLogStartExecuting=true;if(world)doc->m_CurrentPlugin=NULL;}
+    ~LogStartContext(){document->m_CurrentPlugin=previous;document->m_bLogStartExecuting=false;}
+  } context(this,m_strLogStartPlugin.IsEmpty()!=FALSE);
+  const CString function=m_strLogStartScript;
+  if (!m_strLogStartPlugin.IsEmpty ())
+    {
+    const long result=CallPlugin(m_strLogStartPlugin,function,"start");
+    if (result!=eOK)
+      ColourNote("red","",CFormat("The configured log-start script could not run (error %ld). No fallback log was started.",result));
+    }
+  else if (!m_ScriptEngine || !SeeIfHandlerCanExecute(function))
+    ColourNote("red","","The configured log-start world script is unavailable. Check Logging setup; no log was started.");
+  else
+    {
+    DISPID handler=m_ScriptEngine->GetDispid(function);
+    if (handler==DISPID_UNKNOWN)
+      ColourNote("red","","The configured log-start function was not found. No log was started.");
+    else
+      {
+      DISPPARAMS parameters={NULL,NULL,0,0};long calls=0;
+      ExecuteScript(handler,function,eWorldAction,"start log","starting a user-configured log",parameters,calls);
+      }
+    }
+  return;
+  }
 
 BOOL bAppendToLogFile = false;
 int iLines = 0;  

@@ -275,6 +275,10 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
+    <ClCompile Include="workspace\LogStartSetup.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
     <ClCompile Include="workspace\AgentReviewPane.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -1457,6 +1461,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="WorkspaceFrame.h" />
+    <ClInclude Include="workspace\LogStartSetup.h" />
     <ClInclude Include="WorkspaceResources.h" />
     <ClInclude Include="WorkspaceRouteManager.h" />
     <ClInclude Include="workspace\WorkspaceInputPolicy.h" />

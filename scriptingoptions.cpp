@@ -257,6 +257,8 @@ tConfigurationAlphaOption AlphaOptionsTable  [] =
 {"log_line_preamble_input",       "",         A(m_strLogLinePreambleInput), OPT_KEEP_SPACES},
 {"log_line_preamble_notes",       "",         A(m_strLogLinePreambleNotes), OPT_KEEP_SPACES},
 {"log_line_preamble_output",      "",         A(m_strLogLinePreambleOutput), OPT_KEEP_SPACES},
+{"log_start_script",              "",         A(m_strLogStartScript), OPT_PLUGIN_CANNOT_WRITE},
+{"log_start_plugin",              "",         A(m_strLogStartPlugin), OPT_PLUGIN_CANNOT_WRITE},
 {"mapping_failure",               "Alas, you cannot go that way.", A(m_strMappingFailure), OPT_KEEP_SPACES},
 {"name",                          "",         A(m_mush_name), OPT_PLUGIN_CANNOT_WRITE},
 {"new_activity_sound",            NOSOUNDLIT, A(m_new_activity_sound)},

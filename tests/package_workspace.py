@@ -44,7 +44,7 @@ shutil.copytree(ROOT/'third_party/pennmush-reference',dest/'pennmush-reference')
 for name in ('WORKSPACE_MODERNIZATION_PLAN.md','WORKSPACE_TESTS.md','PENN_IDE.md',
              'AGENT_WORKSPACE_CONTRACT.md','AGENT_REVIEW_PANE.md','AGENT_INTEGRATION_AUDIT.md','BUILD_WORKSPACE.md','INLINE_IMAGES.md','STABILITY_TESTS.md','PERFORMANCE_TESTS.md'):
     shutil.copy2(ROOT/'docs'/name,dest/name)
-for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md'):
+for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md','SCRIPTED_LOGGING.md'):
     source=ROOT/'docs'/name
     if not source.is_file():raise SystemExit('Missing workspace guide: '+name)
     shutil.copy2(source,dest/name)
@@ -53,6 +53,12 @@ for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md'):
 for name in ('runner.py','companion.py','tools.json'):
     shutil.copy2(ROOT/'agent_companion'/name,dest/'agent-examples'/name)
 for name in ('logs','sounds','worlds'): (dest/name).mkdir(exist_ok=True)
+(dest/'lua').mkdir(exist_ok=True)
+shutil.copy2(ROOT/'lua/scripted_log_start.lua',dest/'lua/scripted_log_start.lua')
+(dest/'worlds/plugins').mkdir(exist_ok=True)
+shutil.copy2(ROOT/'plugins/Scripted_Log_Names.xml',dest/'worlds/plugins/Scripted_Log_Names.xml')
+(dest/'worlds/plugins/examples').mkdir(exist_ok=True)
+shutil.copy2(ROOT/'plugins/examples/Blood_of_Dragons_Log_Names.xml',dest/'worlds/plugins/examples/Blood_of_Dragons_Log_Names.xml')
 (dest/'Start MUSHclient.cmd').write_text('@echo off\ncd /d "%~dp0"\nstart "" "%~dp0MUSHclient.exe" /noregister\n',encoding='ascii')
 (dest/'README-FIRST.txt').write_text(
     'MUSHclient workspace modernization - full portable Windows preview\n\n'

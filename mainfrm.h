@@ -171,6 +171,8 @@ public:
   afx_msg void OnWorkspaceFloatTranscript();
   afx_msg void OnWorkspaceTool(UINT id);
   afx_msg void OnWorkspaceAgentReview();
+  afx_msg void OnWorkspaceLogStartSetup();
+  afx_msg void OnUpdateWorkspaceLogStartSetup(CCmdUI* command);
   afx_msg void OnWorkspaceRoute();
   afx_msg void OnWorkspaceFocus(UINT id);
   afx_msg void OnUpdateWorkspaceFocus(CCmdUI* command);
