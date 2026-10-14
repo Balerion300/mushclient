@@ -63,6 +63,7 @@ BEGIN
     "\r\n"
     "#define _AFX_NO_OLE_RESOURCES\r\n"
     "#define _AFX_NO_TRACKER_RESOURCES\r\n"
+    "#include ""afxribbon.rc""\r\n"
     "\0"
 END
 
@@ -138,6 +139,10 @@ IDR_NORMALTYPE          ICON    DISCARDABLE     "res\\MUSHclient.ico"
 
 #define _AFX_NO_OLE_RESOURCES
 #define _AFX_NO_TRACKER_RESOURCES
+
+// Native enhanced docking resources; independent of the legacy locale DLL.
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+#include "afxribbon.rc"
 
 /////////////////////////////////////////////////////////////////////////////
 #endif    // not APSTUDIO_INVOKED

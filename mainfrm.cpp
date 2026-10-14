@@ -8,6 +8,7 @@
 #include "mainfrm.h"
 #include "WorkspaceIntegration.h"
 #include "WorkspaceTools.h"
+#include "WorkspaceResources.h"
 #include "MUSHview.h"
 #include "sendvw.h"
 
@@ -274,9 +275,20 @@ void CMyToolBar::DrawGripper(CDC* pDC, const CRect& rect)
 /////////////////////////////////////////////////////////////////////////////
 // CMainFrame
 
-IMPLEMENT_DYNAMIC(CMainFrame, CMDIFrameWnd)
+namespace {
+LRESULT CALLBACK WorkspaceBackgroundHook(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR data)
+{
+  CMainFrame* frame=(CMainFrame*)data;
+  if(message==WM_ERASEBKGND && frame->m_backgroundColour!=0xffffffff)
+    {RECT area;GetClientRect(window,&area);HBRUSH brush=CreateSolidBrush(frame->m_backgroundColour);FillRect((HDC)wp,&area,brush);DeleteObject(brush);return TRUE;}
+  if(message==WM_NCDESTROY)RemoveWindowSubclass(window,WorkspaceBackgroundHook,id);
+  return DefSubclassProc(window,message,wp,lp);
+}
+}
 
-BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWnd)
+IMPLEMENT_DYNAMIC(CMainFrame, CMDIFrameWndEx)
+
+BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWndEx)
   ON_COMMAND(ID_WORKSPACE_TRANSCRIPT, OnWorkspaceTranscript)
   ON_COMMAND(59005, OnWorkspaceFloatTranscript)
   ON_COMMAND(59006, OnWorkspaceRoute)
@@ -378,12 +390,12 @@ BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWnd)
 	ON_COMMAND_EX(ID_VIEW_ACTIVITYTOOLBAR, CMDIFrameWnd::OnBarCheck)
 	ON_COMMAND_EX(ID_VIEW_INFOBAR, CMDIFrameWnd::OnBarCheck)
 		// Global help commands
-	ON_COMMAND(ID_HELP_INDEX, CMDIFrameWnd::OnHelpFinder)
-	ON_COMMAND(ID_HELP_USING, CMDIFrameWnd::OnHelpUsing)
-//	ON_COMMAND(ID_HELP, CMDIFrameWnd::OnHelp)
+	ON_COMMAND(ID_HELP_INDEX, CMDIFrameWndEx::OnHelpFinder)
+	ON_COMMAND(ID_HELP_USING, CMDIFrameWndEx::OnHelpUsing)
+//	ON_COMMAND(ID_HELP, CMDIFrameWndEx::OnHelp)
 	ON_COMMAND(ID_HELP, OnF1Test)
-	ON_COMMAND(ID_CONTEXT_HELP, CMDIFrameWnd::OnContextHelp)
-	ON_COMMAND(ID_DEFAULT_HELP, CMDIFrameWnd::OnHelpIndex)
+	ON_COMMAND(ID_CONTEXT_HELP, CMDIFrameWndEx::OnContextHelp)
+	ON_COMMAND(ID_DEFAULT_HELP, CMDIFrameWndEx::OnHelpIndex)
   // tooltip stuff
   ON_NOTIFY_EX_RANGE(TTN_NEEDTEXTW, 0, 0xFFFF, OnDynamicTipText)
   ON_NOTIFY_EX_RANGE(TTN_NEEDTEXTA, 0, 0xFFFF, OnDynamicTipText) 
@@ -442,17 +454,16 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
   if (App.m_bFlatToolbars)
     iToolbarFlags = TBSTYLE_FLAT;
 
-  if (CMDIFrameWnd::OnCreate(lpCreateStruct) == -1)
+  int workspaceFrameCreated;
+  { WorkspaceModernResources resources;workspaceFrameCreated=CMDIFrameWndEx::OnCreate(lpCreateStruct); }
+  if (workspaceFrameCreated == -1)
     {
     ::TMessageBox ("Failed to create MDI Frame Window", MB_ICONSTOP);
 		return -1;
     }
 
-  if (!m_wndMDIClient.SubclassWindow(m_hWndMDIClient))
-	{
-		TRACE ("Failed to subclass MDI client window\n");
-		return (-1);
-	}
+  SetWindowSubclass(m_hWndMDIClient,WorkspaceBackgroundHook,1,(DWORD_PTR)this);
+  SetWorkspaceCloseHandler([this](CWnd* window){CWorkspacePane* pane=DYNAMIC_DOWNCAST(CWorkspacePane,window);if(!pane || !pane->IsToolHost())return 0;SaveWorkspaceLayouts();return pane->CloseHostedTool();});
 
 	if (!m_wndToolBar.CreateEx(this, iToolbarFlags, WS_CHILD | WS_VISIBLE | CBRS_TOP
 		| CBRS_GRIPPER | CBRS_TOOLTIPS | CBRS_FLYBY | CBRS_SIZE_DYNAMIC) ||
@@ -547,7 +558,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	m_wndGameToolBar.EnableDocking(CBRS_ALIGN_ANY);
 	m_wndActivityToolBar.EnableDocking(CBRS_ALIGN_ANY);
 
-  EnableDocking(CBRS_ALIGN_ANY);
+  EnableWorkspaceDocking();
   
 	DockControlBar(&m_wndToolBar);
 	DockControlBar(&m_wndGameToolBar);
@@ -562,11 +573,11 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 
 
   if (!m_workspacePane.Create(this)) return -1;
-  m_workspacePane.InstallDockContext(new CToolbarDockContext(&m_workspacePane));
   m_workspacePane.EnableDocking(CBRS_ALIGN_ANY);
   m_workspacePane.SetActionHandler(ActivateWorkspaceAction);
-  m_workspacePane.SetInputHandler(WorkspaceReviewInput);
+  m_workspacePane.SetInputHandler(WorkspaceSendHumanInput);
   m_workspacePane.SetPruneHandler(WorkspacePanePruned);
+  m_workspacePane.SetConnectionHandler(WorkspaceIsConnectionLive);m_workspacePane.SetInputErrorHandler(WorkspaceHumanInputError);
   DockControlBar(&m_workspacePane, AFX_IDW_DOCKBAR_RIGHT);
   ShowControlBar(&m_workspacePane, FALSE, FALSE);
 
@@ -616,12 +627,12 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 #ifdef _DEBUG
 void CMainFrame::AssertValid() const
 {
-	CMDIFrameWnd::AssertValid();
+	CMDIFrameWndEx::AssertValid();
 }
 
 void CMainFrame::Dump(CDumpContext& dc) const
 {
-	CMDIFrameWnd::Dump(dc);
+	CMDIFrameWndEx::Dump(dc);
 }
 
 #endif //_DEBUG
@@ -634,7 +645,7 @@ BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs)
 	cs.style &= ~FWS_ADDTOTITLE;
 //  cs.dwExStyle |= WS_EX_TOOLWINDOW;
 		
-	return CMDIFrameWnd::PreCreateWindow(cs);
+	return CMDIFrameWndEx::PreCreateWindow(cs);
 }
 
 
@@ -709,7 +720,7 @@ void CMainFrame::OnClose()
   CWindowPlacement wp;
   wp.Save ("Main window", this);
     	
-	CMDIFrameWnd::OnClose();
+	CMDIFrameWndEx::OnClose();
 }
 
 void CMainFrame::OnDisplayActivitylist() 
@@ -887,7 +898,7 @@ void CMainFrame::OnDestroy()
       KillTimer (m_ticktimer);
 
   ShutdownWorkspaceTools();
-  CMDIFrameWnd::OnDestroy();
+  CMDIFrameWndEx::OnDestroy();
 	
   if (m_niData.uID)
     Shell_NotifyIcon (NIM_DELETE ,&m_niData);
@@ -997,7 +1008,7 @@ void CMainFrame::OnTimer(UINT nIDEvent)
   {
 
   CheckTimerFallback ();
-	CMDIFrameWnd::OnTimer(nIDEvent);
+	CMDIFrameWndEx::OnTimer(nIDEvent);
   }  // end of CMainFrame::OnTimer
 
 void CMainFrame::OnUpdateStatuslineFreeze(CCmdUI* pCmdUI) 
@@ -1234,7 +1245,7 @@ BOOL CMainFrame::PreTranslateMessage(MSG* pMsg)
    }
 
 
- return CMDIFrameWnd::PreTranslateMessage(pMsg);
+ return CMDIFrameWndEx::PreTranslateMessage(pMsg);
 
  }
 
@@ -1475,7 +1486,7 @@ if ((long) ShellExecute (Frame, _T("open"), MUD_LIST, NULL, NULL, SW_SHOWNORMAL)
 
 void CMainFrame::OnSize(UINT nType, int cx, int cy) 
 {
-	CMDIFrameWnd::OnSize(nType, cx, cy);
+	CMDIFrameWndEx::OnSize(nType, cx, cy);
 	
 	// TODO: Add your message handler code here
 	
@@ -1483,7 +1494,7 @@ void CMainFrame::OnSize(UINT nType, int cx, int cy)
 
 void CMainFrame::OnActivate(UINT nState, CWnd* pWndOther, BOOL bMinimized) 
 {
-	CMDIFrameWnd::OnActivate(nState, pWndOther, bMinimized);
+	CMDIFrameWndEx::OnActivate(nState, pWndOther, bMinimized);
 	
   m_bActive = nState != WA_INACTIVE;
 
@@ -1884,7 +1895,7 @@ void CMainFrame::OnUpdateFrameMenu(HMENU hMenuAlt)
   if (IsFullScreen ())
     return;
 
-  CMDIFrameWnd::OnUpdateFrameMenu (hMenuAlt);
+  CMDIFrameWndEx::OnUpdateFrameMenu (hMenuAlt);
   EnsureWorkspaceMenu();
 
   }  // end of CMainFrame::OnUpdateFrameMenu
@@ -2245,7 +2256,7 @@ LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     
    }  // end of tray icon message
 	
-	return CMDIFrameWnd::WindowProc(message, wParam, lParam);
+	return CWorkspaceFrame::WindowProc(message, wParam, lParam);
 }   // end of CMainFrame::WindowProc
 
 
@@ -2438,7 +2449,7 @@ if ((long) ShellExecute (Frame, _T("open"), PLUGINS_PAGE, NULL, NULL, SW_SHOWNOR
 
 void CMainFrame::OnUpdateFrameTitle(BOOL bAddToTitle)
   {
-  CMDIFrameWnd::OnUpdateFrameTitle (bAddToTitle);
+  CMDIFrameWndEx::OnUpdateFrameTitle (bAddToTitle);
 
   if (m_wndMDITabs.InUse ())
     m_wndMDITabs.Update ();
@@ -2486,7 +2497,7 @@ void CMainFrame::OnSysCommand(UINT nID, LPARAM lParam)
 		/* Discard. */
     } 
   else
-		CMDIFrameWnd::OnSysCommand(nID, lParam);
+		CMDIFrameWndEx::OnSysCommand(nID, lParam);
 }   // end of CMainFrame::OnSysCommand
 
 /*
@@ -2592,6 +2603,8 @@ bool WorkspaceLayoutSchema()
 {
   if(!App.db) return false;
   return sqlite3_exec(App.db,
+    "CREATE TABLE IF NOT EXISTS workspace_split_v2 (world_id TEXT NOT NULL,name TEXT NOT NULL,target_world TEXT NOT NULL,target_name TEXT NOT NULL,side INTEGER NOT NULL,depth INTEGER NOT NULL,percent INTEGER NOT NULL,PRIMARY KEY(world_id,name));"
+    "CREATE TABLE IF NOT EXISTS workspace_tab_group_v2 (world_id TEXT NOT NULL,name TEXT NOT NULL,group_world TEXT NOT NULL,group_name TEXT NOT NULL,tab_order INTEGER NOT NULL,active INTEGER NOT NULL,PRIMARY KEY(world_id,name));"
     "CREATE TABLE IF NOT EXISTS workspace_pane_layout_v1 (world_id TEXT NOT NULL,name TEXT NOT NULL,detached INTEGER,floating INTEGER,alignment INTEGER,x INTEGER,y INTEGER,width INTEGER,height INTEGER,PRIMARY KEY(world_id,name));"
     "CREATE TABLE IF NOT EXISTS workspace_input_prefix_v1 (world_id TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT NOT NULL,PRIMARY KEY(world_id,name));"
     "CREATE TABLE IF NOT EXISTS workspace_route_v1 (world_id TEXT NOT NULL,name TEXT NOT NULL,pattern TEXT NOT NULL,regex INTEGER,omit_main INTEGER,PRIMARY KEY(world_id,name,pattern,regex));",
@@ -2613,7 +2626,7 @@ bool WorkspaceReadLayout(const CString& identity,const CString& name,WorkspacePa
 {
   if(!WorkspaceLayoutSchema())return false;
   sqlite3_stmt* query=NULL;
-  if(sqlite3_prepare_v2(App.db,"SELECT detached,floating,alignment,x,y,width,height FROM workspace_pane_layout_v1 WHERE world_id=? AND name=?",-1,&query,NULL)!=SQLITE_OK)return false;
+  if(sqlite3_prepare_v2(App.db,"SELECT l.detached,l.floating,l.alignment,l.x,l.y,l.width,l.height,g.group_world,g.group_name,g.tab_order,g.active FROM workspace_pane_layout_v1 l LEFT JOIN workspace_tab_group_v2 g ON l.world_id=g.world_id AND l.name=g.name WHERE l.world_id=? AND l.name=?",-1,&query,NULL)!=SQLITE_OK)return false;
   const CString world=WorkspacePersistentWorld(identity);
   sqlite3_bind_text(query,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(query,2,name,-1,SQLITE_TRANSIENT);
   bool found=sqlite3_step(query)==SQLITE_ROW;
@@ -2621,8 +2634,14 @@ bool WorkspaceReadLayout(const CString& identity,const CString& name,WorkspacePa
     { layout.connectionId=identity;layout.name=name;layout.detached=sqlite3_column_int(query,0)!=0;
       layout.floating=sqlite3_column_int(query,1)!=0;layout.alignment=sqlite3_column_int(query,2);
       layout.x=sqlite3_column_int(query,3);layout.y=sqlite3_column_int(query,4);
-      layout.width=max(220,min(1500,sqlite3_column_int(query,5)));layout.height=max(140,min(1000,sqlite3_column_int(query,6))); }
-  sqlite3_finalize(query);return found;
+      layout.width=max(220,min(1500,sqlite3_column_int(query,5)));layout.height=max(140,min(1000,sqlite3_column_int(query,6)));
+      if(sqlite3_column_type(query,7)!=SQLITE_NULL){layout.groupConnectionId=(const char*)sqlite3_column_text(query,7);layout.groupName=(const char*)sqlite3_column_text(query,8);layout.tabOrder=max(0,min(127,sqlite3_column_int(query,9)));layout.active=sqlite3_column_int(query,10)!=0;}
+      else{layout.groupConnectionId=world;layout.groupName=name;} }
+  sqlite3_finalize(query);
+  if(found && sqlite3_prepare_v2(App.db,"SELECT target_world,target_name,side,depth,percent FROM workspace_split_v2 WHERE world_id=? AND name=?",-1,&query,NULL)==SQLITE_OK)
+    {sqlite3_bind_text(query,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(query,2,name,-1,SQLITE_TRANSIENT);
+     if(sqlite3_step(query)==SQLITE_ROW){layout.splitConnectionId=(const char*)sqlite3_column_text(query,0);layout.splitName=(const char*)sqlite3_column_text(query,1);layout.splitAlignment=sqlite3_column_int(query,2);layout.splitDepth=max(0,min(128,sqlite3_column_int(query,3)));layout.splitPercent=max(10,min(90,sqlite3_column_int(query,4)));}sqlite3_finalize(query);}
+  return found;
 }
 void WorkspacePositionPane(CMainFrame& frame,CWorkspacePane& pane,const WorkspacePaneLayout& layout)
 {
@@ -2639,7 +2658,7 @@ void WorkspacePositionPane(CMainFrame& frame,CWorkspacePane& pane,const Workspac
        safe.height=max(140,min(safe.height,info.rcWork.bottom-info.rcWork.top-48));pane.ApplyLayout(safe);
        point.x=max(info.rcWork.left,min(point.x,info.rcWork.right-safe.width-32));
        point.y=max(info.rcWork.top,min(point.y,info.rcWork.bottom-safe.height-48));}
-    frame.FloatControlBar(&pane,point,CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);
+    pane.FloatPane(CRect(point,CSize(safe.width,safe.height)),DM_SHOW);
     }
   else
     {
@@ -2664,14 +2683,14 @@ bool CMainFrame::OpenWorkspaceTranscript(const CString& connectionId, const CStr
       { m_workspaceSplits[i]->OpenTranscript(connectionId,name);ShowControlBar(m_workspaceSplits[i],TRUE,FALSE);return true; }
   WorkspacePaneLayout layout;
   const bool restore=WorkspaceReadLayout(connectionId,name,layout);
-  if(restore && layout.detached)
+  if(!target->IsEmpty())
     {
     for(size_t i=0;i<m_workspaceSplits.size();++i)
       if(m_workspaceSplits[i]->IsEmpty()) { target=m_workspaceSplits[i];break; }
-    if(target==&m_workspacePane && m_workspaceSplits.size()<8)
+    if(target==&m_workspacePane && m_workspaceSplits.size()<128)
       { CWorkspacePane* extra=new CWorkspacePane;
-        if(extra->Create(this,(UINT)(ID_WORKSPACE_BAR+1+m_workspaceSplits.size())))
-          { extra->InstallDockContext(new CToolbarDockContext(extra));extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceReviewInput);extra->SetPruneHandler(WorkspacePanePruned);
+        if(extra->Create(this,(UINT)(0xE900+m_workspaceSplits.size())))
+          {extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceSendHumanInput);extra->SetPruneHandler(WorkspacePanePruned);extra->SetConnectionHandler(WorkspaceIsConnectionLive);extra->SetInputErrorHandler(WorkspaceHumanInputError);
             m_workspaceSplits.push_back(extra);target=extra; }
         else delete extra; }
     }
@@ -2682,7 +2701,9 @@ bool CMainFrame::OpenWorkspaceTranscript(const CString& connectionId, const CStr
        {const CString world=WorkspacePersistentWorld(connectionId);sqlite3_bind_text(query,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(query,2,name,-1,SQLITE_TRANSIENT);
         if(sqlite3_step(query)==SQLITE_ROW)target->SetInputPrefix(connectionId,name,WorkspaceLayoutWide((const char*)sqlite3_column_text(query,0)));
         sqlite3_finalize(query);}}
-  if(restore) WorkspacePositionPane(*this,*target,layout);
+  if(restore) { WorkspacePositionPane(*this,*target,layout);RestoreWorkspacePaneGroup(*target,layout); }
+  else if(target!=&m_workspacePane && !m_workspacePane.IsEmpty())target->AttachToTabWnd(&m_workspacePane,DM_SHOW);
+  else DockPane(target,AFX_IDW_DOCKBAR_RIGHT);
   ShowControlBar(target, TRUE, FALSE);
   RecalcLayout();
   return true;
@@ -2702,9 +2723,10 @@ void CMainFrame::CloseWorkspaceConnection(const CString& connectionId)
   for(size_t i=m_workspaceRoutes.size();i>0;--i)
     if(m_workspaceRoutes[i-1].connectionId==connectionId) m_workspaceRoutes.erase(m_workspaceRoutes.begin()+i-1);
   m_workspacePane.CloseConnection(connectionId);
+  if(m_workspacePane.IsEmpty()){ShowControlBar(&m_workspacePane,FALSE,FALSE);m_workspaceRestoreGroups.erase(&m_workspacePane);m_workspaceRestoredSplits.erase(&m_workspacePane);}
   for(size_t i=0;i<m_workspaceSplits.size();++i)
     { m_workspaceSplits[i]->CloseConnection(connectionId);
-      if(m_workspaceSplits[i]->IsEmpty()) ShowControlBar(m_workspaceSplits[i],FALSE,FALSE); }
+      if(m_workspaceSplits[i]->IsEmpty()){ShowControlBar(m_workspaceSplits[i],FALSE,FALSE);m_workspaceRestoreGroups.erase(m_workspaceSplits[i]);m_workspaceRestoredSplits.erase(m_workspaceSplits[i]);} }
 }
 void CMainFrame::OnWorkspaceTranscript()
 {
@@ -2724,42 +2746,35 @@ void CMainFrame::OnWorkspaceTool(UINT id)
 
 void CMainFrame::OnWorkspaceFloatTranscript()
 {
-  if (m_workspacePane.IsEmpty()) return;
-  CWorkspacePane* split=NULL;
-  for(size_t i=0;i<m_workspaceSplits.size();++i)
-    if(m_workspaceSplits[i]->IsEmpty()) { split=m_workspaceSplits[i]; break; }
-  if (!split)
-    {
-    if (m_workspaceSplits.size()>=8) { AfxMessageBox("Close a transcript before creating another separate pane."); return; }
-    split=new CWorkspacePane;
-    if (!split->Create(this,(UINT)(ID_WORKSPACE_BAR+1+m_workspaceSplits.size()))) { delete split; return; }
-    split->InstallDockContext(new CToolbarDockContext(split));
-    split->EnableDocking(CBRS_ALIGN_ANY); split->SetActionHandler(ActivateWorkspaceAction);
-    split->SetInputHandler(WorkspaceReviewInput);
-    split->SetPruneHandler(WorkspacePanePruned);
-    m_workspaceSplits.push_back(split);
-    }
-  if (!m_workspacePane.MoveSelectedTo(*split)) return;
-  CRect frame; GetWindowRect(frame);
-  FloatControlBar(split,frame.TopLeft()+CPoint(80,120),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);
-  ShowControlBar(split,TRUE,FALSE);
-  if(m_workspacePane.IsEmpty()) ShowControlBar(&m_workspacePane,FALSE,FALSE);
-  RecalcLayout();
+  CWorkspacePane* selected=NULL;
+  CWnd* focus=GetFocus();
+  for(CWnd* parent=focus;parent;parent=parent->GetParent())
+    if((selected=DYNAMIC_DOWNCAST(CWorkspacePane,parent))!=NULL)break;
+  if(!selected && !m_workspacePane.IsEmpty())selected=&m_workspacePane;
+  if(!selected)return;
+  CRect bounds;GetWindowRect(bounds);selected->FloatPane(CRect(bounds.TopLeft()+CPoint(80,120),CSize(500,350)),DM_SHOW);
+  selected->ShowPane(TRUE,FALSE,TRUE);RecalcLayout();
 }
 
 bool CMainFrame::HostWorkspaceTool(HWND toolWindow,const CString& title)
 {
-  if (!::IsWindow(toolWindow) || m_workspaceTools.size()>=32) return false;
+  if (!::IsWindow(toolWindow)) return false;
+  CWorkspacePane* host=NULL;
   for(size_t i=0;i<m_workspaceTools.size();++i)
+    {
     if(::GetParent(toolWindow)==m_workspaceTools[i]->m_hWnd)
       { ShowControlBar(m_workspaceTools[i],TRUE,FALSE); return true; }
-  CWorkspacePane* host=new CWorkspacePane;
-  if(!host->Create(this,(UINT)(0xE830+m_workspaceTools.size()))) { delete host; return false; }
-  host->InstallDockContext(new CToolbarDockContext(host));
-  host->EnableDocking(CBRS_ALIGN_ANY);
-  if(!host->HostTool(toolWindow,title)) { host->DestroyWindow();delete host;return false; }
-  m_workspaceTools.push_back(host);
-  DockControlBar(host,AFX_IDW_DOCKBAR_RIGHT); ShowControlBar(host,TRUE,FALSE); RecalcLayout();
+    if(!host && !m_workspaceTools[i]->IsToolHost())host=m_workspaceTools[i];
+    }
+  bool created=false;
+  if(!host)
+    {if(m_workspaceTools.size()>=32)return false;
+     host=new CWorkspacePane;if(!host->Create(this,(UINT)(0xE830+m_workspaceTools.size()))){delete host;return false;}
+     host->EnableDocking(CBRS_ALIGN_ANY);created=true;}
+  if(!host->HostTool(toolWindow,title)){if(created){host->DestroyWindow();delete host;}return false;}
+  if(created)m_workspaceTools.push_back(host);
+  m_workspaceRestoreGroups.erase(host);m_workspaceRestoredSplits.erase(host);
+  WorkspacePaneLayout layout;if(WorkspaceReadLayout("@tools",title,layout)){WorkspacePositionPane(*this,*host,layout);RestoreWorkspacePaneGroup(*host,layout);}else DockControlBar(host,AFX_IDW_DOCKBAR_RIGHT); ShowControlBar(host,TRUE,FALSE); RecalcLayout();
   return true;
 }
 
@@ -2793,6 +2808,8 @@ bool CMainFrame::AddWorkspaceRoute(const WorkspaceRoute& source,CString& error)
 }
 bool CMainFrame::RouteWorkspaceRecord(const WorkspaceRecord& record)
 {
+  if(record.connectionId.IsEmpty() || m_workspaceClosedConnections.find(record.connectionId)!=m_workspaceClosedConnections.end())return false;
+  RestoreWorkspaceRoutes(record.connectionId); // cold-start routes exist before the first completed record is matched
   bool omit=false;
   std::set<CString> delivered;
   for(size_t i=0;i<m_workspaceRoutes.size();++i)
@@ -2808,11 +2825,57 @@ bool CMainFrame::RouteWorkspaceRecord(const WorkspaceRecord& record)
   return omit;
 }
 
+void CMainFrame::RestoreWorkspacePaneGroup(CWorkspacePane& pane,const WorkspacePaneLayout& layout)
+{
+  if(layout.groupConnectionId.IsEmpty() || layout.groupName.IsEmpty())return;
+  m_workspaceRestoreGroups[&pane]=layout;
+  for(std::map<CWorkspacePane*,WorkspacePaneLayout>::iterator it=m_workspaceRestoreGroups.begin();it!=m_workspaceRestoreGroups.end();++it)
+    if(it->first!=&pane && it->first->GetSafeHwnd() && (!it->first->IsEmpty() || it->first->IsToolHost()) && it->second.groupConnectionId==layout.groupConnectionId && it->second.groupName==layout.groupName)
+      {pane.AttachToTabWnd(it->first,DM_SHOW,FALSE);break;}
+  CBaseTabbedPane* group=pane.GetParentTabbedPane();if(group)
+  {
+  CMFCBaseTabCtrl* tabs=group->GetUnderlyingWindow();
+  std::vector<std::pair<int,CWorkspacePane*> > order;
+  for(int i=0;i<tabs->GetTabsNum();++i)
+    {CWorkspacePane* leaf=DYNAMIC_DOWNCAST(CWorkspacePane,tabs->GetTabWnd(i));std::map<CWorkspacePane*,WorkspacePaneLayout>::iterator saved=m_workspaceRestoreGroups.find(leaf);if(saved!=m_workspaceRestoreGroups.end())order.push_back(std::make_pair(saved->second.tabOrder,leaf));}
+  std::stable_sort(order.begin(),order.end());
+  for(size_t i=0;i<order.size();++i)tabs->MoveTab(tabs->GetTabFromHwnd(order[i].second->m_hWnd),(int)i);
+  for(size_t i=0;i<order.size();++i)if(m_workspaceRestoreGroups[order[i].second].active)tabs->SetActiveTab((int)i);
+  }
+  std::vector<std::pair<int,CWorkspacePane*> > pending;
+  for(std::map<CWorkspacePane*,WorkspacePaneLayout>::iterator it=m_workspaceRestoreGroups.begin();it!=m_workspaceRestoreGroups.end();++it)
+    if(!it->second.splitName.IsEmpty() && m_workspaceRestoredSplits.find(it->first)==m_workspaceRestoredSplits.end())pending.push_back(std::make_pair(it->second.splitDepth,it->first));
+  std::stable_sort(pending.begin(),pending.end());
+  for(size_t i=0;i<pending.size();++i)
+    {
+    CWorkspacePane* leaf=pending[i].second;const WorkspacePaneLayout& saved=m_workspaceRestoreGroups[leaf];
+    if(saved.splitAlignment!=CBRS_ALIGN_RIGHT && saved.splitAlignment!=CBRS_ALIGN_BOTTOM)continue;
+    if(!leaf->GetSafeHwnd() || (leaf->IsEmpty() && !leaf->IsToolHost()))continue;
+    // Corrupt or manually edited portable layouts must never form dock cycles.
+    CString nextWorld=saved.splitConnectionId,nextName=saved.splitName;bool cycle=false;
+    const CString originalWorld=WorkspacePersistentWorld(saved.connectionId);
+    for(size_t hop=0;hop<128 && !nextName.IsEmpty();++hop)
+      {if(nextWorld==originalWorld && nextName==saved.name){cycle=true;break;}
+       bool found=false;for(std::map<CWorkspacePane*,WorkspacePaneLayout>::iterator path=m_workspaceRestoreGroups.begin();path!=m_workspaceRestoreGroups.end();++path)
+         if(WorkspacePersistentWorld(path->second.connectionId)==nextWorld && path->second.name==nextName){nextWorld=path->second.splitConnectionId;nextName=path->second.splitName;found=true;break;}
+       if(!found)break;if(hop==127)cycle=true;}
+    if(cycle)continue;
+    for(std::map<CWorkspacePane*,WorkspacePaneLayout>::iterator it=m_workspaceRestoreGroups.begin();it!=m_workspaceRestoreGroups.end();++it)
+      {const WorkspacePaneLayout& target=it->second;if(it->first==leaf || WorkspacePersistentWorld(target.connectionId)!=saved.splitConnectionId || target.name!=saved.splitName)continue;
+       CDockablePane* owner=leaf->GetParentTabbedPane()?static_cast<CDockablePane*>(leaf->GetParentTabbedPane()):leaf;
+       CDockablePane* anchor=it->first->GetParentTabbedPane()?static_cast<CDockablePane*>(it->first->GetParentTabbedPane()):it->first;
+       if(owner==anchor)break;CRect bounds;anchor->GetWindowRect(bounds);CRect desired=bounds;
+       if(saved.splitAlignment==CBRS_ALIGN_BOTTOM)desired.top=bounds.bottom-bounds.Height()*saved.splitPercent/100;else desired.left=bounds.right-bounds.Width()*saved.splitPercent/100;
+       if(owner->DockToWindow(anchor,saved.splitAlignment,desired))m_workspaceRestoredSplits.insert(leaf);break;}
+    }
+}
+
 void CMainFrame::SaveWorkspaceLayouts()
 {
   if(!WorkspaceLayoutSchema()) return;
   std::vector<WorkspacePaneLayout> layouts;m_workspacePane.GetLayouts(layouts,false);
   for(size_t i=0;i<m_workspaceSplits.size();++i)m_workspaceSplits[i]->GetLayouts(layouts,true);
+  for(size_t i=0;i<m_workspaceTools.size();++i)m_workspaceTools[i]->GetLayouts(layouts,true);
   sqlite3_stmt* write=NULL;
   if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_pane_layout_v1(world_id,name,detached,floating,alignment,x,y,width,height) VALUES(?,?,?,?,?,?,?,?,?)",-1,&write,NULL)!=SQLITE_OK)return;
   for(size_t i=0;i<layouts.size();++i)
@@ -2822,6 +2885,16 @@ void CMainFrame::SaveWorkspaceLayouts()
     sqlite3_bind_int(write,3,layout.detached);sqlite3_bind_int(write,4,layout.floating);sqlite3_bind_int(write,5,layout.alignment);
     sqlite3_bind_int(write,6,layout.x);sqlite3_bind_int(write,7,layout.y);sqlite3_bind_int(write,8,layout.width);sqlite3_bind_int(write,9,layout.height);sqlite3_step(write);
     }
+  sqlite3_finalize(write);
+  if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_tab_group_v2(world_id,name,group_world,group_name,tab_order,active) VALUES(?,?,?,?,?,?)",-1,&write,NULL)!=SQLITE_OK)return;
+  for(size_t i=0;i<layouts.size();++i)
+    {const WorkspacePaneLayout& layout=layouts[i];const CString world=WorkspacePersistentWorld(layout.connectionId),groupWorld=WorkspacePersistentWorld(layout.groupConnectionId);
+     sqlite3_reset(write);sqlite3_clear_bindings(write);sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,layout.name,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,3,groupWorld,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,4,layout.groupName,-1,SQLITE_TRANSIENT);sqlite3_bind_int(write,5,layout.tabOrder);sqlite3_bind_int(write,6,layout.active);sqlite3_step(write);}
+  sqlite3_finalize(write);
+  if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_split_v2(world_id,name,target_world,target_name,side,depth,percent) VALUES(?,?,?,?,?,?,?)",-1,&write,NULL)!=SQLITE_OK)return;
+  for(size_t i=0;i<layouts.size();++i)
+    {const WorkspacePaneLayout& layout=layouts[i];const CString world=WorkspacePersistentWorld(layout.connectionId),targetWorld=WorkspacePersistentWorld(layout.splitConnectionId);
+     sqlite3_reset(write);sqlite3_clear_bindings(write);sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,layout.name,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,3,targetWorld,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,4,layout.splitName,-1,SQLITE_TRANSIENT);sqlite3_bind_int(write,5,layout.splitAlignment);sqlite3_bind_int(write,6,layout.splitDepth);sqlite3_bind_int(write,7,layout.splitPercent);sqlite3_step(write);}
   sqlite3_finalize(write);
 }
 void CMainFrame::RestoreWorkspaceRoutes(const CString& identity)
@@ -2916,129 +2989,12 @@ void CMainFrame::OnUpdateWorkspaceFocus(CCmdUI* command)
   command->Enable(command->m_nID>=59010 && command->m_nID-59010<count);
 }
 
-// Modeless route manager captures its connection at creation.
-class CWorkspaceRouteDialog : public CWnd
-{
-  CMainFrame* frame;
-  CString identity;
-  CEdit name,pattern,prefix;
-  CListBox routes;
-  CButton regex,omit,save,cancel,newRoute,removeRoute;
-  CStatic nameLabel,patternLabel,prefixLabel;
-  std::vector<WorkspaceRoute> visibleRoutes;
-  int editing;
-  void RefreshRoutes()
-    {
-    visibleRoutes.clear();routes.ResetContent();
-    const std::vector<WorkspaceRoute>& all=frame->WorkspaceRoutes();
-    for(size_t i=0;i<all.size();++i)if(all[i].connectionId==identity)
-      {visibleRoutes.push_back(all[i]);
-       std::wstring label=WorkspaceLayoutWide((LPCTSTR)all[i].transcriptName)+L"  "+(all[i].regex?L"regex: ":L"text: ")+all[i].pattern;
-       if(all[i].omitFromMain)label+=L"  [hide from main]";
-       ::SendMessageW(routes.m_hWnd,LB_ADDSTRING,0,(LPARAM)label.c_str());}
-    editing=-1;removeRoute.EnableWindow(FALSE);save.SetWindowText("Create route");
-    }
-public:
-  CWorkspaceRouteDialog(CMainFrame* owner,const CString& id):frame(owner),identity(id),editing(-1){}
-  BOOL Open()
-    {
-    return CreateEx(WS_EX_DLGMODALFRAME,AfxRegisterWndClass(0,LoadCursor(NULL,IDC_ARROW),(HBRUSH)(COLOR_BTNFACE+1)),
-      "Manage named output routes",WS_POPUP|WS_CAPTION|WS_SYSMENU,CRect(200,140,760,640),frame,0);
-    }
-  virtual void PostNcDestroy(){delete this;}
-protected:
-  afx_msg int OnCreate(LPCREATESTRUCT cs)
-    {
-    if(CWnd::OnCreate(cs)==-1)return -1;
-    SetPropW(GetSafeHwnd(),L"MUSHclientWorkspace",(HANDLE)1);
-    HWND list=::CreateWindowExW(WS_EX_CLIENTEDGE,L"LISTBOX",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|LBS_NOTIFY,
-      16,16,515,105,m_hWnd,(HMENU)7,AfxGetInstanceHandle(),NULL);
-    if(!list || !routes.Attach(list))return -1;
-    newRoute.Create("New rule",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(280,128,400,155),this,8);
-    removeRoute.Create("Delete rule",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(411,128,531,155),this,9);
-    nameLabel.Create("Transcript name",WS_CHILD|WS_VISIBLE,CRect(16,169,531,191),this);
-    HWND nameWindow=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"Tells",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
-      16,193,515,26,m_hWnd,(HMENU)1,AfxGetInstanceHandle(),NULL);
-    HWND patternWindow=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
-      16,255,515,26,m_hWnd,(HMENU)2,AfxGetInstanceHandle(),NULL);
-    HWND prefixWindow=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
-      16,315,515,26,m_hWnd,(HMENU)10,AfxGetInstanceHandle(),NULL);
-    if(!nameWindow || !patternWindow || !prefixWindow || !name.Attach(nameWindow) || !pattern.Attach(patternWindow) || !prefix.Attach(prefixWindow))return -1;
-    ::SendMessageW(nameWindow,EM_SETLIMITTEXT,64,0);::SendMessageW(patternWindow,EM_SETLIMITTEXT,1024,0);::SendMessageW(prefixWindow,EM_SETLIMITTEXT,1024,0);
-    patternLabel.Create("Text to match",WS_CHILD|WS_VISIBLE,CRect(16,231,531,253),this);
-    prefixLabel.Create("Command prefix for this transcript (optional)",WS_CHILD|WS_VISIBLE,CRect(16,291,531,313),this);
-    regex.Create("Use regular expression",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,CRect(16,354,531,379),this,3);
-    omit.Create("Hide matching lines from the main transcript",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,CRect(16,384,531,409),this,4);
-    save.Create("Create route",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,CRect(280,425,400,455),this,5);
-    cancel.Create("Close",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(411,425,531,455),this,6);
-    for(HWND child=::GetWindow(m_hWnd,GW_CHILD);child;child=::GetWindow(child,GW_HWNDNEXT))
-      ::SendMessage(child,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
-    for(HWND child=::GetWindow(m_hWnd,GW_CHILD);child;child=::GetWindow(child,GW_HWNDNEXT))
-      {wchar_t cls[32]={0};::GetClassNameW(child,cls,32);
-       if(wcscmp(cls,L"Static")!=0)::SetWindowLongPtrW(child,GWL_STYLE,::GetWindowLongPtrW(child,GWL_STYLE)|WS_TABSTOP);}
-    RefreshRoutes();return 0;
-    }
-  afx_msg void OnSelect()
-    {
-    editing=routes.GetCurSel();if(editing<0 || editing>=(int)visibleRoutes.size())return;
-    const WorkspaceRoute& route=visibleRoutes[editing];
-    ::SetWindowTextW(name.m_hWnd,WorkspaceLayoutWide((LPCTSTR)route.transcriptName).c_str());
-    ::SetWindowTextW(pattern.m_hWnd,route.pattern.c_str());
-    ::SetWindowTextW(prefix.m_hWnd,frame->WorkspaceInputPrefix(identity,route.transcriptName).c_str());
-    regex.SetCheck(route.regex?BST_CHECKED:BST_UNCHECKED);omit.SetCheck(route.omitFromMain?BST_CHECKED:BST_UNCHECKED);
-    removeRoute.EnableWindow(TRUE);save.SetWindowText("Save changes");
-    }
-  afx_msg void OnNew()
-    {
-    editing=-1;routes.SetCurSel(-1);::SetWindowTextW(name.m_hWnd,L"Tells");::SetWindowTextW(pattern.m_hWnd,L"");::SetWindowTextW(prefix.m_hWnd,L"");
-    regex.SetCheck(BST_UNCHECKED);omit.SetCheck(BST_UNCHECKED);removeRoute.EnableWindow(FALSE);save.SetWindowText("Create route");name.SetFocus();
-    }
-  afx_msg void OnDelete()
-    {
-    if(editing<0 || editing>=(int)visibleRoutes.size())return;
-    if(!frame->RemoveWorkspaceRoute(visibleRoutes[editing])){AfxMessageBox("The route could not be removed.");return;}
-    RefreshRoutes();OnNew();
-    }
-  afx_msg void OnSave()
-    {
-    wchar_t nameText[65]={0},patternText[1025]={0},prefixText[1025]={0};
-    ::GetWindowTextW(name.m_hWnd,nameText,65);::GetWindowTextW(pattern.m_hWnd,patternText,1025);::GetWindowTextW(prefix.m_hWnd,prefixText,1025);
-    CString transcriptName;
-    for(size_t i=0;nameText[i];++i)
-      {if(nameText[i]<32 || nameText[i]>126){AfxMessageBox("Use letters, numbers, and punctuation from the English keyboard for the transcript name.");return;}
-       transcriptName+=(char)nameText[i];}
-    WorkspaceRoute route;route.connectionId=identity;route.transcriptName=transcriptName;route.pattern=patternText;
-    route.regex=regex.GetCheck()==BST_CHECKED;route.omitFromMain=omit.GetCheck()==BST_CHECKED;
-    CString error;
-    bool saved=editing>=0 && editing<(int)visibleRoutes.size()?frame->ReplaceWorkspaceRoute(visibleRoutes[editing],route,error):frame->AddWorkspaceRoute(route,error);
-    if(!saved){AfxMessageBox(error);return;}
-    if(!frame->SetWorkspaceInputPrefix(identity,transcriptName,prefixText)){AfxMessageBox("The route was saved, but the command prefix could not be saved.");return;}
-    RefreshRoutes();
-    for(size_t i=0;i<visibleRoutes.size();++i)
-      if(visibleRoutes[i].transcriptName==route.transcriptName && visibleRoutes[i].pattern==route.pattern && visibleRoutes[i].regex==route.regex)
-        {routes.SetCurSel((int)i);OnSelect();break;}
-    }
-  afx_msg void OnDestroy(){RemovePropW(GetSafeHwnd(),L"MUSHclientWorkspace");CWnd::OnDestroy();}
-  afx_msg void OnClose(){DestroyWindow();}
-  DECLARE_MESSAGE_MAP()
-};
-BEGIN_MESSAGE_MAP(CWorkspaceRouteDialog,CWnd)
-  ON_WM_CREATE()
-  ON_WM_CLOSE()
-  ON_WM_DESTROY()
-  ON_BN_CLICKED(5,OnSave)
-  ON_BN_CLICKED(6,OnClose)
-  ON_BN_CLICKED(8,OnNew)
-  ON_BN_CLICKED(9,OnDelete)
-  ON_LBN_SELCHANGE(7,OnSelect)
-END_MESSAGE_MAP()
-
+// Route UI owns a captured original connection; implementation lives separately.
+#include "WorkspaceRouteManager.h"
 void CMainFrame::OnWorkspaceRoute()
 {
   CMDIChildWnd* child=MDIGetActive();
   CMUSHclientDoc* doc=child?DYNAMIC_DOWNCAST(CMUSHclientDoc,child->GetActiveDocument()):NULL;
   if(!doc){AfxMessageBox("Open a world before creating an output route.");return;}
-  CWorkspaceRouteDialog* dialog=new CWorkspaceRouteDialog(this,WorkspaceConnectionId(doc));
-  if(!dialog->Open())return; // CWnd creation failure calls PostNcDestroy.
-  dialog->ShowWindow(SW_SHOW);dialog->SetForegroundWindow();
+  OpenWorkspaceRouteManager(this,WorkspaceConnectionId(doc));
 }

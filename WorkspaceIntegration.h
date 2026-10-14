@@ -15,6 +15,9 @@ bool WorkspacePublishRecord(CMUSHclientDoc* doc, const WorkspaceRecord& record, 
 void WorkspacePublishToPane(const CString& connectionId,const CString& name,const WorkspaceRecord& record);
 HWND WorkspaceOpenDraft(HWND parent,const agent_workspace::Draft& draft);
 void WorkspaceReviewInput(const CString& connectionId,const std::wstring& command);
+bool WorkspaceSendHumanInput(const CString& connectionId,const std::wstring& command);
+bool WorkspaceIsConnectionLive(const CString& connectionId);
+std::wstring WorkspaceHumanInputError(const CString& connectionId);
 bool WorkspaceSendEditorRead(const std::string& endpoint,const std::string& command);
 bool WorkspaceSendPreparedEditor(const std::string& endpoint,unsigned __int64 documentID,unsigned __int64 revision,const std::vector<std::string>& commands);
 void WorkspaceBindSceneDraft(unsigned __int64 documentID,const std::string& draftId);

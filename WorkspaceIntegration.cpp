@@ -4,6 +4,8 @@
 #include "mainfrm.h"
 #include "WorkspaceIntegration.h"
 #include "workspace/PennEditorWindow.h"
+#include "workspace/WorkspaceInputEncoding.h"
+#include "scripting/errors.h"
 #include <map>
 #include <regex>
 #include <set>
@@ -15,6 +17,7 @@ unsigned __int64 nextIdentity=0;
 agent_workspace::Store agentStore;
 std::map<std::string,unsigned __int64> paneLastSequence;
 std::map<unsigned __int64,std::string> sceneDraftBindings;
+std::map<CString,std::wstring> humanInputErrors;
 std::map<CMUSHclientDoc*,std::set<unsigned __int64> > pendingSourceLines;
 std::map<CMUSHclientDoc*,std::set<unsigned __int64> > activeSourceLines,deferredLocalLines;
 std::wstring wide(const char* text,int length,bool utf8)
@@ -51,6 +54,7 @@ void WorkspaceExpireConnection(CMUSHclientDoc* doc)
   std::map<CMUSHclientDoc*,Identity>::iterator it=identities.find(doc);
   if(it==identities.end()) return;
   PennEditorInvalidateEndpoint((LPCTSTR)it->second.id);
+  humanInputErrors[it->second.id]=L"Original world disconnected; draft preserved.";
   const std::string panePrefix=std::string((LPCTSTR)it->second.id)+"/pane/";
   for(const auto& w:agentStore.humanWindows())
     if(w.id.compare(0,panePrefix.size(),panePrefix)==0)agentStore.expireWindow(w.id);
@@ -63,6 +67,7 @@ void WorkspaceCloseDocument(CMUSHclientDoc* doc)
   std::map<CMUSHclientDoc*,Identity>::iterator it=identities.find(doc);
   if(it==identities.end()) return;
   PennEditorInvalidateEndpoint((LPCTSTR)it->second.id);
+  humanInputErrors.erase(it->second.id);
   const std::string panePrefix=std::string((LPCTSTR)it->second.id)+"/pane/";
   for(const auto& w:agentStore.humanWindows())
     if(w.id.compare(0,panePrefix.size(),panePrefix)==0)agentStore.expireWindow(w.id);
@@ -107,13 +112,7 @@ WorkspaceRecord captureLines(CMUSHclientDoc* doc,const std::vector<CLine*>& line
 }
 std::string recordText(const WorkspaceRecord& record) {std::wstring text;for(const auto& run:record.runs)text+=run.text;return utf8(text);}
 bool encodeCommand(CMUSHclientDoc* doc,const std::string& source,std::string& encoded) {
-  int length=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,source.data(),(int)source.size(),NULL,0);
-  if(!length)return false;
-  if(doc->m_bUTF_8){encoded=source;return true;}
-  std::wstring text(length,L'\0');MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,source.data(),(int)source.size(),&text[0],length);
-  BOOL substituted=FALSE;int bytes=WideCharToMultiByte(CP_ACP,WC_NO_BEST_FIT_CHARS,text.data(),length,NULL,0,NULL,&substituted);
-  if(!bytes || substituted)return false;encoded.resize(bytes);
-  WideCharToMultiByte(CP_ACP,WC_NO_BEST_FIT_CHARS,text.data(),length,&encoded[0],bytes,NULL,&substituted);return !substituted;
+  return workspace_input::EncodeForWorld(doc->m_bUTF_8!=0,GetACP(),source,encoded);
 }
 CMUSHclientDoc* liveDocument(const CString& id) {for(const auto& pair:identities)if(pair.second.id==id)return pair.first;return NULL;}
 void ensurePane(const CString& connectionId,const CString& name,const std::string& id) {
@@ -276,6 +275,65 @@ void WorkspaceReviewInput(const CString& connectionId,const std::wstring& comman
 {
   PennEditorSetTransport(WorkspaceSendEditorRead);PennEditorSetSendPrepared(WorkspaceSendPreparedEditor);
   OpenPennEditor(Frame.GetSafeHwnd(),(LPCTSTR)connectionId,utf8(command));
+}
+bool WorkspaceIsConnectionLive(const CString& connectionId)
+{
+  CMUSHclientDoc* doc=liveDocument(connectionId);
+  return doc && doc->m_iConnectPhase==eConnectConnectedToMud;
+}
+std::wstring WorkspaceHumanInputError(const CString& connectionId)
+{
+  if(!liveDocument(connectionId))return L"Original world is closed; draft was not submitted.";
+  auto error=humanInputErrors.find(connectionId);
+  return error==humanInputErrors.end()?L"Not submitted; draft preserved.":error->second;
+}
+bool WorkspaceSendHumanInput(const CString& connectionId,const std::wstring& command)
+{
+  // This callback is installed only on human-operated transcript input controls.
+  // Agent/code/scene proposals retain their separate reviewed-send path.
+  CMUSHclientDoc* doc=liveDocument(connectionId);
+  if(!doc)return false;
+  auto reject=[&](const wchar_t* message){humanInputErrors[connectionId]=message;return false;};
+  if(doc->m_iConnectPhase!=eConnectConnectedToMud)
+    return reject(L"Original world disconnected; draft preserved.");
+  if(command.empty() || command.size()>4096)
+    return reject(L"Enter a command within the 4096-byte limit; draft preserved.");
+  for(wchar_t c:command)if(c<32 || c==127)
+    return reject(L"One-line input cannot contain control characters; draft preserved.");
+  int bytes=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,command.data(),(int)command.size(),NULL,0,NULL,NULL);
+  if(!bytes || bytes>4096)return reject(L"Input is invalid Unicode or exceeds 4096 UTF-8 bytes; draft preserved.");
+  std::string source(bytes,'\0');
+  if(!WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,command.data(),(int)command.size(),&source[0],bytes,NULL,NULL))
+    return reject(L"Input contains invalid Unicode; draft preserved.");
+  std::string encoded;
+  if(!encodeCommand(doc,source,encoded))
+    return reject(L"This world's text encoding cannot represent the command; draft preserved.");
+  struct HumanAction {
+    CMUSHclientDoc* doc;CString id;unsigned short previous;
+    HumanAction(CMUSHclientDoc* value,const CString& endpoint):doc(value),id(endpoint),previous(value->m_iCurrentActionSource)
+      {doc->m_iCurrentActionSource=eUserTyping;}
+    ~HumanAction(){if(liveDocument(id)==doc)doc->m_iCurrentActionSource=previous;}
+  } action(doc,connectionId);
+  try {
+    // Execute on the captured document, never the currently focused world.
+    // Preserve its alias/script/command handling and the main input draft.
+    CString entered(encoded.c_str());
+    doc->SendToAllPluginCallbacksRtn(ON_PLUGIN_COMMAND_ENTERED,entered);
+    if(liveDocument(connectionId)!=doc)return false;
+    if(doc->m_iConnectPhase!=eConnectConnectedToMud)
+      return reject(L"Original world disconnected during command processing; draft preserved.");
+    if(entered=="\r" || entered=="\t")
+      return reject(L"A world plugin declined this command; draft preserved.");
+    const long result=doc->Execute(entered);
+    // Command callbacks may close a world. Do not dereference it afterward.
+    if(!liveDocument(connectionId))return false;
+    if(result!=eOK)return reject(L"Original world did not accept the command; draft preserved.");
+    humanInputErrors.erase(connectionId);
+    return true; // Accepted locally; this is not a server execution receipt.
+  }catch(CException* error){error->Delete();}
+  catch(...){ }
+  if(!liveDocument(connectionId))return false;
+  return reject(L"Submission interrupted; check world output before retrying.");
 }
 bool WorkspaceSendEditorRead(const std::string& endpoint,const std::string& command)
 {

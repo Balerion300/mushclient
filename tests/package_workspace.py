@@ -44,6 +44,10 @@ shutil.copytree(ROOT/'third_party/pennmush-reference',dest/'pennmush-reference')
 for name in ('WORKSPACE_MODERNIZATION_PLAN.md','WORKSPACE_TESTS.md','PENN_IDE.md',
              'AGENT_WORKSPACE_CONTRACT.md','AGENT_REVIEW_PANE.md','AGENT_INTEGRATION_AUDIT.md','BUILD_WORKSPACE.md','INLINE_IMAGES.md','STABILITY_TESTS.md'):
     shutil.copy2(ROOT/'docs'/name,dest/name)
+for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md'):
+    source=ROOT/'docs'/name
+    if not source.is_file():raise SystemExit('Missing workspace guide: '+name)
+    shutil.copy2(source,dest/name)
 # Sources/examples for the explicitly configured external runner, never credentials.
 (dest/'agent-examples').mkdir()
 for name in ('runner.py','companion.py','tools.json'):

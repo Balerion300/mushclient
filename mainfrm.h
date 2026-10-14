@@ -8,6 +8,7 @@
 #include "MyStatusBar.h"
 #include "MDITabs.h"
 #include "WorkspacePane.h"
+#include "WorkspaceFrame.h"
 
 class CMUSHclientDoc;
 
@@ -35,11 +36,18 @@ protected:
 };
 
 
-class CMainFrame : public CMDIFrameWnd
+class CMainFrame : public CWorkspaceFrame
 {
 	DECLARE_DYNAMIC(CMainFrame)
 public:
 	CMainFrame();
+  using CMDIFrameWnd::DockControlBar;
+  using CMDIFrameWnd::FloatControlBar;
+  using CMDIFrameWnd::ShowControlBar;
+  void DockControlBar(CWorkspacePane* pane,UINT dock=AFX_IDW_DOCKBAR_RIGHT,LPCRECT rect=NULL) { DockPane(pane,dock,rect); }
+  void ShowControlBar(CWorkspacePane* pane,BOOL show,BOOL delay) { pane->ShowPane(show,delay,show); }
+  void FloatControlBar(CWorkspacePane* pane,CPoint point,DWORD) { pane->FloatPane(CRect(point,CSize(500,350)),DM_SHOW); }
+
 
 	BOOL OnDynamicTipText(UINT id, NMHDR* pNMHDR, LRESULT* pResult);
 
@@ -150,6 +158,9 @@ public:
   std::vector<CWorkspacePane*> m_workspaceSplits;
   std::vector<CWorkspacePane*> m_workspaceTools;
   std::vector<WorkspaceRoute> m_workspaceRoutes;
+  std::map<CWorkspacePane*,WorkspacePaneLayout> m_workspaceRestoreGroups;
+  std::set<CWorkspacePane*> m_workspaceRestoredSplits;
+  void RestoreWorkspacePaneGroup(CWorkspacePane& pane,const WorkspacePaneLayout& layout);
   std::set<CString> m_workspaceRestored;
   std::set<CString> m_workspaceClosedConnections;
   afx_msg void OnWorkspaceTranscript();

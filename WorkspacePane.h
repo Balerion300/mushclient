@@ -1,6 +1,13 @@
 #pragma once
 
 #include "InlineImage.h"
+#pragma push_macro("Translate")
+#undef Translate
+#include <afxole.h>
+#include <afxdockablepane.h>
+#include <afxtabbedpane.h>
+#pragma pop_macro("Translate")
+#include "workspace/WorkspaceInputPolicy.h"
 
 // Independently implemented native workspace; no external client code.
 #define ID_WORKSPACE_TRANSCRIPT 59000
@@ -31,11 +38,16 @@ struct WorkspaceRecord
 
 struct WorkspacePaneLayout
 {
-  CString connectionId, name;
+  CString connectionId, name, groupConnectionId, groupName;
+  CString splitConnectionId,splitName;
+  DWORD splitAlignment;
+  int splitDepth,splitPercent;
+  int tabOrder;
+  bool active;
   bool detached, floating;
   DWORD alignment;
   int x,y,width,height;
-  WorkspacePaneLayout():detached(false),floating(false),alignment(CBRS_ALIGN_RIGHT),x(80),y(120),width(360),height(250){}
+  WorkspacePaneLayout():splitAlignment(0),splitDepth(0),splitPercent(50),tabOrder(0),active(true),detached(false),floating(false),alignment(CBRS_ALIGN_RIGHT),x(80),y(120),width(360),height(250){}
 };
 
 struct WorkspaceRoute
@@ -49,17 +61,22 @@ struct WorkspaceRoute
   bool Matches(const WorkspaceRecord& record) const;
 };
 
-class CWorkspacePane : public CControlBar
+class CWorkspacePane : public CDockablePane
 {
   DECLARE_DYNAMIC(CWorkspacePane)
 public:
   CWorkspacePane();
   virtual ~CWorkspacePane();
   BOOL Create(CFrameWnd* frame, UINT barId=ID_WORKSPACE_BAR);
+  virtual CDockablePane* AttachToTabWnd(CDockablePane* target,AFX_DOCK_METHOD method,BOOL active=TRUE,CDockablePane** group=NULL);
+  virtual BOOL FloatPane(CRect bounds,AFX_DOCK_METHOD method=DM_UNKNOWN,bool show=true);
+  virtual LRESULT WindowProc(UINT message,WPARAM wp,LPARAM lp);
+  CSize WorkspaceMinimumSize() const { return MinimumSize(); }
   bool MoveSelectedTo(CWorkspacePane& target);
   bool HostTool(HWND toolWindow, const CString& title);
+  int CloseHostedTool(); // 0 transcript/empty, 1 closed tool, -1 child vetoed close
   bool IsToolHost() const { return m_toolWindow && ::IsWindow(m_toolWindow); }
-  void InstallDockContext(CDockContext* context);
+
   void GetLayouts(std::vector<WorkspacePaneLayout>& layouts,bool detached) const;
   void ApplyLayout(const WorkspacePaneLayout& layout);
   bool HasTranscript(const CString& id,const CString& name) const;
@@ -73,30 +90,39 @@ public:
   void CloseConnection(const CString& connectionId);
   bool ClearTranscript(const CString& connectionId,const CString& name);
   typedef std::function<void(const CString&, unsigned short, const CString&)> ActionHandler;
-  typedef std::function<void(const CString&, const std::wstring&)> InputHandler;
+  typedef std::function<bool(const CString&, const std::wstring&)> InputHandler;
+  typedef std::function<std::wstring(const CString&)> InputErrorHandler;
+  void SetInputErrorHandler(const InputErrorHandler& handler) { m_inputErrorHandler=handler; }
+  typedef std::function<bool(const CString&)> ConnectionHandler;
+  void SetConnectionHandler(const ConnectionHandler& handler) { m_connectionHandler=handler; }
   typedef std::function<void(const CString&,const CString&,const std::deque<WorkspaceRecord>&)> PruneHandler;
   void SetPruneHandler(const PruneHandler& handler) { m_pruneHandler=handler; }
   void SetInputHandler(const InputHandler& handler) { m_inputHandler=handler; }
   bool SetInputPrefix(const CString& connectionId, const CString& name, const std::wstring& prefix);
   virtual BOOL PreTranslateMessage(MSG* message);
   void SetActionHandler(const ActionHandler& handler) { m_actionHandler=handler; }
-  virtual CSize CalcFixedLayout(BOOL stretch, BOOL horizontal);
-  virtual CSize CalcDynamicLayout(int length, DWORD mode);
+
   virtual void OnUpdateCmdUI(CFrameWnd*, BOOL) {}
 protected:
   struct LinkRange { long first,last; unsigned short type; CString action; };
   struct Transcript
   {
-    CString connectionId, name;
+    CString connectionId, name, groupConnectionId, groupName;
+  CString splitConnectionId,splitName;
+  DWORD splitAlignment;
+  int splitDepth,splitPercent;
+  int tabOrder;
+  bool active;
     CRichEditCtrl text;
     std::deque<WorkspaceRecord> records;
     std::vector<LinkRange> links;
     std::vector<int> imageStates;
     std::wstring inputDraft, inputPrefix;
+    workspace_input::InputHistory history;
     bool paused;
     unsigned int unread;
-    int renderedWidth;
-    Transcript():paused(false),unread(0),renderedWidth(0){}
+    int renderedWidth,connectionState;
+    Transcript():paused(false),unread(0),renderedWidth(0),connectionState(-1){}
   };
   std::vector<Transcript*> m_transcripts;
   CTabCtrl m_tabs;
@@ -104,6 +130,9 @@ protected:
   CString m_toolTitle;
   ActionHandler m_actionHandler;
   InputHandler m_inputHandler;
+  ConnectionHandler m_connectionHandler;
+  InputErrorHandler m_inputErrorHandler;
+  CStatic m_inputStatus;
   PruneHandler m_pruneHandler;
   CEdit m_input;
   CButton m_reviewInput;
@@ -118,7 +147,7 @@ protected:
   Transcript* Find(const CString& connectionId, const CString& name);
   void LayoutChildren();
   CSize MinimumSize() const;
-  CSize DockAvailableSize() const;
+  virtual void GetMinSize(CSize& size) const { size=MinimumSize(); }
   void SaveInputDraft();
   void UpdateTabLabel(size_t index);
   void RenderRecord(Transcript& transcript, const WorkspaceRecord& record);
@@ -132,11 +161,7 @@ protected:
   afx_msg int OnCreate(LPCREATESTRUCT cs);
   afx_msg void OnSize(UINT type, int cx, int cy);
   afx_msg void OnPaint();
-  afx_msg void OnLButtonDown(UINT flags, CPoint point);
-  afx_msg void OnLButtonUp(UINT flags, CPoint point);
-  afx_msg void OnMouseMove(UINT flags, CPoint point);
-  afx_msg void OnCaptureChanged(CWnd* window);
-  afx_msg void OnLButtonDblClk(UINT flags, CPoint point);
+  afx_msg void OnSetFocus(CWnd* oldWindow);
   afx_msg void OnReviewInput();
   afx_msg void OnFindNext();
   afx_msg void OnPause();

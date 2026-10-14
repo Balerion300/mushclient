@@ -123,3 +123,58 @@ not personal worlds, saved credentials, recovery files or runtime grants.
 An isolated copy of that package starts the final executable successfully with
 Welcome output and Lua 5.1.4, opens only a fictional offline world, shows no
 missing-DLL error, and closes normally. No installed client was used or replaced.
+
+## Modern native docking migration, October 14
+
+The following results belong to the newer docking migration, separately from the
+older preview/hash above. The native compatibility test covers the enhanced frame
+with classic toolbar/status/world-child bounds, tab grouping/order, float/reattach,
+split metadata and hosted-tool teardown. Forty floating tool close/reopen cycles
+reuse a stable host instead of exhausting the 32-host limit. Closing transcripts
+retains normal hide/unread behavior; tool children receive their normal close event.
+
+The native transcript regression probe passes Unicode/style runs, links and image
+object sizing/reflow, selection and scroll anchors, bottom following, pruning,
+clearing and human submit/history/failure/disconnect/reconnect behavior. The
+24,000-record, three-pane synthetic-image soak lasted 87.157 seconds, pruned 62
+times and cleared once. Late private-memory spread was 970,752 bytes and GDI
+spread nine objects. This is a bounded component soak, not a ten-minute full-client
+or production-session stability claim.
+
+Portable SQL reopen checks pass v1 routes/prefixes/geometry and v2 group/order/
+selection/split-neighbor metadata. The cold-route test compiles the exact production
+restore/routing methods against isolated MFC/SQLite and passes first-output
+restoration, recursive-restore suppression, duplicate sequence rejection and
+closed-endpoint rejection. The rebuilt actual client also restored both fictional
+named routes without opening the Workspace menu.
+
+`run_input_tests.ps1` passes policy/history and lossless world-encoding suites.
+The actual two-world Release UI sent `+alpha unicode` with Greek/astral characters
+only to Alpha while Beta was the active main world. An existing alias changed the
+command to `+alpha ALIAS_test`; a plugin refusal kept its draft and transmitted
+nothing. The plugin receipt confirms the human command-entry hook ran. Native tab
+reordering and the separate floating-pane menu action were observed physically.
+The tests use fresh temporary profiles, fictional worlds and loopback servers;
+no personal game commands or installed-client changes are involved.
+
+The delivered modern Release candidate has SHA256
+`7c663d029cc7fa009b7bf11a480aaf9c24b4705732efbe2a1c84e8e1b8143581`.
+Its actual client renders the ready image in the restored floating Alpha pane,
+without displaying the long URL before it. The pixel regression reproduces the
+old URL-plus-picture layout with only 148 colored pixels in view, then measures
+14,454 after the fix while retaining the same model record and original runs.
+MFC resource compilation and the native original-locale restoration check pass.
+Both integrated Release and Debug Win32 builds pass. The final Debug client
+starts both fictional worlds and native tab groups with close controls, without
+the missing-resource assertion reproduced before the repair.
+
+Reproduce native checks with `run_modern_probe.ps1`, `run_native_probe.ps1`,
+`run_cold_route_probe.ps1`, `run_image_pixel_probe.ps1`, `run_input_tests.ps1`
+and `persistence_probe.py` in `tests/workspace`. The visible pixel test downloads
+the public synthetic PNG and checks colored pixels, separately from OLE object
+presence. Temporary evidence, binaries, SQLite databases and worlds remain ignored.
+
+Exact arbitrary nested splitter-tree restoration and auto-hide restoration are
+not implemented. Mixed-monitor DPI moves, prolonged daily use and full physical
+drag/detach/join acceptance remain broader release gates. The initial-login Pueblo
+negotiation ordering issue is separate and unchanged by this docking migration.

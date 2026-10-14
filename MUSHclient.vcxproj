@@ -248,6 +248,15 @@
     <ClCompile Include="WorkspacePane.cpp" />
     <ClCompile Include="WorkspaceIntegration.cpp" />
     <ClCompile Include="WorkspaceTools.cpp" />
+    <ClCompile Include="WorkspaceRouteManager.cpp" />
+    <ClCompile Include="workspace\WorkspaceInputPolicy.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+    </ClCompile>
+    <ClCompile Include="workspace\WorkspaceInputEncoding.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+    </ClCompile>
     <ClCompile Include="WorkspaceSceneDirector.cpp" />
     <ClCompile Include="AgentWorkspaceCore.cpp" />
     <ClCompile Include="AgentBridgeHost.cpp">
@@ -1447,6 +1456,11 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="WorkspaceFrame.h" />
+    <ClInclude Include="WorkspaceResources.h" />
+    <ClInclude Include="WorkspaceRouteManager.h" />
+    <ClInclude Include="workspace\WorkspaceInputPolicy.h" />
+    <ClInclude Include="workspace\WorkspaceInputEncoding.h" />
     <ClInclude Include="dialogs\global_prefs\GlobalPrefsSheet.h" />
     <ClInclude Include="dialogs\world_prefs\themeglue.h" />
     <ClInclude Include="luacom\LuaAux.h" />

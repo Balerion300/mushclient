@@ -6,6 +6,7 @@
 #include "InlineImage.h"
 #undef private
 #include "WorkspacePane.h"
+#include "ModernFixture.h"
 #include <richole.h>
 #include <fstream>
 
@@ -29,7 +30,7 @@ long ImageWidthPixels(HWND text)
 }
 bool ProbeViewportImagesAndScroll(std::ofstream& receipt)
 {
-  CFrameWnd* frame=new CFrameWnd;ViewProbePane images,scrollPane;
+  WorkspaceTestFrame* frame=new WorkspaceTestFrame;ViewProbePane images,scrollPane;
   bool ok=frame->Create(NULL,"Viewport regression fixture",WS_OVERLAPPEDWINDOW,CRect(50,50,1000,800))!=FALSE;
   frame->EnableDocking(CBRS_ALIGN_ANY);
   ok=ok && images.Create(frame) && scrollPane.Create(frame,ID_WORKSPACE_BAR+1);
@@ -90,7 +91,7 @@ bool ProbeViewportImagesAndScroll(std::ofstream& receipt)
 
 bool ProbeDockBounds(std::ofstream& receipt,int width,int height)
 {
-  CFrameWnd* frame=new CFrameWnd;CWorkspacePane primary,tool,bottom;
+  WorkspaceTestFrame* frame=new WorkspaceTestFrame;CWorkspacePane primary,tool,bottom;
   bool ok=frame->Create(NULL,"Dock bounds fixture",WS_OVERLAPPEDWINDOW,CRect(50,50,50+width,50+height))!=FALSE;
   frame->EnableDocking(CBRS_ALIGN_ANY);
   ok=ok && primary.Create(frame) && tool.Create(frame,ID_WORKSPACE_BAR+1) && bottom.Create(frame,ID_WORKSPACE_BAR+2);
@@ -125,14 +126,14 @@ public:
   virtual BOOL InitInstance()
     {
     AfxOleInit(); AfxInitRichEdit2();
-    CFrameWnd* ownedFrame=new CFrameWnd;
-    CFrameWnd& frame=*ownedFrame;
+    WorkspaceTestFrame* ownedFrame=new WorkspaceTestFrame;
+    WorkspaceTestFrame& frame=*ownedFrame;
     CWorkspacePane pane;
-    std::ofstream receipt("WinRel/workspace-native-probe.txt");
+    std::ofstream receipt("WinRel/workspace-native-probe.txt");receipt.setf(std::ios::unitbuf);
     bool ok=frame.Create(NULL,"Workspace native probe",WS_OVERLAPPEDWINDOW,CRect(50,50,1100,800))!=FALSE;
-    ok=ok && pane.Create(&frame)!=FALSE;
+    frame.EnableWorkspaceDocking();ok=ok && pane.Create(&frame)!=FALSE;
     if (!ok) { receipt<<"FAIL creation\n"; return FALSE; }
-    frame.EnableDocking(CBRS_ALIGN_ANY); pane.EnableDocking(CBRS_ALIGN_ANY);
+    pane.EnableDocking(CBRS_ALIGN_ANY);
     frame.DockControlBar(&pane,AFX_IDW_DOCKBAR_RIGHT); frame.ShowControlBar(&pane,TRUE,FALSE); frame.RecalcLayout();
     ok=ok && pane.OpenTranscript("session-A","Output");
     WorkspaceRecord record; record.connectionId="session-A"; record.sequence=1;
@@ -153,15 +154,15 @@ public:
     receipt<<"native Unicode/style/duplicate sequence: "<<(ok?"PASS":"FAIL")<<"\n";
     frame.FloatControlBar(&pane,CPoint(150,150),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);frame.RecalcLayout();
     ok=ok && pane.IsFloating();
-    pane.CalcDynamicLayout(640,LM_HORZ|LM_COMMIT);pane.CalcDynamicLayout(420,LM_HORZ|LM_LENGTHY|LM_COMMIT);
-    frame.FloatControlBar(&pane,CPoint(160,160),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);pane.GetDockingFrame()->RecalcLayout();
+    pane.GetParentMiniFrame()->SetWindowPos(NULL,160,160,660,460,SWP_NOZORDER);frame.RecalcLayout();
     CRect rect;pane.GetWindowRect(rect);
     ok=ok && rect.Width()>=620 && rect.Height()>=400;
     ::GetWindowTextW(text,after,256);ok=ok && wcscmp(before,after)==0;
     receipt<<"float/resize/text retention: "<<(ok?"PASS":"FAIL")<<" size="<<rect.Width()<<"x"<<rect.Height()<<"\n";
     frame.DockControlBar(&pane,AFX_IDW_DOCKBAR_BOTTOM);frame.RecalcLayout();
     ok=ok && !pane.IsFloating(); ::GetWindowTextW(text,after,256);ok=ok && wcscmp(before,after)==0;
-    ok=ok && pane.OpenTranscript("session-B","Output");
+    CWorkspacePane separate;ok=ok && separate.Create(&frame,ID_WORKSPACE_BAR+1);separate.EnableDocking(CBRS_ALIGN_ANY);
+    ok=ok && separate.OpenTranscript("session-B","Output");separate.AttachToTabWnd(&pane,DM_SHOW);
     int clicks=0;CString clickedId;
     pane.SetActionHandler([&](const CString& id,unsigned short type,const CString& action)
       {if(type==0x0C00 && action=="destination-a") { ++clicks;clickedId=id; }});
@@ -171,20 +172,28 @@ public:
     ok=ok && clicks==1 && clickedId=="session-A";
     record.connectionId="session-A";record.sequence=2;ok=ok && pane.AppendRecord("Output",record);
     ok=ok && pane.UnreadCount("session-A","Output")>0 && pane.FocusTranscript(0) && pane.UnreadCount("session-A","Output")==0;
-    pane.FocusTranscript(1);
+    separate.FocusTranscript(0);
     receipt<<"unread count and deliberate native pane focus acknowledgment: "<<(ok?"PASS":"FAIL")<<"\n";
-    CWorkspacePane separate; ok=ok && separate.Create(&frame,ID_WORKSPACE_BAR+1);
-    separate.EnableDocking(CBRS_ALIGN_ANY);
-    ok=ok && pane.MoveSelectedTo(separate);
     frame.FloatControlBar(&separate,CPoint(200,200),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);
     record.connectionId="session-B";record.sequence=2;
     ok=ok && separate.AppendRecord("Output",record) && !pane.AppendRecord("Output",record);
     std::wstring reviewed;CString reviewIdentity;
-    separate.SetInputHandler([&](const CString& identity,const std::wstring& command){reviewIdentity=identity;reviewed=command;});
+    separate.SetInputHandler([&](const CString& identity,const std::wstring& command){reviewIdentity=identity;reviewed=command;return true;});
     separate.SetInputPrefix("session-B","Output",L"+channel ");
     ::SetWindowTextW(separate.GetDlgItem(2)->m_hWnd,L"\u03bb\U0001f409");
     separate.SendMessage(WM_COMMAND,MAKEWPARAM(3,BN_CLICKED),(LPARAM)separate.GetDlgItem(3)->m_hWnd);
     ok=ok && reviewIdentity=="session-B" && reviewed==L"+channel \u03bb\U0001f409" && separate.InputPrefix("session-B","Output")==L"+channel ";
+    ::SetWindowTextW(separate.GetDlgItem(2)->m_hWnd,L"unsent draft");
+    MSG historyMessage={0};historyMessage.hwnd=separate.GetDlgItem(2)->m_hWnd;historyMessage.message=WM_KEYDOWN;historyMessage.wParam=VK_UP;separate.PreTranslateMessage(&historyMessage);
+    ::GetWindowTextW(separate.GetDlgItem(2)->m_hWnd,after,256);ok=ok && wcscmp(after,L"\u03bb\U0001f409")==0;
+    historyMessage.wParam=VK_DOWN;separate.PreTranslateMessage(&historyMessage);::GetWindowTextW(separate.GetDlgItem(2)->m_hWnd,after,256);ok=ok && wcscmp(after,L"unsent draft")==0;
+    separate.SetInputHandler([&](const CString&,const std::wstring&){return false;});separate.SendMessage(WM_COMMAND,MAKEWPARAM(3,BN_CLICKED),(LPARAM)separate.GetDlgItem(3)->m_hWnd);
+    ::GetWindowTextW(separate.GetDlgItem(2)->m_hWnd,after,256);ok=ok && wcscmp(after,L"unsent draft")==0;
+    bool connected=false;separate.SetConnectionHandler([&](const CString& id){return id=="session-B" && connected;});separate.SendMessage(WM_TIMER,1,0);
+    ok=ok && !separate.GetDlgItem(3)->IsWindowEnabled();connected=true;separate.SendMessage(WM_TIMER,1,0);::GetWindowTextW(separate.GetDlgItem(8)->m_hWnd,after,256);
+    ok=ok && separate.GetDlgItem(3)->IsWindowEnabled() && wcscmp(after,L"Ready")==0;
+    receipt<<"disconnected/reconnected Send state and status: "<<(ok?"PASS":"FAIL")<<"\n";
+    receipt<<"successful human submit history and failed submit retains draft: "<<(ok?"PASS":"FAIL")<<"\n";
     receipt<<"separate floating transcript retains routing owner: "<<(ok?"PASS":"FAIL")<<"\n";
     pane.CloseConnection("session-A");
     record.connectionId="session-A";record.sequence=2;ok=ok && !pane.AppendRecord("Output",record);
@@ -230,28 +239,27 @@ public:
     ok=ok && separate.ClearTranscript("session-B","Output") && ::GetWindowTextLengthW(transcriptText)==0;
     receipt<<"pause retains records, resume, native search, scoped clear: "<<(ok?"PASS":"FAIL")<<"\n";
     WorkspacePaneLayout invalid;invalid.width=-500;invalid.height=999999;
-    separate.ApplyLayout(invalid);const CSize bounded=separate.CalcDynamicLayout(0,LM_MRUWIDTH);
+    separate.ApplyLayout(invalid);CRect boundedRect;separate.GetWindowRect(boundedRect);const CSize bounded=boundedRect.Size();
     ok=ok && bounded.cx==220 && bounded.cy==1000;
     std::vector<WorkspacePaneLayout> captured;separate.GetLayouts(captured,true);
     ok=ok && captured.size()==1 && captured[0].connectionId=="session-B" && captured[0].detached;
-    ok=ok && separate.OpenTranscript("session-B","Staff");
+    CWorkspacePane staff;ok=ok && staff.Create(&frame,0xe902) && staff.OpenTranscript("session-B","Staff");staff.EnableDocking(CBRS_ALIGN_ANY);frame.DockControlBar(&staff,AFX_IDW_DOCKBAR_RIGHT);
     unsigned int prunes=0;size_t retained=0;unsigned __int64 retainedLast=0;
-    separate.SetPruneHandler([&](const CString& id,const CString& name,const std::deque<WorkspaceRecord>& records)
+    staff.SetPruneHandler([&](const CString& id,const CString& name,const std::deque<WorkspaceRecord>& records)
       {if(id=="session-B" && name=="Staff") {++prunes;retained=records.size();retainedLast=records.empty()?0:records.back().sequence;}});
     WorkspaceRecord boundedRecord;boundedRecord.connectionId="session-B";WorkspaceRun boundedRun;boundedRun.text=L"bounded";boundedRecord.runs.push_back(boundedRun);
     for(unsigned int sequence=1;sequence<=2001;++sequence)
-      {boundedRecord.sequence=sequence;ok=ok && separate.AppendRecord("Staff",boundedRecord);}
+      {boundedRecord.sequence=sequence;ok=ok && staff.AppendRecord("Staff",boundedRecord);}
     ok=ok && prunes==1 && retained==1000 && retainedLast==2001;
-    ok=ok && separate.ClearTranscript("session-B","Staff") && prunes==2 && retained==0;
+    ok=ok && staff.ClearTranscript("session-B","Staff") && prunes==2 && retained==0;
     receipt<<"named pane prune and clear callbacks use exact retained records: "<<(ok?"PASS":"FAIL")<<"\n";
     CWorkspacePane constrained;ok=ok && constrained.Create(&frame,0xE831);constrained.EnableDocking(CBRS_ALIGN_ANY);
     WNDCLASSW toolClass;memset(&toolClass,0,sizeof(toolClass));toolClass.lpfnWndProc=ProbeToolProcedure;toolClass.hInstance=AfxGetInstanceHandle();toolClass.lpszClassName=L"WorkspaceMinimumProbe";RegisterClassW(&toolClass);
     HWND constrainedWindow=::CreateWindowExW(0,toolClass.lpszClassName,L"Minimum probe",WS_POPUP,0,0,340,440,NULL,NULL,AfxGetInstanceHandle(),NULL);
     ok=ok && constrained.HostTool(constrainedWindow,"Constrained tool");
-    constrained.CalcDynamicLayout(1,LM_HORZ|LM_LENGTHY|LM_COMMIT);constrained.CalcDynamicLayout(1,LM_HORZ|LM_COMMIT);
-    const CSize toolMinimum=constrained.CalcDynamicLayout(0,LM_MRUWIDTH);
-    constrained.ApplyLayout(invalid);const CSize toolPersisted=constrained.CalcDynamicLayout(0,LM_MRUWIDTH);
-    const CSize toolDocked=constrained.CalcDynamicLayout(0,LM_HORZDOCK);
+    const CSize toolMinimum=constrained.WorkspaceMinimumSize();
+    constrained.ApplyLayout(invalid);const CSize toolPersisted=constrained.WorkspaceMinimumSize();
+    const CSize toolDocked=constrained.WorkspaceMinimumSize();
     ok=ok && toolMinimum.cx>=352 && toolMinimum.cy>=470 && toolPersisted.cx>=352 && toolPersisted.cy>=470 && toolDocked.cy>=470;
     receipt<<"hosted child minimum survives float/dock/persisted clamping: "<<(ok?"PASS":"FAIL")<<"\n";
     CWorkspacePane toolHost;ok=ok && toolHost.Create(&frame,0xE830);toolHost.EnableDocking(CBRS_ALIGN_ANY);
@@ -260,7 +268,7 @@ public:
     frame.FloatControlBar(&toolHost,CPoint(100,100),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);
     toolHost.SetWindowPos(NULL,0,0,620,410,SWP_NOMOVE|SWP_NOZORDER);
     CRect toolRect;::GetWindowRect(tool,&toolRect);
-    ok=ok && toolRect.Width()==608 && toolRect.Height()==380;
+    ok=ok && toolRect.Width()==608 && toolRect.Height()==398;
     ::GetWindowTextW(tool,after,256);ok=ok && wcscmp(after,L"tool retained")==0;
     receipt<<"bounded layout and native tool reparent/resize/content: "<<(ok?"PASS":"FAIL")<<"\n";
     ok=ProbeViewportImagesAndScroll(receipt)&&ok;

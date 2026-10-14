@@ -6,6 +6,7 @@
 #include "InlineImage.h"
 #undef private
 #include "WorkspacePane.h"
+#include "ModernFixture.h"
 #include <psapi.h>
 #include <fstream>
 
@@ -31,17 +32,17 @@ public:
   virtual BOOL InitInstance()
     {
     AfxOleInit();AfxInitRichEdit2();
-    CFrameWnd* allocated=new CFrameWnd;CFrameWnd& frame=*allocated;
+    WorkspaceTestFrame* allocated=new WorkspaceTestFrame;WorkspaceTestFrame& frame=*allocated;
     InspectPane tabs,split,mixed;
     std::ofstream log("WinRel/workspace-native-soak.txt");
     bool ok=frame.Create(NULL,"Isolated native workspace soak",WS_OVERLAPPEDWINDOW,CRect(50,50,1100,800))!=FALSE;
-    ok=ok && tabs.Create(&frame) && split.Create(&frame,ID_WORKSPACE_BAR+1) && mixed.Create(&frame,ID_WORKSPACE_BAR+2);
+    frame.EnableWorkspaceDocking();ok=ok && tabs.Create(&frame) && split.Create(&frame,ID_WORKSPACE_BAR+1) && mixed.Create(&frame,ID_WORKSPACE_BAR+2);
     if(!ok){log<<"FAIL native creation\n";return FALSE;}
-    frame.EnableDocking(CBRS_ALIGN_ANY);
+
     tabs.EnableDocking(CBRS_ALIGN_ANY);split.EnableDocking(CBRS_ALIGN_ANY);mixed.EnableDocking(CBRS_ALIGN_ANY);
     frame.DockControlBar(&tabs,AFX_IDW_DOCKBAR_RIGHT);frame.DockControlBar(&mixed,AFX_IDW_DOCKBAR_BOTTOM);
     frame.ShowControlBar(&tabs,TRUE,FALSE);frame.ShowControlBar(&mixed,TRUE,FALSE);frame.RecalcLayout();
-    ok=ok && tabs.OpenTranscript("session-A","Plain") && tabs.OpenTranscript("session-B","Plain") && mixed.OpenTranscript("session-C","Mixed");
+    ok=ok && tabs.OpenTranscript("session-A","Plain") && split.OpenTranscript("session-B","Plain") && mixed.OpenTranscript("session-C","Mixed");
     unsigned int pruneCount=0,clearCount=0;
     const auto pruned=[&](const CString&,const CString&,const std::deque<WorkspaceRecord>& retained)
       {if(retained.empty())++clearCount;else {++pruneCount;if(retained.size()>2000)ok=false;}};
@@ -54,10 +55,11 @@ public:
     for(int i=0;i<16;++i)((DWORD*)pixels)[i]=0xFF32A0FF;
     image->width_=4;image->height_=4;image->state_.store(CInlineImage::Ready);
     std::wstring reviewed;CString reviewId;
-    const auto review=[&](const CString& id,const std::wstring& command){reviewId=id;reviewed=command;};
+    const auto review=[&](const CString& id,const std::wstring& command){reviewId=id;reviewed=command;return true;};
     tabs.SetInputHandler(review);split.SetInputHandler(review);mixed.SetInputHandler(review);
-    tabs.SetInputPrefix("session-B","Plain",L"+staff ");
-    InspectPane* bHost=&tabs;
+    split.SetInputPrefix("session-B","Plain",L"+staff ");
+    split.AttachToTabWnd(&tabs,DM_SHOW);
+    InspectPane* bHost=&split;
     std::vector<Resources> samples;
     const DWORD began=GetTickCount();
     const unsigned int total=8000;
@@ -74,7 +76,7 @@ public:
       if(sequence%25==0){record.image=image;record.imageWidth=16;record.imageHeight=16;}
       ok=mixed.AppendRecord("Mixed",record)&&ok;
       if(sequence==2500)
-        {tabs.FocusTranscript(1);ok=tabs.MoveSelectedTo(split)&&ok;bHost=&split;
+        {split.FocusTranscript(0);bHost=&split;
          frame.FloatControlBar(&split,CPoint(200,160),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);frame.ShowControlBar(&split,TRUE,FALSE);}
       if(sequence%1000==0)
         {
@@ -83,7 +85,7 @@ public:
         if(sequence>2000)ok=tabs.First("session-A","Plain")>sequence-2000 && ok;
         frame.DockControlBar(bHost,AFX_IDW_DOCKBAR_LEFT);frame.RecalcLayout();
         frame.FloatControlBar(bHost,CPoint(210,170),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);
-        bHost->CalcDynamicLayout(520+(sequence/1000)%2*80,LM_HORZ|LM_COMMIT);bHost->GetDockingFrame()->RecalcLayout();
+        bHost->FloatPane(CRect(210,170,210+520+(sequence/1000)%2*80,650),DM_SHOW);frame.RecalcLayout();
         Resources resource=Sample();samples.push_back(resource);
         log<<"records-per-stream="<<sequence<<" retained="<<tabs.Records("session-A","Plain")<<","<<bHost->Records("session-B","Plain")<<","<<mixed.Records("session-C","Mixed")
            <<" private="<<resource.bytes<<" gdi="<<resource.gdi<<" elapsed-ms="<<GetTickCount()-began<<"\n";log.flush();
@@ -91,6 +93,7 @@ public:
         }
       }
     ok=ok && pruneCount>0 && clearCount==1 && bHost->InputPrefix("session-B","Plain")==L"+staff ";
+    bHost->ShowPane(FALSE,FALSE,FALSE);WorkspaceRecord unreadRecord;unreadRecord.connectionId="session-B";unreadRecord.sequence=8001;WorkspaceRun unreadRun;unreadRun.text=L"unread fixture";unreadRecord.runs.push_back(unreadRun);ok=bHost->AppendRecord("Plain",unreadRecord)&&ok;
     ::SetWindowTextW(bHost->GetDlgItem(2)->m_hWnd,L"\u03bb\U0001f409");
     bHost->SendMessage(WM_COMMAND,MAKEWPARAM(3,BN_CLICKED),(LPARAM)bHost->GetDlgItem(3)->m_hWnd);
     ok=ok && reviewId=="session-B" && reviewed==L"+staff \u03bb\U0001f409" && bHost->UnreadCount("session-B","Plain")>0;

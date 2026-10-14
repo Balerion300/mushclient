@@ -33,6 +33,8 @@ with sqlite3.connect(database) as db:
     db.execute(statement("INSERT OR REPLACE INTO workspace_route_v1"), route)
     db.execute(statement("INSERT OR REPLACE INTO workspace_pane_layout_v1"), layout)
     db.execute(statement("INSERT OR REPLACE INTO workspace_input_prefix_v1"), prefix)
+    db.execute(statement("INSERT OR REPLACE INTO workspace_tab_group_v2"), (world,"Tells","different-world","Output",2,1))
+    db.execute(statement("INSERT OR REPLACE INTO workspace_split_v2"), (world,"Tells","different-world","Staff",0x8000,2,35))
 
 with sqlite3.connect(database) as db:
     db.executescript(schema)  # reopening an existing portable DB is idempotent
@@ -40,10 +42,12 @@ with sqlite3.connect(database) as db:
     assert restored == [route[1:]]
     assert db.execute(statement("SELECT prefix FROM workspace_input_prefix_v1"),
                       (world, "Tells")).fetchone() == (prefix[2],)
-    assert db.execute(statement("SELECT detached,floating,alignment,x,y,width,height"),
-                      (world, "Tells")).fetchone() == layout[2:]
+    assert db.execute(statement("SELECT l.detached,l.floating,l.alignment,l.x,l.y,l.width,l.height"),
+                      (world, "Tells")).fetchone()[:7] == layout[2:]
     assert not db.execute(statement("SELECT name,pattern,regex,omit_main"),
                           ("another-world",)).fetchall()
+    assert db.execute(statement("SELECT l.detached,l.floating,l.alignment,l.x,l.y,l.width,l.height"), (world,"Tells")).fetchone()[7:] == ("different-world","Output",2,1)
+    assert db.execute(statement("SELECT target_world,target_name,side,depth,percent"),(world,"Tells")).fetchone() == ("different-world","Staff",0x8000,2,35)
     replacement = (world, "Tells", "tell λ", 0, 0)
     db.execute(statement("INSERT OR REPLACE INTO workspace_route_v1"), replacement)
     db.execute(statement("DELETE FROM workspace_route_v1"), route[:4])

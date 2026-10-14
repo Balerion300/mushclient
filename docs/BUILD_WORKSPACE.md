@@ -41,3 +41,18 @@ a separate local folder outside this checkout. Apply them only to a private
 extracted build prepared for that user, after producing the clean package.
 Never use an installed personal client as the distribution base. The packaging
 script rejects world files and known runtime/preference state in its input.
+
+The modern workspace uses the static MFC enhanced docking resources from
+`afxribbon.rc`. `WorkspaceModernResources` selects the executable resources for
+native pane creation/painting/tooltips; human input, link and tool-close callbacks
+restore the original application language resource handle. The ordinary world
+documents and legacy connection/script/trigger handling remain in the original
+framework. Both Release and Debug startup must be checked with fictional worlds:
+Release can conceal a missing MFC resource assertion.
+
+Run `tests/workspace/run_input_tests.ps1` for pure policy/history and lossless
+encoding checks. Use `run_modern_probe.ps1`, `run_cold_route_probe.ps1` and
+`run_image_pixel_probe.ps1` for enhanced-frame compatibility, exact production
+route startup and visible image pixels. `modern_client_fixture.py` starts two
+fictional loopback worlds in a fresh temporary portable profile for full-client
+computer-use acceptance. It never reads installed worlds or credentials.
