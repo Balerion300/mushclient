@@ -43,4 +43,3 @@ tests\workspace\background_probe.cpp WorkspacePane.cpp InlineImage.cpp workspace
   $env:LIB=$taskOldLib
   Set-Location -LiteralPath $taskLocation
 }
-

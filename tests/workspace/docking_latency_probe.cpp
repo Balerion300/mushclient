@@ -96,5 +96,3 @@ class LatencyApp:public CWinApp {
  }
 } app;
 }
-
-
