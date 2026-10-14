@@ -167,6 +167,16 @@ MFC resource compilation and the native original-locale restoration check pass.
 Both integrated Release and Debug Win32 builds pass. The final Debug client
 starts both fictional worlds and native tab groups with close controls, without
 the missing-resource assertion reproduced before the repair.
+Its human send path also passes the plugin transformation case, with a receipt
+of `+alpha HOOK_TRANSFORMED` and both expected command hook events.
+
+The modern full portable package contains 263 files. All 262 manifest hashes,
+ZIP integrity and the final executable hash pass; there are no world files or
+runtime preference databases. An isolated full-package copy opens a synthetic
+localhost-only world and displays Lua 5.1.4 with no missing-DLL error. The runtime
+database filename `mushclient_prefs.sqlite` and its sidecars are now ignored and
+rejected by packaging preflight; a fictional database was rejected before any
+output folder was created. No such database is present in Git history.
 
 Reproduce native checks with `run_modern_probe.ps1`, `run_native_probe.ps1`,
 `run_cold_route_probe.ps1`, `run_image_pixel_probe.ps1`, `run_input_tests.ps1`

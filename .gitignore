@@ -104,6 +104,7 @@ tests/workspace/probe-build.rsp
 *.mcl
 *.mcl.bak
 App.db
+mushclient_prefs.sqlite*
 editor-state/
 private-test-settings/
 .env

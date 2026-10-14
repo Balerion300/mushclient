@@ -19,11 +19,11 @@ for source in required:
     if not source.is_file(): raise SystemExit('Missing built component: '+str(source))
 if dest.exists() or a.zip.exists(): raise SystemExit('Use fresh destination and ZIP names.')
 # Shareable packages use a clean base; personal test overlays stay outside Git.
-private_names = {'app.db', 'drafts.recovery', 'preferences.ini', '.env'}
+private_names = {'app.db', 'mushclient_prefs.sqlite', 'drafts.recovery', 'preferences.ini', '.env'}
 for source in a.distribution.rglob('*'):
     if not source.is_file(): continue
     name = source.name.lower()
-    if (name in private_names or name.endswith(('.mcl', '.mcl.bak'))
+    if (name in private_names or name.startswith('mushclient_prefs.sqlite') or name.endswith(('.mcl', '.mcl.bak'))
             or name.startswith('.env.') or 'editor-state' in source.parts):
         raise SystemExit('Distribution contains private world/runtime state; use the clean official runtime base.')
 
