@@ -28,12 +28,13 @@ struct WorkspaceRecord
 {
   unsigned __int64 sequence;
   unsigned __int64 receivedAtMillis;
+  unsigned __int64 firstSourceCookie;
   CString connectionId;
   std::vector<WorkspaceRun> runs;
   std::shared_ptr<CInlineImage> image;
   int imageWidth, imageHeight;
   CString imageAction;
-  WorkspaceRecord() : sequence(0), receivedAtMillis(0), imageWidth(0), imageHeight(0) {}
+  WorkspaceRecord() : sequence(0), receivedAtMillis(0), firstSourceCookie(0),imageWidth(0), imageHeight(0) {}
 };
 
 struct WorkspacePaneLayout
@@ -80,6 +81,7 @@ public:
   void GetLayouts(std::vector<WorkspacePaneLayout>& layouts,bool detached) const;
   void ApplyLayout(const WorkspacePaneLayout& layout);
   bool HasTranscript(const CString& id,const CString& name) const;
+  bool RetainedSourceAfter(const CString& id,const CString& name,unsigned __int64 boundary) const;
   size_t TranscriptCount() const { return m_transcripts.size(); }
   bool FocusTranscript(size_t index);
   unsigned int UnreadCount(const CString& id,const CString& name) const;
@@ -87,6 +89,9 @@ public:
   bool IsEmpty() const { return m_transcripts.empty(); }
   bool OpenTranscript(const CString& connectionId, const CString& name);
   bool AppendRecord(const CString& name, const WorkspaceRecord& record);
+  void BeginRenderBatch() { ++m_renderBatchDepth; }
+  void EndRenderBatch();
+  unsigned RenderBatchDepth() const { return m_renderBatchDepth; }
   void CloseConnection(const CString& connectionId);
   bool ClearTranscript(const CString& connectionId,const CString& name);
   typedef std::function<void(const CString&, unsigned short, const CString&)> ActionHandler;
@@ -104,6 +109,7 @@ public:
 
   virtual void OnUpdateCmdUI(CFrameWnd*, BOOL) {}
 protected:
+  struct ViewState { long start,end,anchor;LONG anchorY;bool follow; };
   struct LinkRange { long first,last; unsigned short type; CString action; };
   struct Transcript
   {
@@ -117,12 +123,17 @@ protected:
     std::deque<WorkspaceRecord> records;
     std::vector<LinkRange> links;
     std::vector<int> imageStates;
+    std::deque<long> renderedEnds;
+    size_t retainedBytes;
     std::wstring inputDraft, inputPrefix;
     workspace_input::InputHistory history;
     bool paused;
+    bool deferred;
+    bool batchPending;
+    ViewState batchView;
     unsigned int unread;
     int renderedWidth,connectionState;
-    Transcript():paused(false),unread(0),renderedWidth(0),connectionState(-1){}
+    Transcript():retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1){}
   };
   std::vector<Transcript*> m_transcripts;
   CTabCtrl m_tabs;
@@ -139,6 +150,8 @@ protected:
   CEdit m_search;
   CButton m_findNext,m_pause;
   int m_selectedInput;
+  bool m_labelDirty;
+  unsigned m_renderBatchDepth;
   CSize m_floatSize;
   int m_dockWidth, m_dockHeight;
   bool m_resizing;
@@ -150,14 +163,17 @@ protected:
   virtual void GetMinSize(CSize& size) const { size=MinimumSize(); }
   void SaveInputDraft();
   void UpdateTabLabel(size_t index);
-  void RenderRecord(Transcript& transcript, const WorkspaceRecord& record);
+  long RenderRecord(Transcript& transcript, const WorkspaceRecord& record,long insertAt=-1,bool track=true);
   void Rebuild(Transcript& transcript);
-  struct ViewState { long start,end,anchor;LONG anchorY;bool follow; };
+  long TrimRenderedPrefix(Transcript& transcript,size_t records);
+  void RefreshDeferred();
+  afx_msg void OnShowWindow(BOOL show,UINT status);
   static long TextLength(const CRichEditCtrl& control);
   static bool ShouldFollow(const CRichEditCtrl& control);
   static ViewState SaveView(CRichEditCtrl& control);
   static void RestoreView(CRichEditCtrl& control,const ViewState& state);
-  void RenderImage(Transcript& transcript, const WorkspaceRecord& record);
+  long RenderImage(Transcript& transcript, const WorkspaceRecord& record,long insertAt);
+  long ReplaceRenderedRecord(Transcript& transcript,size_t index);
   afx_msg int OnCreate(LPCREATESTRUCT cs);
   afx_msg void OnSize(UINT type, int cx, int cy);
   afx_msg void OnPaint();

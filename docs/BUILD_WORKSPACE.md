@@ -56,3 +56,7 @@ encoding checks. Use `run_modern_probe.ps1`, `run_cold_route_probe.ps1` and
 route startup and visible image pixels. `modern_client_fixture.py` starts two
 fictional loopback worlds in a fresh temporary portable profile for full-client
 computer-use acceptance. It never reads installed worlds or credentials.
+
+For profiling, `tools/build_workspace.ps1 -Configuration Release -ProfileSymbols`
+adds local PDB symbols while retaining Release optimization. See
+[PERFORMANCE_TESTS.md](PERFORMANCE_TESTS.md) for measurement boundaries and WPR setup.

@@ -108,6 +108,7 @@ public:
    bool AppendWorkspaceRecord(const CString& name, const WorkspaceRecord& record);
    void CloseWorkspaceConnection(const CString& connectionId);
    void ClearWorkspaceTranscript(const CString& connectionId,const CString& name);
+   bool WorkspaceOutputRetainedAfter(const CString& connectionId,unsigned __int64 boundary) const;
    bool HostWorkspaceTool(HWND toolWindow, const CString& title);
    bool AddWorkspaceRoute(const WorkspaceRoute& route, CString& error);
    bool ReplaceWorkspaceRoute(const WorkspaceRoute& original,const WorkspaceRoute& replacement,CString& error);
@@ -155,6 +156,9 @@ public:
   COLORREF    m_backgroundColour;  // MDI frame background colour, 0xFFFFFFFF for the default
 
   CWorkspacePane m_workspacePane;
+  unsigned m_workspaceRenderBatchDepth;
+  void BeginWorkspaceRenderBatch();
+  void EndWorkspaceRenderBatch();
   std::vector<CWorkspacePane*> m_workspaceSplits;
   std::vector<CWorkspacePane*> m_workspaceTools;
   std::vector<WorkspaceRoute> m_workspaceRoutes;

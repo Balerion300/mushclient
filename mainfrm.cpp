@@ -427,6 +427,7 @@ CMainFrame::CMainFrame()
 
 m_timer = 0;
 m_ticktimer = 0;
+m_workspaceRenderBatchDepth = 0;
 m_bActive = false;
 m_wDeviceID = 0;    // no MCI device yet
 m_bFullScreen = false;	
@@ -2710,10 +2711,24 @@ bool CMainFrame::OpenWorkspaceTranscript(const CString& connectionId, const CStr
 }
 bool CMainFrame::AppendWorkspaceRecord(const CString& name, const WorkspaceRecord& record)
 {
+  while(m_workspacePane.RenderBatchDepth()<m_workspaceRenderBatchDepth)m_workspacePane.BeginRenderBatch();
   bool appended=m_workspacePane.AppendRecord(name,record);
-  for(size_t i=0;i<m_workspaceSplits.size();++i)
+  for(size_t i=0;i<m_workspaceSplits.size();++i){
+    while(m_workspaceSplits[i]->RenderBatchDepth()<m_workspaceRenderBatchDepth)m_workspaceSplits[i]->BeginRenderBatch();
     appended=m_workspaceSplits[i]->AppendRecord(name,record)||appended;
+  }
   return appended;
+}
+void CMainFrame::BeginWorkspaceRenderBatch()
+{
+  ++m_workspaceRenderBatchDepth;m_workspacePane.BeginRenderBatch();
+  for(auto* pane:m_workspaceSplits)pane->BeginRenderBatch();
+}
+void CMainFrame::EndWorkspaceRenderBatch()
+{
+  if(!m_workspaceRenderBatchDepth)return;
+  --m_workspaceRenderBatchDepth;m_workspacePane.EndRenderBatch();
+  for(auto* pane:m_workspaceSplits)pane->EndRenderBatch();
 }
 void CMainFrame::CloseWorkspaceConnection(const CString& connectionId)
 {
@@ -2916,6 +2931,12 @@ void CMainFrame::ClearWorkspaceTranscript(const CString& id,const CString& name)
 {
   m_workspacePane.ClearTranscript(id,name);
   for(size_t i=0;i<m_workspaceSplits.size();++i)m_workspaceSplits[i]->ClearTranscript(id,name);
+}
+bool CMainFrame::WorkspaceOutputRetainedAfter(const CString& id,unsigned __int64 boundary) const
+{
+  if(!m_workspacePane.RetainedSourceAfter(id,"Output",boundary))return false;
+  for(const auto* pane:m_workspaceSplits)if(!pane->RetainedSourceAfter(id,"Output",boundary))return false;
+  return true;
 }
 
 void CMainFrame::OnWorkspaceAgentReview()

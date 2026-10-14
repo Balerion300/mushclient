@@ -1356,6 +1356,7 @@ CString str = strText;
 
 void CMUSHclientDoc::ReceiveMsg()
 {
+WorkspaceRenderBatch workspaceRenderBatch;
 char buff [9000];   // must be less than COMPRESS_BUFFER_LENGTH or it won't fit
 
   // if we are in the middle of a TLS handshake, continue it
@@ -4563,7 +4564,7 @@ long CMUSHclientDoc::GetLastLine (void)
   if (m_DisplayFindInfo.m_nCurrentLine < 0)
     m_DisplayFindInfo.m_nCurrentLine = 0;
 
-  WorkspaceRebuildOutput(this);
+  WorkspacePruneOutput(this);
    }  // end of CMUSHclientDoc::RemoveChunk
 
 

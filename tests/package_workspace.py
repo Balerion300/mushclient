@@ -42,7 +42,7 @@ for name in ('LICENSE.MIT','PYTHON-LICENSE.txt','PYINSTALLER-COPYING.txt'):
     shutil.copy2(ROOT/'agent_companion/vendor'/name,notices/('JSON-LICENSE.txt' if name=='LICENSE.MIT' else name))
 shutil.copytree(ROOT/'third_party/pennmush-reference',dest/'pennmush-reference')
 for name in ('WORKSPACE_MODERNIZATION_PLAN.md','WORKSPACE_TESTS.md','PENN_IDE.md',
-             'AGENT_WORKSPACE_CONTRACT.md','AGENT_REVIEW_PANE.md','AGENT_INTEGRATION_AUDIT.md','BUILD_WORKSPACE.md','INLINE_IMAGES.md','STABILITY_TESTS.md'):
+             'AGENT_WORKSPACE_CONTRACT.md','AGENT_REVIEW_PANE.md','AGENT_INTEGRATION_AUDIT.md','BUILD_WORKSPACE.md','INLINE_IMAGES.md','STABILITY_TESTS.md','PERFORMANCE_TESTS.md'):
     shutil.copy2(ROOT/'docs'/name,dest/name)
 for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md'):
     source=ROOT/'docs'/name

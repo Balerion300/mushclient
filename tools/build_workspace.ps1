@@ -1,4 +1,4 @@
-param([ValidateSet('Release','Debug')][string]$Configuration='Release')
+param([ValidateSet('Release','Debug')][string]$Configuration='Release',[switch]$ProfileSymbols)
 $ErrorActionPreference='Stop'
 $taskRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $taskVswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -18,6 +18,7 @@ $taskProps=Join-Path $taskTemporary 'local.props'
 $taskMfcXml=[Security.SecurityElement]::Escape($taskMfc)
 $taskKeyXml=[Security.SecurityElement]::Escape($taskKey)
 $taskXml='<Project><PropertyGroup><LibraryPath>'+ $taskMfcXml + ';$(LibraryPath)</LibraryPath><MFC_KeyFile>'+ $taskKeyXml + '</MFC_KeyFile></PropertyGroup></Project>'
+if($ProfileSymbols){$taskXml=$taskXml.Replace('</Project>','<ItemDefinitionGroup><Link><GenerateDebugInformation>true</GenerateDebugInformation></Link></ItemDefinitionGroup></Project>')}
 Set-Content -LiteralPath $taskProps -Value $taskXml -Encoding UTF8
 Push-Location -LiteralPath $taskRoot
 try {

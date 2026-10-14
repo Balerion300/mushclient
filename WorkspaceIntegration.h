@@ -2,11 +2,22 @@
 #include "WorkspacePane.h"
 #include "AgentWorkspaceCore.h"
 class CMUSHclientDoc;
+// Coalesce view restoration per socket packet; parsing and publication stay immediate.
+class WorkspaceRenderBatch
+{
+  HWND frame_;
+  WorkspaceRenderBatch(const WorkspaceRenderBatch&);
+  WorkspaceRenderBatch& operator=(const WorkspaceRenderBatch&);
+public:
+  WorkspaceRenderBatch();
+  ~WorkspaceRenderBatch();
+};
 CString WorkspaceConnectionId(CMUSHclientDoc* doc);
 agent_workspace::Store& WorkspaceAgentStore();
 void WorkspaceCloseDocument(CMUSHclientDoc* doc);
 void WorkspaceClearOutput(CMUSHclientDoc* doc);
 void WorkspaceRebuildOutput(CMUSHclientDoc* doc);
+void WorkspacePruneOutput(CMUSHclientDoc* doc);
 void WorkspacePanePruned(const CString& connectionId,const CString& name,const std::deque<WorkspaceRecord>& retained);
 void WorkspaceExpireConnection(CMUSHclientDoc* doc);
 void ActivateWorkspaceAction(const CString& connectionId,unsigned short actionType,const CString& action);

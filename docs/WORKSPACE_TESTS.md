@@ -188,3 +188,7 @@ Exact arbitrary nested splitter-tree restoration and auto-hide restoration are
 not implemented. Mixed-monitor DPI moves, prolonged daily use and full physical
 drag/detach/join acceptance remain broader release gates. The initial-login Pueblo
 negotiation ordering issue is separate and unchanged by this docking migration.
+
+See [PERFORMANCE_TESTS.md](PERFORMANCE_TESTS.md) for the fictional traffic fixture,
+font comparison, process-local sampling and administrator-only Windows CPU tracing.
+Performance stress results are separate from component correctness passes.

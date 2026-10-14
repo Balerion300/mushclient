@@ -1003,6 +1003,16 @@ BOOL CMUSHclientApp::SaveAllModified()
 
 BOOL CMUSHclientApp::OnIdle(LONG lCount) 
 {
+  // Native pane repaint messages can repeatedly restart idle processing.
+  // Coalesce menu/toolbar updates while still running MFC's phase-1 cleanup.
+  if (lCount <= 0)
+    {
+    static DWORD lastCommandUpdate = 0;
+    const DWORD now = GetTickCount ();
+    if (now - lastCommandUpdate < 100)
+      return TRUE;
+    lastCommandUpdate = now;
+    }
 	
 	if (CWinApp::OnIdle(lCount))
     return 1;

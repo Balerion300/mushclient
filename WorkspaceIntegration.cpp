@@ -10,6 +10,17 @@
 #include <regex>
 #include <set>
 
+WorkspaceRenderBatch::WorkspaceRenderBatch():frame_(NULL)
+{
+  CMainFrame* frame=DYNAMIC_DOWNCAST(CMainFrame,App.m_pMainWnd);
+  if(frame && frame->GetSafeHwnd()){frame_=frame->GetSafeHwnd();frame->BeginWorkspaceRenderBatch();}
+}
+WorkspaceRenderBatch::~WorkspaceRenderBatch()
+{
+  CMainFrame* frame=frame_?DYNAMIC_DOWNCAST(CMainFrame,CWnd::FromHandlePermanent(frame_)):NULL;
+  if(frame)frame->EndWorkspaceRenderBatch();
+}
+
 namespace {
 struct Identity { CString id; unsigned __int64 sequence; Identity():sequence(0){} };
 std::map<CMUSHclientDoc*, Identity> identities;
@@ -90,6 +101,7 @@ WorkspaceRecord captureLines(CMUSHclientDoc* doc,const std::vector<CLine*>& line
 {
   WorkspaceRecord record;record.connectionId=WorkspaceConnectionId(doc);record.sequence=0;
   if(lines.empty())return record;
+  record.firstSourceCookie=lines.front()->m_workspaceCookie;
   CLine* final=lines.back();
   record.receivedAtMillis=static_cast<unsigned __int64>(final->m_theTime.GetTime())*1000;
   if(final->IsInlineImage()) {record.image=final->m_inlineImage;record.imageWidth=final->m_imageWidth;record.imageHeight=final->m_imageHeight;record.imageAction=final->m_imageSource;}
@@ -143,11 +155,11 @@ WorkspaceRecord WorkspaceCaptureRecord(CMUSHclientDoc* doc)
 {
   return captureAt(doc,doc->m_pCurrentLine?sourcePosition(doc,doc->m_pCurrentLine->m_workspaceCookie):NULL);
 }
-void WorkspaceRebuildOutput(CMUSHclientDoc* doc)
+static void WorkspaceRefreshOutput(CMUSHclientDoc* doc,bool redraw)
 {
   auto identity=identities.find(doc);if(identity==identities.end())return;
   try {
-    if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceTranscript(identity->second.id,"Output");
+    if(redraw && App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceTranscript(identity->second.id,"Output");
     // Snapshot only completed retained logical paragraphs, capped to the agent history limit.
     std::deque<std::vector<CLine*> > completed;std::vector<CLine*> paragraph;
     POSITION pos=doc->m_LineList.GetTailPosition();size_t bytes=0;
@@ -169,10 +181,20 @@ void WorkspaceRebuildOutput(CMUSHclientDoc* doc)
       if(pending)continue; // Trigger decisions or local-note delivery are not final yet.
       WorkspaceRecord record=captureLines(doc,lines);record.sequence=++identity->second.sequence;
       agent_workspace::Line row;row.text=recordText(record);row.receivedAt=record.receivedAtMillis;history.push_back(row);
-      if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.AppendWorkspaceRecord("Output",record);
+      if(redraw && App.m_pMainWnd && Frame.GetSafeHwnd())Frame.AppendWorkspaceRecord("Output",record);
     }
     agentStore.replaceWindowHistory((LPCTSTR)identity->second.id,history);
   }catch(...) { /* A history mirror cannot interrupt legacy buffer maintenance. */ }
+}
+void WorkspaceRebuildOutput(CMUSHclientDoc* doc){WorkspaceRefreshOutput(doc,true);}
+void WorkspacePruneOutput(CMUSHclientDoc* doc)
+{
+  auto identity=identities.find(doc);if(identity==identities.end())return;
+  // Chunk pruning often discards lines older than the smaller native view.
+  // Preserve that view's selection, images and layout when all of it survives.
+  const bool preserved=!doc->m_LineList.IsEmpty() && (App.m_pMainWnd && Frame.GetSafeHwnd() &&
+    Frame.WorkspaceOutputRetainedAfter(identity->second.id,doc->m_LineList.GetHead()->m_workspaceCookie));
+  WorkspaceRefreshOutput(doc,!preserved);
 }
 bool WorkspacePublishRecord(CMUSHclientDoc* doc,const WorkspaceRecord& prepared,bool omitted)
 {

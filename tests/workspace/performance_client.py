@@ -1,0 +1,202 @@
+"""Profile an isolated real client using fictional loopback traffic and QPC stamps.
+
+Measures completed-line delivery (not screen paint), normal Execute/echo latency,
+CPU/private bytes/GDI/USER/handle trends. Never reads installed profiles.
+"""
+import argparse, ctypes, hashlib, json, pathlib, shutil, socket, sqlite3
+import subprocess, tempfile, threading, time
+from ctypes import wintypes as W
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from xml.sax.saxutils import quoteattr
+
+ROOT=pathlib.Path(__file__).resolve().parents[2]
+p=argparse.ArgumentParser()
+p.add_argument('--exe',type=pathlib.Path,default=ROOT/'WinRel/MUSHclient.exe')
+p.add_argument('--seconds',type=int,default=600)
+p.add_argument('--rate',type=int,default=250)
+p.add_argument('--routes',type=int,default=2)
+p.add_argument('--label',default='baseline')
+p.add_argument('--no-heartbeat',action='store_true')
+p.add_argument('--visible',action='store_true')
+p.add_argument('--ascii',action='store_true')
+p.add_argument('--font',default='Consolas')
+p.add_argument('--image-url',default='https://raw.githubusercontent.com/Balerion300/mushclient/codex/inline-static-images/tests/fixture-scene.png')
+p.add_argument('--blocked-images',action='store_true')
+a=p.parse_args()
+if a.seconds<1 or a.rate<0 or not 0<=a.routes<=8:p.error('Use positive seconds, nonnegative rate and zero to eight routes.')
+dest=pathlib.Path(tempfile.mkdtemp(prefix='mush-perf-'+a.label+'-'))
+(dest/'config.json').write_text(json.dumps({'sha256':hashlib.sha256(a.exe.read_bytes()).hexdigest(),'seconds':a.seconds,'rate':a.rate,'routes':a.routes,'heartbeat':not a.no_heartbeat,'ascii':a.ascii,'visible_startup':a.visible,'font':a.font,'images':'blocked-loopback' if a.blocked_images else a.image_url}))
+runtime=ROOT/'.distribution-source/extracted'
+shutil.copytree(runtime/'locale',dest/'locale')
+for f in (a.exe,runtime/'lua5.1.dll',ROOT/'third_party/scintilla/bin/Scintilla.dll'):
+    shutil.copy2(f,dest/f.name)
+png=(ROOT/'tests/fixture-scene.png').read_bytes()
+class Images(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200);self.send_header('Content-Type','image/png')
+        self.send_header('Content-Length',str(len(png)));self.end_headers();self.wfile.write(png)
+    def log_message(self,*args):pass
+http=ThreadingHTTPServer(('127.0.0.1',0),Images)
+threading.Thread(target=http.serve_forever,daemon=True).start()
+listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(1);listener.settimeout(20)
+plugin=dest/'performance.xml'
+plugin.write_text('''<?xml version="1.0"?><!DOCTYPE muclient><muclient>
+<plugin name="Performance_Fixture" author="MUSHclient contributors" id="12ab34cd56ef789012ab34cd" language="Lua" version="1.0" requires="5.07"/>
+<script><![CDATA[
+local active=false
+local receipt
+local total=0
+local ticks=0
+local previous_tick=nil
+local image_receipt
+local pending_images={}
+local last_image_poll=0
+function OnPluginInstall()
+ active=GetAlphaOption('site')=='127.0.0.1' and WorldName()=='Performance fictional world'
+ if active then
+  local fonts=assert(io.open(GetPluginInfo(GetPluginID(),6)..'.fonts.txt','w'));fonts:write(tostring(GetInfo(20)),'\\n',tostring(GetInfo(23)),'\\n');fonts:close()
+  image_receipt=assert(io.open(GetPluginInfo(GetPluginID(),6)..'.images.csv','w'));image_receipt:write('sequence,state,width,height,time\\n');image_receipt:flush()
+  receipt=assert(io.open(GetPluginInfo(GetPluginID(),6)..'.csv','w'));receipt:write('kind,sequence,now,sent,total\\n');receipt:flush()
+ end
+end
+function OnPluginLineReceived(text)
+ if not active then return true end
+ total=total+1
+ if text:sub(1,9)=='PERF_END ' then
+  local seq,sent=text:match('^PERF_END (%d+) ([%d%.]+)')
+  if seq then receipt:write(string.format('output,%s,%.9f,%s,%d\\n',seq,utils.timer(),sent,total));receipt:flush() end
+ elseif text:sub(1,10)=='PERF_ECHO ' then
+  local seq,sent=text:match('^PERF_ECHO (%d+) ([%d%.]+)')
+  if seq then receipt:write(string.format('input,%s,%.9f,%s,%d\\n',seq,utils.timer(),sent,total));receipt:flush() end
+ elseif text:sub(1,10)=='PERF_PING ' then
+  local seq=text:match('^PERF_PING (%d+)')
+  if seq then Execute(string.format('perf-input %s %.9f',seq,utils.timer())) end
+ elseif text:sub(1,11)=='PERF_IMAGE ' then
+  local seq=text:match('^PERF_IMAGE (%d+)')
+  local count=GetLinesInBufferCount()
+  for line=count,math.max(1,count-2),-1 do
+   if GetLineInfo(line,14) then
+    pending_images[#pending_images+1]={sequence=seq,line=line,source=GetLineInfo(line,15)};break
+   end
+  end
+ end
+ return true
+end
+function OnPluginTick()
+ if active and receipt then
+  local now=utils.timer();ticks=ticks+1
+  if previous_tick then receipt:write(string.format('tick,%d,%.9f,%.9f,%d\\n',ticks,now,previous_tick,total));receipt:flush() end
+  previous_tick=now
+  if now-last_image_poll>.5 then
+   last_image_poll=now
+   for index=#pending_images,1,-1 do
+    local image=pending_images[index]
+    local state=-1
+    if GetLineInfo(image.line,15)==image.source then state=GetLineInfo(image.line,18) or -1 end
+    if state~=0 then
+     image_receipt:write(string.format('%s,%d,%d,%d,%.9f\\n',image.sequence or '0',state,GetLineInfo(image.line,16) or 0,GetLineInfo(image.line,17) or 0,now));image_receipt:flush();table.remove(pending_images,index)
+    end
+   end
+  end
+ end
+end
+function OnPluginClose() if receipt then receipt:close() end if image_receipt then image_receipt:close() end end
+]]></script></muclient>''',encoding='utf-8')
+if a.no_heartbeat:
+    plugin.write_text(plugin.read_text().replace('function OnPluginTick()', 'function DisabledHeartbeat()'), encoding='utf-8')
+world=dest/'fictional.mcl'
+world.write_text('<?xml version="1.0"?><!DOCTYPE muclient><muclient><world name="Performance fictional world" id="ab12cd34ef56ab12cd34ef56" site="127.0.0.1" port="'+str(listener.getsockname()[1])+'" utf_8="y" use_mxp="2" detect_pueblo="n" enable_scripts="y" enable_triggers="y" enable_aliases="y" script_language="Lua" max_output_lines="5000" output_font_name="Consolas" output_font_height="11"/><include name='+quoteattr(str(plugin))+' plugin="y"/></muclient>',encoding='utf-8')
+world.write_text(world.read_text().replace('output_font_name="Consolas"','output_font_name='+quoteattr(a.font)+' input_font_name='+quoteattr(a.font)),encoding='utf-8')
+db=sqlite3.connect(dest/'mushclient_prefs.sqlite')
+db.executescript('CREATE TABLE control(name TEXT PRIMARY KEY,value INT);CREATE TABLE prefs(name TEXT PRIMARY KEY,value TEXT);CREATE TABLE worlds(name TEXT PRIMARY KEY,value TEXT);CREATE TABLE workspace_route_v1(world_id TEXT,name TEXT,pattern TEXT,regex INTEGER,omit_main INTEGER,PRIMARY KEY(world_id,name,pattern,regex));')
+db.executemany('INSERT INTO control VALUES(?,?)',[('database_version',1),('First time',0),('Version',507),('Tip_StartUp',1)])
+db.executemany('INSERT INTO prefs VALUES(?,?)',[('WorldList',str(world)),('EnableSpellCheck','0'),('AutoConnectWorlds','1'),('OpenWorldsMaximised','1'),('ConfirmBeforeClosingMushclient','0'),('ConfirmBeforeClosingWorld','0')])
+for i in range(a.routes):db.execute('INSERT INTO workspace_route_v1 VALUES(?,?,?,?,?)',('ab12cd34ef56ab12cd34ef56','Profile '+str(i),'^DATA|fixture-scene',1,0))
+db.commit();db.close()
+startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=1 if a.visible else 0
+client=subprocess.Popen([str(dest/a.exe.name),'/noregister'],cwd=dest,startupinfo=startup)
+print(json.dumps({'directory':str(dest),'pid':client.pid,'sha256':hashlib.sha256(a.exe.read_bytes()).hexdigest(),'seconds':a.seconds,'rate':a.rate,'routes':a.routes}),flush=True)
+class Memory(ctypes.Structure):
+    _fields_=[('cb',W.DWORD),('PageFaultCount',W.DWORD),('PeakWorkingSetSize',ctypes.c_size_t),('WorkingSetSize',ctypes.c_size_t),('QuotaPeakPagedPoolUsage',ctypes.c_size_t),('QuotaPagedPoolUsage',ctypes.c_size_t),('QuotaPeakNonPagedPoolUsage',ctypes.c_size_t),('QuotaNonPagedPoolUsage',ctypes.c_size_t),('PagefileUsage',ctypes.c_size_t),('PeakPagefileUsage',ctypes.c_size_t),('PrivateUsage',ctypes.c_size_t)]
+k=ctypes.WinDLL('kernel32');ps=ctypes.WinDLL('psapi');u=ctypes.WinDLL('user32')
+k.OpenProcess.argtypes=[W.DWORD,W.BOOL,W.DWORD];k.OpenProcess.restype=W.HANDLE
+ps.GetProcessMemoryInfo.argtypes=[W.HANDLE,ctypes.POINTER(Memory),W.DWORD]
+u.GetGuiResources.argtypes=[W.HANDLE,W.DWORD];u.GetGuiResources.restype=W.DWORD
+k.GetProcessHandleCount.argtypes=[W.HANDLE,ctypes.POINTER(W.DWORD)]
+k.GetProcessTimes.argtypes=[W.HANDLE,ctypes.POINTER(W.FILETIME),ctypes.POINTER(W.FILETIME),ctypes.POINTER(W.FILETIME),ctypes.POINTER(W.FILETIME)]
+k.CloseHandle.argtypes=[W.HANDLE]
+handle=k.OpenProcess(0x410,False,client.pid)
+def sample():
+    m=Memory();m.cb=ctypes.sizeof(m);assert ps.GetProcessMemoryInfo(handle,ctypes.byref(m),m.cb)
+    files=[W.FILETIME() for _ in range(4)];assert k.GetProcessTimes(handle,*[ctypes.byref(f) for f in files])
+    cpu=sum((f.dwHighDateTime<<32)|f.dwLowDateTime for f in files[2:])/1e7
+    count=W.DWORD();k.GetProcessHandleCount(handle,ctypes.byref(count))
+    return {'time':time.perf_counter(),'private':m.PrivateUsage,'working_set':m.WorkingSetSize,'cpu':cpu,'gdi':u.GetGuiResources(handle,0),'user':u.GetGuiResources(handle,1),'handles':count.value}
+stop=threading.Event();conn=None;send_lock=threading.Lock();rows=[];sent=[]
+def receive():
+    pending=b'';state=0
+    while not stop.is_set():
+        try:chunk=conn.recv(65536)
+        except socket.timeout:continue
+        except OSError:return
+        if not chunk:return
+        clean=bytearray()
+        for byte in chunk:
+            if state==0:
+                if byte==255:state=1
+                else:clean.append(byte)
+            elif state==1:state=2 if byte in (251,252,253,254) else (3 if byte==250 else 0)
+            elif state==2:state=0
+            elif state==3:
+                if byte==255:state=4
+            elif state==4:state=0 if byte==240 else 3
+        pending+=clean
+        while b'\n' in pending:
+            raw,pending=pending.split(b'\n',1)
+            if raw.startswith(b'perf-input '):
+                try:
+                    with send_lock:conn.sendall(b'PERF_ECHO '+raw[len(b'perf-input '):].rstrip(b'\r')+b'\r\n')
+                except OSError:return
+try:
+    conn,_=listener.accept();conn.settimeout(10)
+    threading.Thread(target=receive,daemon=True).start()
+    began=time.perf_counter();last=began;serial=0;line_credit=0.0
+    with (dest/'resources.jsonl').open('w') as resource_log:
+        while client.poll() is None and time.perf_counter()-began<a.seconds:
+            if (dest/'stop').exists():break
+            now=time.perf_counter();elapsed=now-began;cycle=elapsed%120
+            phase='plain' if cycle<30 else ('styled' if cycle<60 else ('images' if cycle<90 else 'idle'))
+            if now-last>=1:
+                row=sample();row.update(elapsed=elapsed,phase=phase);rows.append(row);resource_log.write(json.dumps(row)+'\n');resource_log.flush();last=now
+            serial+=1;stamp=time.perf_counter();batch=[]
+            line_credit+=a.rate*.1 if phase!='idle' else 0
+            count=int(line_credit);line_credit-=count
+            for j in range(count):
+                text=('DATA %d.%d fictional output '%(serial,j)+('ab ' if a.ascii else 'λ🐉 ')+'x'*80)
+                if phase in ('styled','images'):text='\x1b[31m'+text+'\x1b[0m'
+                batch.append(text+'\r\n')
+            if phase=='images' and serial%10==0:
+                image_url=('http://127.0.0.1:%d/fixture-scene-%d.png'%(http.server_port,serial%64)) if a.blocked_images else a.image_url+('&' if '?' in a.image_url else '?')+'profile-key='+str(serial%64)
+                batch.append('\x1b[1z<image url='+quoteattr(image_url)+'>\r\nPERF_IMAGE %d\r\n'%serial)
+            batch.append('PERF_END %d %.9f\r\n'%(serial,stamp))
+            if serial%5==0:batch.append('PERF_PING %d\r\n'%serial)
+            payload=''.join(batch).encode()
+            try:
+                with send_lock:conn.sendall(payload)
+            except socket.timeout:
+                (dest/'overload.json').write_text(json.dumps({'elapsed':elapsed,'phase':phase,'completed_batches':serial-1,'reason':'TCP backpressure exceeded 10 seconds'}));break
+            sent.append({'sequence':serial,'time':stamp,'phase':phase,'lines':len(batch),'bytes':len(payload)})
+            time.sleep(max(0,.1-(time.perf_counter()-stamp)))
+        (dest/'completion.json').write_text(json.dumps({'requested_duration_completed':time.perf_counter()-began>=a.seconds,'client_exited':client.poll() is not None,'stopped':(dest/'stop').exists()}))
+        # A bounded idle drain distinguishes queued output from completed work.
+        for _ in range(100):
+            if client.poll() is not None:break
+            row=sample();row.update(elapsed=time.perf_counter()-began,phase='drain');rows.append(row);resource_log.write(json.dumps(row)+'\n');resource_log.flush();time.sleep(.1)
+    (dest/'sent.json').write_text(json.dumps(sent))
+finally:
+    (dest/'sent.json').write_text(json.dumps(sent))
+    stop.set()
+    if conn:conn.close()
+    listener.close();http.shutdown();k.CloseHandle(handle)
+    if client.poll() is None:client.terminate();client.wait(timeout=10)
+print('Profile complete: '+str(dest),flush=True)
