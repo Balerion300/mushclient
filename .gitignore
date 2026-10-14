@@ -99,3 +99,12 @@ third_party/scintilla/win32/obj/
 *.lib
 *.exp
 tests/workspace/probe-build.rsp
+
+# Personal worlds and private test/runtime state never belong in source control.
+*.mcl
+*.mcl.bak
+App.db
+editor-state/
+private-test-settings/
+.env
+.env.*

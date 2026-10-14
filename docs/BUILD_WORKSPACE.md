@@ -34,3 +34,10 @@ No provider runs until its explicit argument list is configured.
 official MUSHclient distribution, notices, help and documentation, and creates a
 SHA256 manifest. It refuses an existing destination or ZIP; it never copies the
 installed client's preferences, saved worlds, grants or credentials.
+
+Personal worlds, credentials and settings must remain outside the repository,
+including its Git history and public artifacts. Keep personal test overlays in
+a separate local folder outside this checkout. Apply them only to a private
+extracted build prepared for that user, after producing the clean package.
+Never use an installed personal client as the distribution base. The packaging
+script rejects world files and known runtime/preference state in its input.
