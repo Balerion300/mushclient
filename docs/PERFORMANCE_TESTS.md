@@ -113,7 +113,7 @@ images, but timed out under backpressure at 566.8 seconds; a component fixture
 also overlapped part of that run. It is not a controlled acceptance pass and
 does not establish a leak: the process retained queued work and UI resources.
 
-## Current candidate: component passes, sustained test fails
+## First optimized candidate: component passes, sustained test fails
 
 Release executable SHA256
 `6b25c591f43f77a3633076248adc48b305b4de36235a65547700bfbfe43693b2`.
@@ -136,9 +136,9 @@ acceptance test. The remaining backlog prevents interpreting memory growth as
 either a proven leak or a clean memory plateau.
 
 No stress-tested replacement was installed in the user's client directory.
-The changes remain experimental in the draft PR. A system CPU trace is the next
-diagnostic step; neither the font comparison nor these component passes establish
-everyday readiness.
+The changes remain experimental in the draft PR. At that point a system CPU
+trace was the next diagnostic step; neither the font comparison nor those
+component passes established everyday readiness. Later results follow below.
 
 ## Reproduction
 
@@ -196,3 +196,77 @@ Windows Performance Toolkit; the Windows-built-in WPR does not establish that
 WPA is installed. If an elevated start still fails, check the **Profile system
 performance** user right for the administrator account rather than granting
 profiling rights broadly.
+
+## Elevated system trace follow-up
+
+With user-authorized elevation, a 210-second WPR CPU recording was successfully
+saved locally on October 14. The fictional client used the earlier `6b25c591...`
+executable, two routed panes, and 180 seconds of 80 offered text lines/second.
+This diagnostic completed 1,790 of 1,790 batches: output p95 was 33.64 ms and
+scripted command/echo p95 was 12.66 ms. Private bytes peaked at 36.73 MiB and
+fell to 18.14 MiB in the final drain; USER objects peaked at 167 and ended at
+165. The earlier failed run of the same executable remains counterevidence to
+a universal stability claim. Instrumentation, desktop/window state and timing
+can affect results; the diagnostic is not an uninstrumented acceptance test.
+
+The system ETL contains 52,929 CPU samples on threads belonging to the fictional
+process. A local ETW reader matched 52,613 to captured stacks, with no lost
+events reported. Matching used timestamp and thread ID against SampledProfile
+events, not all context-switch/ready-thread stacks. Private application PDBs
+resolved the application frames. Available inclusive stack coverage showed
+`CWorkspacePane::RenderRecord` in 24.08% of matched samples, `RestoreView` in
+15.47%, and application idle processing in about 1.98%. The GUI thread accounted
+for 99.36% of matched samples. Inclusive counts overlap; partial user-stack
+unwinding and unresolved kernel frames prevent adding these percentages or
+claiming a complete breakdown. A separate process-local sample confirmed
+RichEdit calls beneath the transcript renderer.
+
+This evidence supports testing a targeted removal of redundant selection
+updates: compare the current selection before setting it, use known positive
+insertion positions, and retain explicit scrolling/selection restoration.
+Correctness tests pass after that change. Its component run needed 5.63 seconds
+for 5,000 styled records and 3.73 seconds with groups of 25; results still require
+sustained full-client validation. The evidence does not justify replacing the
+docking/window framework. If rendering continues to dominate after these fixes,
+the next architectural option is a virtualized spawned transcript surface,
+retaining docking, routing, connections and script behavior.
+
+A heap-trace launcher targeted only the unique name
+`MUSHclient-HeapFixture.exe`; Windows reported its launch canceled, so it did
+not capture heap allocations or enable heap tracing. A toolkit installation was
+also blocked by automatic approval review. CPU analysis used existing Windows
+ETW/DbgHelp APIs instead. No kernel trace or raw desktop metadata was committed.
+Heap allocation stacks are still needed to diagnose any growth that persists
+after bounded scrollback has stabilized.
+
+The traffic fixture now records visibility, minimization, size and foreground
+state of only its own process's windows, without titles or other applications'
+content. It also retains matching PDBs with future fictional executable copies
+so later builds do not invalidate their private symbols.
+
+## Selection-change sustained result
+
+The selection-change Release executable is
+`39e0523cb20427d7bd5230dff9a7bd121c5f21d6c33e0bb1cd41f0effb1e6c82`.
+An isolated, uninstrumented 600-second run at 80 offered text lines/second with
+two routed panes completed all 5,967 sent batches (43,116 offered lines). No TCP
+backpressure occurred. Output processing p95 was 13.06 ms, maximum 82.55 ms;
+scripted command/echo p95 was 6.47 ms, maximum 13.98 ms. Average CPU was 17.42%
+of one logical core including the bounded drain. Lua confirmed 86 decoded images
+at 640 by 240, none failed, and 62 left scrollback before readiness was recorded.
+
+Late-idle private bytes across the five cycles were 34.66, 36.28, 36.46, 36.80
+and 37.97 MiB. Peak private bytes were 41.27 MiB. USER resources remained around
+165-166; handles were around 579-582 and fell to 569 in the final drain. Image
+phases raised memory/GDI counts; subsequent text phases removed images and
+lowered them. This is substantially different from the earlier backlogged run,
+but the warm-cycle private-byte drift of 1.69 MiB remains unclassified without
+heap allocation stacks. Do not call the client leak-free or attribute the entire
+before/after difference to this change: the earlier executable also completed
+the shorter instrumented diagnostic.
+
+The owned primary window was visible, not minimized, 1,920 by 1,015 pixels, and
+never foreground during this run. It did not measure physical typing, a focused
+4K desktop session, multiple active panes, or higher sustained rates. The result
+supports retaining the current docking framework and continuing targeted
+renderer/heap investigation; it does not close the broader release gates.

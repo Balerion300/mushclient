@@ -171,6 +171,12 @@ bool CWorkspacePane::OpenTranscript(const CString& id, const CString& name)
   return true;
 }
 namespace {
+void WorkspaceSelect(CRichEditCtrl& control,long first,long last)
+{
+  long currentFirst,currentLast;control.GetSel(currentFirst,currentLast);
+  // RichEdit can reflow retained text even when EM_EXSETSEL changes nothing.
+  if(currentFirst!=first || currentLast!=last)control.SetSel(first,last);
+}
 struct WorkspaceRtfStream { const std::string* data; size_t offset; };
 DWORD CALLBACK WorkspaceReadRtf(DWORD_PTR cookie, LPBYTE buffer, LONG count, LONG* read)
 {
@@ -216,13 +222,13 @@ long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord&
       if(!run.action.IsEmpty()){LinkRange link;link.first=first;link.last=position;link.type=run.actionType;link.action=run.action;links.push_back(link);}
     }
     out<<'}';const std::string rtf=out.str();WorkspaceRtfStream data={&rtf,0};EDITSTREAM stream={0};stream.dwCookie=(DWORD_PTR)&data;stream.pfnCallback=WorkspaceReadRtf;
-    control.SetSel(origin,origin);
+    WorkspaceSelect(control,origin,origin);
     control.StreamIn(SF_RTF|SFF_SELECTION,stream);
     long selectionStart;control.GetSel(selectionStart,end);
     for(const auto& link:links){control.SetSel(link.first,link.last);CHARFORMAT2W format;memset(&format,0,sizeof(format));format.cbSize=sizeof(format);format.dwMask=CFM_LINK;format.dwEffects=CFE_LINK;::SendMessageW(control.m_hWnd,EM_SETCHARFORMAT,SCF_SELECTION,(LPARAM)&format);transcript.links.push_back(link);}
     }
   if (record.image) end=RenderImage(transcript,record,end);
-  control.SetSel(end,end); ::SendMessageW(control.m_hWnd,EM_REPLACESEL,FALSE,(LPARAM)L"\r\n");
+  WorkspaceSelect(control,end,end); ::SendMessageW(control.m_hWnd,EM_REPLACESEL,FALSE,(LPARAM)L"\r\n");
   long selectionStart,renderedEnd;control.GetSel(selectionStart,renderedEnd);
   if(track){transcript.imageStates.push_back(record.image?(int)record.image->GetState():-1);transcript.renderedEnds.push_back(renderedEnd);}
   return renderedEnd;
@@ -392,7 +398,7 @@ long CWorkspacePane::RenderImage(Transcript& transcript, const WorkspaceRecord& 
   if (record.image->GetState()!=CInlineImage::Ready)
     {
     const wchar_t* label=record.image->GetState()==CInlineImage::Loading ? L" [image loading]" : L" [image unavailable]";
-    control.SetSel(insertAt,insertAt); ::SendMessageW(control.m_hWnd,EM_REPLACESEL,FALSE,(LPARAM)label);
+    WorkspaceSelect(control,insertAt,insertAt); ::SendMessageW(control.m_hWnd,EM_REPLACESEL,FALSE,(LPARAM)label);
     long first,last;control.GetSel(first,last);return last;
     }
   int width=record.imageWidth>0?record.imageWidth:record.image->GetWidth();
@@ -439,7 +445,7 @@ long CWorkspacePane::RenderImage(Transcript& transcript, const WorkspaceRecord& 
     { rtf+=hex[picture[i]>>4];rtf+=hex[picture[i]&15]; }
   rtf+="}}";
   DeleteObject(bitmap);
-  control.SetSel(insertAt,insertAt);
+  WorkspaceSelect(control,insertAt,insertAt);
   const long first=insertAt;
   WorkspaceRtfStream data={&rtf,0};
   EDITSTREAM stream={0}; stream.dwCookie=(DWORD_PTR)&data; stream.pfnCallback=WorkspaceReadRtf;
@@ -870,8 +876,9 @@ CWorkspacePane::ViewState CWorkspacePane::SaveView(CRichEditCtrl& control)
 }
 void CWorkspacePane::RestoreView(CRichEditCtrl& control,const ViewState& state)
 {
-  if(state.follow){control.SetSel(-1,-1);control.SendMessage(EM_SCROLLCARET);return;}
-  const long length=TextLength(control);control.SetSel(min(state.start,length),min(state.end,length));
+  const long length=TextLength(control);
+  if(state.follow){WorkspaceSelect(control,length,length);control.SendMessage(EM_SCROLLCARET);return;}
+  WorkspaceSelect(control,min(state.start,length),min(state.end,length));
   POINTL anchor={0,0};::SendMessageW(control.m_hWnd,EM_POSFROMCHAR,(WPARAM)&anchor,min(state.anchor,length));
   POINT scroll={0,0};::SendMessageW(control.m_hWnd,EM_GETSCROLLPOS,0,(LPARAM)&scroll);
   scroll.y=max(0L,scroll.y+anchor.y-state.anchorY);::SendMessageW(control.m_hWnd,EM_SETSCROLLPOS,0,(LPARAM)&scroll);

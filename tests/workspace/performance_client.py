@@ -30,6 +30,10 @@ runtime=ROOT/'.distribution-source/extracted'
 shutil.copytree(runtime/'locale',dest/'locale')
 for f in (a.exe,runtime/'lua5.1.dll',ROOT/'third_party/scintilla/bin/Scintilla.dll'):
     shutil.copy2(f,dest/f.name)
+# Keep matching private symbols with the exact fictional executable before a
+# later build replaces the source-directory PDB. These files never enter Git.
+symbols=a.exe.with_suffix('.pdb')
+if symbols.exists():shutil.copy2(symbols,dest/symbols.name)
 png=(ROOT/'tests/fixture-scene.png').read_bytes()
 class Images(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -125,13 +129,31 @@ u.GetGuiResources.argtypes=[W.HANDLE,W.DWORD];u.GetGuiResources.restype=W.DWORD
 k.GetProcessHandleCount.argtypes=[W.HANDLE,ctypes.POINTER(W.DWORD)]
 k.GetProcessTimes.argtypes=[W.HANDLE,ctypes.POINTER(W.FILETIME),ctypes.POINTER(W.FILETIME),ctypes.POINTER(W.FILETIME),ctypes.POINTER(W.FILETIME)]
 k.CloseHandle.argtypes=[W.HANDLE]
+WindowCallback=ctypes.WINFUNCTYPE(W.BOOL,W.HWND,W.LPARAM)
+u.EnumWindows.argtypes=[WindowCallback,W.LPARAM]
+u.GetWindowThreadProcessId.argtypes=[W.HWND,ctypes.POINTER(W.DWORD)]
+u.GetWindowRect.argtypes=[W.HWND,ctypes.POINTER(W.RECT)]
+u.IsWindowVisible.argtypes=[W.HWND];u.IsIconic.argtypes=[W.HWND]
+u.GetForegroundWindow.restype=W.HWND
 handle=k.OpenProcess(0x410,False,client.pid)
+def window_state():
+    windows=[]
+    @WindowCallback
+    def inspect(window,_):
+        owner=W.DWORD();u.GetWindowThreadProcessId(window,ctypes.byref(owner))
+        if owner.value==client.pid:
+            rect=W.RECT();u.GetWindowRect(window,ctypes.byref(rect))
+            windows.append({'visible':bool(u.IsWindowVisible(window)),'minimized':bool(u.IsIconic(window)),'width':rect.right-rect.left,'height':rect.bottom-rect.top})
+        return True
+    u.EnumWindows(inspect,0)
+    foreground=W.DWORD();u.GetWindowThreadProcessId(u.GetForegroundWindow(),ctypes.byref(foreground))
+    return {'foreground':foreground.value==client.pid,'windows':windows}
 def sample():
     m=Memory();m.cb=ctypes.sizeof(m);assert ps.GetProcessMemoryInfo(handle,ctypes.byref(m),m.cb)
     files=[W.FILETIME() for _ in range(4)];assert k.GetProcessTimes(handle,*[ctypes.byref(f) for f in files])
     cpu=sum((f.dwHighDateTime<<32)|f.dwLowDateTime for f in files[2:])/1e7
     count=W.DWORD();k.GetProcessHandleCount(handle,ctypes.byref(count))
-    return {'time':time.perf_counter(),'private':m.PrivateUsage,'working_set':m.WorkingSetSize,'cpu':cpu,'gdi':u.GetGuiResources(handle,0),'user':u.GetGuiResources(handle,1),'handles':count.value}
+    return {'time':time.perf_counter(),'private':m.PrivateUsage,'working_set':m.WorkingSetSize,'cpu':cpu,'gdi':u.GetGuiResources(handle,0),'user':u.GetGuiResources(handle,1),'handles':count.value,'window_state':window_state()}
 stop=threading.Event();conn=None;send_lock=threading.Lock();rows=[];sent=[]
 def receive():
     pending=b'';state=0
