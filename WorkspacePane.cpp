@@ -202,6 +202,12 @@ long WorkspaceRtfText(std::ostringstream& out,const std::wstring& text)
 long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord& record,long insertAt,bool track)
 {
   CRichEditCtrl& control=transcript.text;
+  if(record.hasSurfaceColors && track){
+    if(transcript.surfaceBackground!=record.surfaceBackground)
+      control.SetBackgroundColor(FALSE,record.surfaceBackground);
+    transcript.surfaceForeground=record.surfaceForeground;
+    transcript.surfaceBackground=record.surfaceBackground;
+  }
   const long origin=insertAt<0?(transcript.renderedEnds.empty()?0:transcript.renderedEnds.back()):insertAt;
   long end=origin;
   const bool imageReady=record.image && record.image->GetState()==CInlineImage::Ready;
@@ -228,7 +234,23 @@ long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord&
     for(const auto& link:links){control.SetSel(link.first,link.last);CHARFORMAT2W format;memset(&format,0,sizeof(format));format.cbSize=sizeof(format);format.dwMask=CFM_LINK;format.dwEffects=CFE_LINK;::SendMessageW(control.m_hWnd,EM_SETCHARFORMAT,SCF_SELECTION,(LPARAM)&format);transcript.links.push_back(link);}
     }
   if (record.image) end=RenderImage(transcript,record,end);
-  WorkspaceSelect(control,end,end); ::SendMessageW(control.m_hWnd,EM_REPLACESEL,FALSE,(LPARAM)L"\r\n");
+  WorkspaceSelect(control,end,end);
+  CHARFORMAT2W paragraph;memset(&paragraph,0,sizeof(paragraph));paragraph.cbSize=sizeof(paragraph);
+  paragraph.dwMask=CFM_COLOR|CFM_BACKCOLOR|CFM_BOLD|CFM_ITALIC|CFM_UNDERLINE|CFM_LINK;
+  paragraph.crTextColor=record.hasSurfaceColors?record.surfaceForeground:transcript.surfaceForeground;
+  paragraph.crBackColor=record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground;
+  if(record.bleedBackground){
+    if(!record.runs.empty())paragraph.crBackColor=record.runs.back().background;
+    else {CHARFORMAT2W inherited;memset(&inherited,0,sizeof(inherited));inherited.cbSize=sizeof(inherited);
+      // RichEdit's insertion style can reset at the document end. Read the
+      // preceding paragraph mark when intentionally bleeding an empty line.
+      if(end>0)WorkspaceSelect(control,end-1,end);
+      ::SendMessageW(control.m_hWnd,EM_GETCHARFORMAT,SCF_SELECTION,(LPARAM)&inherited);
+      WorkspaceSelect(control,end,end);
+      if(!(inherited.dwEffects&CFE_AUTOBACKCOLOR))paragraph.crBackColor=inherited.crBackColor;}
+  }
+  ::SendMessageW(control.m_hWnd,EM_SETCHARFORMAT,SCF_SELECTION,(LPARAM)&paragraph);
+  ::SendMessageW(control.m_hWnd,EM_REPLACESEL,FALSE,(LPARAM)L"\r\n");
   long selectionStart,renderedEnd;control.GetSel(selectionStart,renderedEnd);
   if(track){transcript.imageStates.push_back(record.image?(int)record.image->GetState():-1);transcript.renderedEnds.push_back(renderedEnd);}
   return renderedEnd;
@@ -359,10 +381,7 @@ void CWorkspacePane::LayoutChildren()
     const ViewState view=SaveView(transcript.text);
     transcript.text.MoveWindow(body);
     CRect viewport;transcript.text.GetClientRect(viewport);
-    bool images=false;for(size_t r=0;r<transcript.records.size();++r)if(transcript.records[r].image){images=true;break;}
-    if(images && !transcript.paused && !transcript.deferred && viewport.Width()!=transcript.renderedWidth)
-      {transcript.text.SetRedraw(FALSE);Rebuild(transcript);RestoreView(transcript.text,view);transcript.text.SetRedraw(TRUE);transcript.text.Invalidate();}
-    transcript.renderedWidth=viewport.Width();
+    if(viewport.Width()!=transcript.renderedWidth)ReflowImages(transcript,view);
     m_transcripts[i]->text.ShowWindow((int)i==m_tabs.GetCurSel()?SW_SHOW:SW_HIDE);
     }
 }
@@ -421,7 +440,7 @@ long CWorkspacePane::RenderImage(Transcript& transcript, const WorkspaceRecord& 
   if (!bitmap || !pixels) {if(bitmap)DeleteObject(bitmap);return insertAt;}
   CDC dc; dc.CreateCompatibleDC(NULL);
   HGDIOBJ old=::SelectObject(dc.m_hDC,bitmap);
-  dc.FillSolidRect(0,0,width,height,RGB(25,25,28));
+  dc.FillSolidRect(0,0,width,height,record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground);
   record.image->Draw(&dc,CRect(0,0,width,height));
   GdiFlush(); // synchronize DIB bits before they are consumed by the metafile
   ::SelectObject(dc.m_hDC,old);
@@ -492,6 +511,27 @@ void CWorkspacePane::Rebuild(Transcript& transcript)
   transcript.text.SetWindowText(""); transcript.links.clear(); transcript.imageStates.clear();transcript.renderedEnds.clear();
   for (size_t i=0;i<transcript.records.size();++i) RenderRecord(transcript,transcript.records[i]);
 }
+void CWorkspacePane::ReflowImages(Transcript& transcript,ViewState view)
+{
+  if(transcript.paused || transcript.deferred || m_renderBatchDepth ||
+     transcript.renderedEnds.size()!=transcript.records.size())return;
+  CRect viewport;transcript.text.GetClientRect(viewport);
+  const int previous=max(1,min(512,transcript.renderedWidth-12));
+  const int available=max(1,min(512,viewport.Width()-12));
+  transcript.renderedWidth=viewport.Width();
+  if(previous==available)return;
+  bool changed=false;
+  for(size_t index=0;index<transcript.records.size();++index){
+    const WorkspaceRecord& record=transcript.records[index];
+    if(!record.image || record.image->GetState()!=CInlineImage::Ready)continue;
+    if(!changed){transcript.text.SetRedraw(FALSE);changed=true;}
+    const long first=index?transcript.renderedEnds[index-1]:0,last=transcript.renderedEnds[index];
+    const long delta=ReplaceRenderedRecord(transcript,index);
+    const auto adjust=[&](long position){return position>=last?position+delta:(position>first?min(position,transcript.renderedEnds[index]):position);};
+    view.start=adjust(view.start);view.end=adjust(view.end);view.anchor=adjust(view.anchor);
+  }
+  if(changed){transcript.text.SetRedraw(TRUE);RestoreView(transcript.text,view);transcript.text.Invalidate();}
+}
 void CWorkspacePane::RefreshDeferred()
 {
   CBaseTabbedPane* group=IsTabbed()?GetParentTabbedPane():NULL;
@@ -530,6 +570,8 @@ void CWorkspacePane::OnTimer(UINT_PTR timer)
     Transcript& transcript=*m_transcripts[i];
     if(m_connectionHandler){const bool live=m_connectionHandler(transcript.connectionId);m_reviewInput.EnableWindow(live);if(transcript.connectionState!=(live?1:0)){m_inputStatus.SetWindowText(live?"Ready":"Disconnected - draft retained");transcript.connectionState=live?1:0;}}
     if(transcript.paused || transcript.deferred || m_renderBatchDepth)continue;
+    CRect viewport;transcript.text.GetClientRect(viewport);
+    if(viewport.Width()!=transcript.renderedWidth)ReflowImages(transcript,SaveView(transcript.text));
     for (size_t j=0;j<transcript.records.size() && j<transcript.imageStates.size();++j)
       if (transcript.records[j].image && transcript.imageStates[j]!=(int)transcript.records[j].image->GetState())
         {

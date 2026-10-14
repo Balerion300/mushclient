@@ -34,6 +34,10 @@ using HelpCatalog = std::map<std::string, HelpEntry>;
 bool ParseHelp(const std::string &text, HelpCatalog &catalog);
 std::string CatalogCompletion(const HelpCatalog &catalog,
                               const std::string &prefix);
+// Sorted, unique local names, including the fallback and optional game names.
+std::string CompletionCandidates(const HelpCatalog &catalog,
+                                 const std::string &prefix,
+                                 const std::vector<std::string> &discovered = {});
 std::string ActiveFunctionName(const std::string &source, size_t caret);
 struct Draft {
   std::string endpoint, object, attribute, source;

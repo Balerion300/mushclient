@@ -100,6 +100,12 @@ namespace {
 WorkspaceRecord captureLines(CMUSHclientDoc* doc,const std::vector<CLine*>& lines)
 {
   WorkspaceRecord record;record.connectionId=WorkspaceConnectionId(doc);record.sequence=0;
+  // Use the same surface fill as the original world's output view, including
+  // blank records whose style list has no characters to copy.
+  record.hasSurfaceColors=true;record.bleedBackground=App.m_bBleedBackground!=FALSE;
+  record.surfaceBackground=doc->m_iBackgroundColour!=NO_COLOUR?doc->m_iBackgroundColour:
+    doc->TranslateColour(doc->m_bCustom16isDefaultColour?doc->m_customback[15]:doc->m_normalcolour[BLACK],1.0);
+  record.surfaceForeground=doc->TranslateColour(doc->m_bCustom16isDefaultColour?doc->m_customtext[15]:doc->m_normalcolour[WHITE],1.0);
   if(lines.empty())return record;
   record.firstSourceCookie=lines.front()->m_workspaceCookie;
   CLine* final=lines.back();

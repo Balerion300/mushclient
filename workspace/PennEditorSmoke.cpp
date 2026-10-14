@@ -33,6 +33,19 @@ std::string Base64(const std::string &text) {
   out.resize(n);
   return out;
 }
+LRESULT CompletionCount(HWND text) {
+  HWND popup = 0;
+  for (;;) {
+    popup = FindWindowExW(0, popup, L"ListBoxX", 0);
+    if (!popup)
+      break;
+    if (GetWindow(popup, GW_OWNER) == GetAncestor(text, GA_ROOT)) {
+      auto list = FindWindowExW(popup, 0, WC_LISTBOXW, 0);
+      return list ? SendMessageW(list, LB_GETCOUNT, 0, 0) : 0;
+    }
+  }
+  return 0;
+}
 int main() {
   HWND editor = OpenPennEditor(0, "fixture-world/session-1",
                                "[add(1,2)] dragon \xF0\x9F\x90\x89");
@@ -43,6 +56,78 @@ int main() {
   assert(SendMessage(text, SCI_GETCODEPAGE, 0, 0) == SC_CP_UTF8);
   assert(SendMessage(text, SCI_GETMARGINWIDTHN, 0, 0) > 0);
   assert(SendMessage(text, SCI_GETSTYLEAT, 1, 0) == 1);
+  // Real keyboard input must open a multi-choice dropdown without Ctrl+Space.
+  SendMessage(text, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>("["));
+  SendMessage(text, SCI_GOTOPOS, 1, 0);
+  for (char ch : std::string("REGEDIT"))
+    SendMessage(text, WM_CHAR, ch, 1);
+  assert(SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  assert(CompletionCount(text) == 4);
+  assert(SendMessage(text, SCI_AUTOCGETIGNORECASE, 0, 0));
+  assert(!SendMessage(text, SCI_AUTOCGETCHOOSESINGLE, 0, 0));
+  char selected[128] = {};
+  SendMessage(text, SCI_AUTOCGETCURRENTTEXT, 0,
+              reinterpret_cast<LPARAM>(selected));
+  assert(std::string(selected) == "regedit");
+  SendMessage(text, WM_KEYDOWN, VK_DOWN, 1);
+  SendMessage(text, SCI_AUTOCGETCURRENTTEXT, 0,
+              reinterpret_cast<LPARAM>(selected));
+  assert(std::string(selected) == "regeditall");
+  SendMessage(text, WM_KEYDOWN, VK_TAB, 1);
+  assert(!SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  std::string completed;
+  uint64_t completionRevision = 0;
+  std::string completionEndpoint;
+  assert(PennEditorSnapshot(editor, completed, completionRevision,
+                            completionEndpoint));
+  assert(completed == "[regeditall");
+  SendMessage(text, WM_CHAR, '(', 1);
+  assert(!SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, WM_CHAR, 's', 1);
+  SendMessage(text, WM_CHAR, 'o', 1);
+  SendMessage(text, WM_CHAR, 'r', 1);
+  SendMessage(text, WM_CHAR, 't', 1);
+  assert(SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, WM_KEYDOWN, VK_RETURN, 1);
+  assert(PennEditorSnapshot(editor, completed, completionRevision,
+                            completionEndpoint));
+  assert(completed == "[regeditall(sort");
+  SendMessage(text, WM_CHAR, '(', 1);
+  SendMessage(text, WM_CHAR, '1', 1);
+  assert(!SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>("regeditall"));
+  SendMessage(text, SCI_GOTOPOS, 10, 0);
+  SendMessage(editor, WM_COMMAND, 106, 0);
+  assert(SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  for (int i = 0; i < 3; ++i)
+    SendMessage(text, WM_KEYDOWN, VK_BACK, 1);
+  SendMessage(text, SCI_AUTOCSELECT, 0,
+              reinterpret_cast<LPARAM>("regediti"));
+  SendMessage(text, SCI_AUTOCGETCURRENTTEXT, 0,
+              reinterpret_cast<LPARAM>(selected));
+  assert(std::string(selected) == "regediti");
+  SendMessage(text, WM_KEYDOWN, VK_ESCAPE, 1);
+  assert(!SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>(""));
+  for (char ch : std::string("@pe"))
+    SendMessage(text, WM_CHAR, ch, 1);
+  assert(SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, SCI_AUTOCGETCURRENTTEXT, 0,
+              reinterpret_cast<LPARAM>(selected));
+  assert(std::string(selected) == "@pemit");
+  SendMessage(text, WM_KEYDOWN, VK_ESCAPE, 1);
+  SendMessage(editor, WM_COMMAND, 114, 0); // Lua source mode.
+  SendMessage(text, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>(""));
+  for (char ch : std::string("ret"))
+    SendMessage(text, WM_CHAR, ch, 1);
+  assert(SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, SCI_AUTOCGETCURRENTTEXT, 0,
+              reinterpret_cast<LPARAM>(selected));
+  assert(std::string(selected) == "return");
+  SendMessage(editor, WM_COMMAND, 114, 0); // Back to PennMUSH.
+  assert(!SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, SCI_SETTEXT, 0,
+              reinterpret_cast<LPARAM>("[add(1,2)] dragon \xF0\x9F\x90\x89"));
   std::string source, endpoint;
   uint64_t revision = 0;
   assert(PennEditorSnapshot(editor, source, revision, endpoint));
@@ -129,6 +214,15 @@ int main() {
   assert(sends == 2);
   int preparedSends = 0;
   assert(lastCommand.find("[functions()]") != std::string::npos);
+  SendMessage(text, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>(""));
+  for (char ch : std::string("CUSTOM_F"))
+    SendMessage(text, WM_CHAR, ch, 1);
+  assert(SendMessage(text, SCI_AUTOCACTIVE, 0, 0));
+  SendMessage(text, SCI_AUTOCGETCURRENTTEXT, 0,
+              reinterpret_cast<LPARAM>(selected));
+  assert(std::string(selected) == "custom_fixture");
+  SendMessage(text, WM_KEYDOWN, VK_ESCAPE, 1);
+  SendMessage(text, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>(loaded.c_str()));
   std::vector<std::string> pendingNonces;
   PennEditorSetTransport(
       [&](const std::string &target, const std::string &command) {
@@ -239,6 +333,8 @@ int main() {
   PennEditorInfo referenceInfo;
   assert(!PennEditorSnapshotInfo(reference, referenceInfo));
   auto referenceLength = SendMessage(referenceText, SCI_GETLENGTH, 0, 0);
+  SendMessage(referenceText, WM_CHAR, 'r', 1);
+  assert(!SendMessage(referenceText, SCI_AUTOCACTIVE, 0, 0));
   for (int command : {101, 102, 109, 112, 115, 116, 117, 119})
     SendMessage(reference, WM_COMMAND, command, 0);
   assert(SendMessage(referenceText, SCI_GETLENGTH, 0, 0) == referenceLength);

@@ -1,6 +1,7 @@
 #include "PennLanguage.h"
 #include <algorithm>
 #include <cctype>
+#include <set>
 namespace PennIDE {
 static bool Name(char c) {
   return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '@';
@@ -102,6 +103,33 @@ std::string CatalogCompletion(const HelpCatalog &catalog,
         result += ' ';
       result += pair.first;
     }
+  }
+  return result;
+}
+std::string CompletionCandidates(const HelpCatalog &catalog,
+                                 const std::string &prefix,
+                                 const std::vector<std::string> &discovered) {
+  auto lower = Lower(prefix);
+  std::set<std::string> names;
+  auto add = [&](const std::string &name) {
+    auto normalized = Lower(name);
+    if (!normalized.empty() && normalized.find(lower) == 0 &&
+        normalized.find_first_not_of(
+            "abcdefghijklmnopqrstuvwxyz0123456789_@/") == std::string::npos)
+      names.insert(normalized);
+  };
+  for (const auto &reference : References())
+    add(reference.name);
+  for (const auto &pair : catalog)
+    if (pair.second.callable || pair.second.command)
+      add(pair.first);
+  for (const auto &name : discovered)
+    add(name);
+  std::string result;
+  for (const auto &name : names) {
+    if (!result.empty())
+      result += ' ';
+    result += name;
   }
   return result;
 }

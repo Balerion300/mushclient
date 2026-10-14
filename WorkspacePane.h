@@ -30,11 +30,13 @@ struct WorkspaceRecord
   unsigned __int64 receivedAtMillis;
   unsigned __int64 firstSourceCookie;
   CString connectionId;
+  bool hasSurfaceColors, bleedBackground;
+  COLORREF surfaceForeground, surfaceBackground;
   std::vector<WorkspaceRun> runs;
   std::shared_ptr<CInlineImage> image;
   int imageWidth, imageHeight;
   CString imageAction;
-  WorkspaceRecord() : sequence(0), receivedAtMillis(0), firstSourceCookie(0),imageWidth(0), imageHeight(0) {}
+  WorkspaceRecord() : sequence(0), receivedAtMillis(0), firstSourceCookie(0),hasSurfaceColors(false),bleedBackground(false),surfaceForeground(RGB(225,225,225)),surfaceBackground(RGB(25,25,28)),imageWidth(0), imageHeight(0) {}
 };
 
 struct WorkspacePaneLayout
@@ -133,7 +135,8 @@ protected:
     ViewState batchView;
     unsigned int unread;
     int renderedWidth,connectionState;
-    Transcript():retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1){}
+    COLORREF surfaceForeground,surfaceBackground;
+    Transcript():retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1),surfaceForeground(RGB(225,225,225)),surfaceBackground(RGB(25,25,28)){}
   };
   std::vector<Transcript*> m_transcripts;
   CTabCtrl m_tabs;
@@ -165,6 +168,7 @@ protected:
   void UpdateTabLabel(size_t index);
   long RenderRecord(Transcript& transcript, const WorkspaceRecord& record,long insertAt=-1,bool track=true);
   void Rebuild(Transcript& transcript);
+  void ReflowImages(Transcript& transcript,ViewState view);
   long TrimRenderedPrefix(Transcript& transcript,size_t records);
   void RefreshDeferred();
   afx_msg void OnShowWindow(BOOL show,UINT status);

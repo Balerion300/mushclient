@@ -2,6 +2,7 @@
 #include "PennEditorWindow.h"
 #include "../third_party/scintilla/include/Scintilla.h"
 #include "PennLanguage.h"
+#include <algorithm>
 #include <bcrypt.h>
 #include <cctype>
 #include <commctrl.h>
@@ -164,6 +165,55 @@ void Sync(Editor *e) {
   if (s != d.source)
     d.Replace(s);
 }
+bool CompletionChar(int c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9') || c == '_' || c == '@' || c == '/';
+}
+void ShowCompletion(Editor *e, bool automatic) {
+  if (e->loading || !e->recoverable || e->docs.empty() ||
+      Sci(e, SCI_GETREADONLY) ||
+      Sci(e, SCI_GETSELECTIONSTART) != Sci(e, SCI_GETSELECTIONEND))
+    return;
+  auto end = Sci(e, SCI_GETCURRENTPOS), begin = end;
+  // Completion examines only the current name, never copies a large draft.
+  std::string prefix;
+  while (begin > 0 && prefix.size() < 128) {
+    auto c = Sci(e, SCI_GETCHARAT, begin - 1);
+    if (!CompletionChar(static_cast<int>(c)))
+      break;
+    prefix += static_cast<char>(c);
+    --begin;
+  }
+  std::reverse(prefix.begin(), prefix.end());
+  if ((begin > 0 &&
+       CompletionChar(static_cast<int>(Sci(e, SCI_GETCHARAT, begin - 1)))) ||
+      (automatic && (prefix.empty() ||
+                     (prefix[0] >= '0' && prefix[0] <= '9') ||
+                     CompletionChar(
+                         static_cast<int>(Sci(e, SCI_GETCHARAT, end)))))) {
+    Sci(e, SCI_AUTOCCANCEL);
+    return;
+  }
+  std::string list;
+  if (e->docs[e->active].lua) {
+    std::istringstream words(
+        "and break do else elseif end false for function if in local nil not "
+        "or repeat return then true until while");
+    std::string name;
+    while (words >> name)
+      if (name.find(prefix) == 0) {
+        if (!list.empty())
+          list += ' ';
+        list += name;
+      }
+  } else
+    list = PennIDE::CompletionCandidates(Catalog, prefix, e->discovered);
+  if (list.empty())
+    Sci(e, SCI_AUTOCCANCEL);
+  else
+    Sci(e, SCI_AUTOCSHOW, end - begin,
+        reinterpret_cast<sptr_t>(list.c_str()));
+}
 void Colors(Editor *e) {
   COLORREF back = e->dark ? RGB(28, 31, 36) : RGB(255, 255, 255),
            fore = e->dark ? RGB(225, 228, 235) : RGB(30, 30, 35);
@@ -222,6 +272,7 @@ void Select(Editor *e, size_t i) {
   if (i >= e->docs.size())
     return;
   Sync(e);
+  Sci(e, SCI_AUTOCCANCEL);
   e->loading = true;
   e->active = i;
   Sci(e, SCI_SETDOCPOINTER, 0, e->docs[i].scintilla);
@@ -750,54 +801,12 @@ void Command(Editor *e, int id) {
     Analyze(e);
     break;
   case Language:
+    Sci(e, SCI_AUTOCCANCEL);
     e->docs[e->active].lua = !e->docs[e->active].lua;
     Analyze(e);
     break;
   case Complete: {
-    if (e->docs[e->active].lua) {
-      const char *keywords =
-          "and break do else elseif end false for function if in local nil not "
-          "or repeat return then true until while";
-      auto source = Text(e);
-      size_t end = Sci(e, SCI_GETCURRENTPOS), begin = end;
-      while (begin &&
-             std::isalpha(static_cast<unsigned char>(source[begin - 1])))
-        --begin;
-      auto prefix = source.substr(begin, end - begin);
-      std::istringstream words(keywords);
-      std::string name, list;
-      while (words >> name)
-        if (name.find(prefix) == 0) {
-          if (!list.empty())
-            list += ' ';
-          list += name;
-        }
-      if (!list.empty())
-        Sci(e, SCI_AUTOCSHOW, end - begin,
-            reinterpret_cast<sptr_t>(list.c_str()));
-      break;
-    }
-    auto s = Text(e);
-    size_t end = Sci(e, SCI_GETCURRENTPOS), begin = end;
-    while (begin && ((s[begin - 1] >= 'a' && s[begin - 1] <= 'z') ||
-                     (s[begin - 1] >= 'A' && s[begin - 1] <= 'Z') ||
-                     (s[begin - 1] >= '0' && s[begin - 1] <= '9') ||
-                     s[begin - 1] == '_' || s[begin - 1] == '@'))
-      --begin;
-    auto list =
-        Catalog.empty()
-            ? PennIDE::Completion(s.substr(begin, end - begin))
-            : PennIDE::CatalogCompletion(Catalog, s.substr(begin, end - begin));
-    auto prefix = s.substr(begin, end - begin);
-    for (const auto &name : e->discovered)
-      if (name.find(prefix) == 0) {
-        if (!list.empty())
-          list += ' ';
-        list += name;
-      }
-    if (!list.empty())
-      Sci(e, SCI_AUTOCSHOW, end - begin,
-          reinterpret_cast<sptr_t>(list.c_str()));
+    ShowCompletion(e, false);
     break;
   }
   case Reference: {
@@ -929,6 +938,11 @@ LRESULT CALLBACK EditorKeys(HWND h, UINT msg, WPARAM w, LPARAM l, UINT_PTR,
   auto e = reinterpret_cast<Editor *>(data);
   if (msg == WM_KEYDOWN) {
     bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    if (w == VK_BACK && !control && Sci(e, SCI_AUTOCACTIVE)) {
+      auto result = DefSubclassProc(h, msg, w, l);
+      ShowCompletion(e, true);
+      return result;
+    }
     if (w == VK_F1) {
       Command(e, Reference);
       return 0;
@@ -1020,6 +1034,10 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     Sci(e, SCI_SETMARGINWIDTHN, 0, 58);
     Sci(e, SCI_SETWRAPMODE, SC_WRAP_NONE);
     Sci(e, SCI_SETINDENT, 2);
+    Sci(e, SCI_AUTOCSETIGNORECASE, TRUE);
+    Sci(e, SCI_AUTOCSETCHOOSESINGLE, FALSE);
+    Sci(e, SCI_AUTOCSETDROPRESTOFWORD, TRUE);
+    Sci(e, SCI_AUTOCSETMAXHEIGHT, 10);
     Sci(e, SCI_INDICSETSTYLE, 0, INDIC_SQUIGGLE);
     Sci(e, SCI_INDICSETFORE, 0, RGB(230, 120, 70));
     Colors(e);
@@ -1047,6 +1065,12 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
       Select(e, TabCtrl_GetCurSel(e->tabs));
     if (n->hwndFrom == e->text) {
       auto sc = reinterpret_cast<SCNotification *>(l);
+      if (sc->nmhdr.code == SCN_CHARADDED) {
+        if (CompletionChar(sc->ch))
+          ShowCompletion(e, true);
+        else
+          Sci(e, SCI_AUTOCCANCEL);
+      }
       if (sc->nmhdr.code == SCN_MODIFIED && !e->loading &&
           (sc->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)))
         SetTimer(h, 1, 180, 0);

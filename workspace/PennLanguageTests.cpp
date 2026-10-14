@@ -12,6 +12,14 @@ int main() {
   assert(help.at("get").signature == "get(<object>/<attribute>)");
   assert(help.at("xget").text == help.at("get").text);
   assert(PennIDE::CatalogCompletion(help, "XG") == "xget");
+  assert(PennIDE::CompletionCandidates(help, "G", {"GET", "get_custom"}) ==
+         "get get_custom");
+  assert(PennIDE::CompletionCandidates(help, "@", {"@set", "bad name"}) ==
+         "@emit @pemit @set");
+  assert(PennIDE::CompletionCandidates({}, "STR") == "strcat");
+  assert(PennIDE::CompletionCandidates(
+             help, "custom", {"CUSTOM", "custom", "custom;bad"}) ==
+         "custom");
   assert(PennIDE::ActiveFunctionName("[xget(#123,", 11) == "xget");
   auto originalCatalogSize = help.size();
   assert(!PennIDE::ParseHelp(std::string("& BAD()\na\0b", 12), help));
@@ -24,6 +32,10 @@ int main() {
   assert(PennIDE::ParseHelp(upstream, help));
   assert(help.size() > 500);
   assert(help.count("regeditall") && help.count("xget"));
+  assert(PennIDE::CompletionCandidates(help, "REGEDIT") ==
+         "regedit regeditall regeditalli regediti");
+  assert(PennIDE::CompletionCandidates(help, "STR").find("strlen") !=
+         std::string::npos);
   auto lua =
       PennIDE::AnalyzeLua("local value = 'hello' -- comment\nreturn value");
   assert(lua.styles[0] == PennIDE::Function);

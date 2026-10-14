@@ -62,8 +62,11 @@ and revision-checked proposed edits. Analysis debounces 180 ms and examines at m
 256 KiB; hints scan at most 8 KiB; source files and proposed edits are bounded to
 4 MiB. Unknown functions are legal, source is never evaluated, and diagnostics
 remain advisory because PennMUSH interpretation depends on command context.
-Pinned local help is indexed at startup with preserved aliases. Ctrl+Space uses
-the full command/function catalog plus explicitly discovered game names; F1
+Pinned local help is indexed at startup with preserved aliases. Typing a name
+opens a completion dropdown from the full command/function catalog, built-in
+fallback and explicitly discovered game names. Matching is case-insensitive;
+arrows select, Tab/Enter accept and Escape dismisses. Backspace broadens the
+candidate list. Ctrl+Space also opens completion on demand. F1
 opens the topic at the caret or its active function in a read-only native viewer.
 Active argument hints use the corresponding upstream signature when present.
 Unknown custom functions remain legal. Help files are bounded to 1 MiB each,

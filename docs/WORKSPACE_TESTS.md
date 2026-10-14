@@ -224,3 +224,48 @@ record, not a screenshot or fresh pixel/decode acceptance run.
 
 Reproduce with `python tests/pueblo_login_probe.py`; TLS fixtures require Python
 `cryptography`. Raw receipts, synthetic worlds and certificates stay in Temp.
+
+## Transcript backgrounds, docking latency and automatic completion
+
+The next Release candidate has SHA256
+`dc4aeecc319dfa62eaeb43a1014ca40fece72594f6edcefb6a5dd59c944f908b`.
+Integrated Release and Debug builds, native transcript correctness, modern
+tab/tool lifecycle and decoded visible-image pixel checks pass.
+
+Transcript records now carry the original world's surface colors, including
+empty paragraphs. The native surface and transparent image matte use that
+background. Paragraph breaks reset accidental formatting/background inheritance
+while retaining explicit colored spans and the configured background bleed.
+The isolated background fixture verifies white, dark and custom surfaces,
+blank/trailing/unused viewport pixels, replay, colored spans and intentional
+bleed. All sampled 4-by-4 pixel patches matched their expected colors.
+
+Resizing no longer reconstructs every retained paragraph merely because the
+pane contains images. It replaces the ready image records for the changed
+effective width, preserving text, links and view state. A native fixture with
+1,800 styled records and eight decoded images exercises 24 genuine resize,
+dock/undock and group transitions. Median operation time changed from 1,971 ms
+to 129 ms; the maximum changed from 7,250 ms to 527 ms. Exact text, record
+boundaries, link/action dispatch, formatting, selection, scroll anchor, HWND,
+OLE count and image dimensions remain correct. Builds ran concurrently, so
+these timings are evidence from this host, not a guarantee for every machine
+or a physical mouse-drag acceptance result.
+
+A separate 120-second actual-client regression at 80 offered lines/second and
+two routed panes completed all 1,192 batches (8,620 offered lines), with no
+backpressure. Output p95 was 13.35 ms and maximum 361.19 ms; scripted command/
+echo p95 was 7.18 ms and maximum 63.58 ms. Nineteen images were confirmed ready,
+none failed, and eleven left scrollback before readiness was recorded. This is
+a short responsiveness regression; the prior longer test retains its own binary
+identity, and physical typing/daily-use acceptance remains separate.
+
+Automatic editor completion uses the local command/function catalog and
+explicitly discovered names. Native Scintilla tests type real characters and
+verify four `regedit` alternatives, arrows/Tab/Enter acceptance, Escape,
+backspace, command/Lua/custom candidates and read-only protection. A visual
+fixture confirms the dropdown. Per-keystroke name scanning is capped at 128
+bytes; completion does not copy an entire large draft.
+
+Reproduce the new transcript fixtures with `run_background_probe.ps1` and
+`run_docking_latency_probe.ps1` in `tests/workspace`. Their fixtures use synthetic
+output and independently built native windows, not personal profiles or games.
