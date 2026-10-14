@@ -11,6 +11,7 @@
 #include "mainfrm.h"
 
 #include "doc.h"
+#include "WorkspaceIntegration.h"
 
 #include <stddef.h>
 
@@ -234,6 +235,7 @@ CString str;
   else
     Frame.SetStatusMessage (str);
   m_pDoc->m_iConnectPhase = eConnectNotConnected;
+  WorkspaceExpireConnection(m_pDoc);
 
   m_pDoc->UpdateAllViews  (NULL);     // force window title to be redrawn
 

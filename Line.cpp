@@ -32,6 +32,8 @@ CLine::CLine (const long nLineNumber,
               const bool bUnicode
               )
   {
+  static __declspec(align(8)) volatile LONGLONG workspaceLineSerial=0;
+  m_workspaceCookie=static_cast<unsigned __int64>(InterlockedIncrement64(&workspaceLineSerial));
   hard_return = false;
   len = 0;
   m_imageWidth = 0;

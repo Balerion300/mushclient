@@ -152,7 +152,34 @@ existing copied settings. Install preview separately, preserving working clients
 Attach a new draft fork PR for modernization, separate from inline-image PR.
 No merge into the fork's default branch or upstream submission is implied.
 
-## Current status
+## Current status - October 14, 2026
 
-Plan created. Initial implementation agents are being assigned to C1, C2 and C3.
-No modernization build has yet passed; the baseline build is the existing preview.
+The three-agent rotation has delivered a compiling integrated Windows preview.
+The orchestrator owns receive/lifecycle integration, builds, packaging and review.
+The fork default branch and installed clients have not been replaced.
+
+| Checkpoint | Delivered | Remaining acceptance/refinement |
+|---|---|---|
+| C0 | Baseline retained; Release/Debug builds and reproducible build script | Final candidate receipts collected in WORKSPACE_TESTS.md |
+| C1 | Native classic-MFC dock/float hosts, styled Unicode/static-image transcripts, separate panes | Physical dragging and mixed-DPI daily use |
+| C2 | Scintilla IDE, pinned full help, completion/F1/hints, Lua, tabs/search/undo/font | Diagnostics remain advisory; no server evaluation |
+| C3 | Explicit per-agent/window grants, bounded stores, loopback authentication, UI-thread dispatch; actual-client grant/editor flow verified | Daily-use acceptance |
+| C4 | Route create/edit/delete, copy/hide, split, saved prefix/layout, unread counts, focus shortcuts; actual native restart placement verified | Optional mention/ordering/rebinding refinements |
+| C5 | Explicit correlated attribute/function reads, human reviewed sends, source recovery/preferences | Existing Notepad APIs retained; optional IDE adapter remains a later checkpoint |
+| C6 | Native conversation/review/capture/task UI and independent 22-tool stdio companion; actual native editor proposals and human acceptance verified | Final package startup |
+| C7 | Supervised scene director, private NPC assignment, unsent proposals, stale/turn binding, optional runner | Real model configuration/quality and game-specific rehearsal |
+| C8 | Component/native resource tests and complete portable packaging pipeline | Final candidate regressions, full ZIP and separate draft fork PR |
+
+Implemented privacy fixes include original-line identities across deletion,
+canonical history trimming/clear, no capture replay on projection, late trigger
+omission decisions, reentrant note ordering, scene binding through every draft
+review path, and disconnect/revoke/shutdown expiration. Agent history is bounded
+to 2 MiB per pane and 16 MiB total including estimated line overhead. The agent
+bridge offers no game-send tool; editor/scene transmissions require human review.
+
+This preview is a Windows milestone. Later refinements include mention rules,
+arbitrary shortcut rebinding, transcript priority ordering, explicit association
+of a channel match with following image records, and an opt-in Notepad adapter.
+They do not block testing the requested primary editor, docking and agent flows.
+Do not mark the preview release-ready until its final acceptance evidence and
+real-device/daily-use limitations have been reviewed. See WORKSPACE_TESTS.md.

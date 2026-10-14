@@ -230,6 +230,7 @@ void CChildFrame::OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, HMENU hM
     return;
 
   CMDIChildWnd::OnUpdateFrameMenu (bActivate, pActivateWnd, hMenuAlt);
+  Frame.EnsureWorkspaceMenu();
 
   }
 

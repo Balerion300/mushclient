@@ -10,6 +10,7 @@
 #include "doc.h"
 #include "MUSHview.h"
 #include "mainfrm.h"
+#include "WorkspaceIntegration.h"
 #include "childfrm.h"
 #include "sendvw.h"
 #include "TextView.h"
@@ -4562,6 +4563,7 @@ long CMUSHclientDoc::GetLastLine (void)
   if (m_DisplayFindInfo.m_nCurrentLine < 0)
     m_DisplayFindInfo.m_nCurrentLine = 0;
 
+  WorkspaceRebuildOutput(this);
    }  // end of CMUSHclientDoc::RemoveChunk
 
 
@@ -4922,6 +4924,7 @@ BOOL bEnable = TRUE;
 
 void CMUSHclientDoc::ClearOutput (void)
   {
+  WorkspaceClearOutput(this);
 
   if (m_pLinePositions == NULL)
     return;

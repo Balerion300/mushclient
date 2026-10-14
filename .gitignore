@@ -89,3 +89,13 @@ __pycache__/
 *.pch
 *.log
 *.results.txt
+
+# Native workspace test output and vendor build products
+workspace/test-build/
+third_party/scintilla/bin/
+third_party/scintilla/win32/obj/
+*.pdb
+*.ilk
+*.lib
+*.exp
+tests/workspace/probe-build.rsp

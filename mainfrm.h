@@ -7,6 +7,7 @@
 #include "MDIClientWnd.h"
 #include "MyStatusBar.h"
 #include "MDITabs.h"
+#include "WorkspacePane.h"
 
 class CMUSHclientDoc;
 
@@ -95,6 +96,21 @@ public:
 
    void CheckTimerFallback (void);
    void ProcessTimers (void);
+   bool OpenWorkspaceTranscript(const CString& connectionId, const CString& name);
+   bool AppendWorkspaceRecord(const CString& name, const WorkspaceRecord& record);
+   void CloseWorkspaceConnection(const CString& connectionId);
+   void ClearWorkspaceTranscript(const CString& connectionId,const CString& name);
+   bool HostWorkspaceTool(HWND toolWindow, const CString& title);
+   bool AddWorkspaceRoute(const WorkspaceRoute& route, CString& error);
+   bool ReplaceWorkspaceRoute(const WorkspaceRoute& original,const WorkspaceRoute& replacement,CString& error);
+   bool RemoveWorkspaceRoute(const WorkspaceRoute& route);
+   bool SetWorkspaceInputPrefix(const CString& connectionId,const CString& name,const std::wstring& prefix);
+   std::wstring WorkspaceInputPrefix(const CString& connectionId,const CString& name) const;
+   bool FocusWorkspaceTranscript(size_t index);
+   bool RouteWorkspaceRecord(const WorkspaceRecord& record);
+   void SaveWorkspaceLayouts();
+   void RestoreWorkspaceRoutes(const CString& connectionId);
+   const std::vector<WorkspaceRoute>& WorkspaceRoutes() const { return m_workspaceRoutes; }
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -129,6 +145,21 @@ public:
   CHARFORMAT  m_defaultInfoBarFormat;
 
   COLORREF    m_backgroundColour;  // MDI frame background colour, 0xFFFFFFFF for the default
+
+  CWorkspacePane m_workspacePane;
+  std::vector<CWorkspacePane*> m_workspaceSplits;
+  std::vector<CWorkspacePane*> m_workspaceTools;
+  std::vector<WorkspaceRoute> m_workspaceRoutes;
+  std::set<CString> m_workspaceRestored;
+  std::set<CString> m_workspaceClosedConnections;
+  afx_msg void OnWorkspaceTranscript();
+  afx_msg void OnWorkspaceFloatTranscript();
+  afx_msg void OnWorkspaceTool(UINT id);
+  afx_msg void OnWorkspaceAgentReview();
+  afx_msg void OnWorkspaceRoute();
+  afx_msg void OnWorkspaceFocus(UINT id);
+  afx_msg void OnUpdateWorkspaceFocus(CCmdUI* command);
+  void EnsureWorkspaceMenu();
 
 protected:  // control bar embedded members
 

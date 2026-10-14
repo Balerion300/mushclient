@@ -341,6 +341,7 @@ class CLine : public CObject
   LARGE_INTEGER m_lineHighPerformanceTime;  
   int iMemoryAllocated; // size of buffer allocated for "text"
 
+  unsigned __int64 m_workspaceCookie; // Immutable object identity across clear/delete and number reuse.
   long m_nLineNumber;
   short m_iPreambleOffset;  // how far in the preamble took us
 

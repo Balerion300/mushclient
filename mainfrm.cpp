@@ -6,6 +6,8 @@
 
 #include "doc.h"
 #include "mainfrm.h"
+#include "WorkspaceIntegration.h"
+#include "WorkspaceTools.h"
 #include "MUSHview.h"
 #include "sendvw.h"
 
@@ -275,6 +277,13 @@ void CMyToolBar::DrawGripper(CDC* pDC, const CRect& rect)
 IMPLEMENT_DYNAMIC(CMainFrame, CMDIFrameWnd)
 
 BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWnd)
+  ON_COMMAND(ID_WORKSPACE_TRANSCRIPT, OnWorkspaceTranscript)
+  ON_COMMAND(59005, OnWorkspaceFloatTranscript)
+  ON_COMMAND(59006, OnWorkspaceRoute)
+  ON_COMMAND(59007, OnWorkspaceAgentReview)
+  ON_COMMAND_RANGE(59010,59018,OnWorkspaceFocus)
+  ON_UPDATE_COMMAND_UI_RANGE(59010,59018,OnUpdateWorkspaceFocus)
+  ON_COMMAND_RANGE(59001, 59004, OnWorkspaceTool)
 	ON_WM_CONTEXTMENU()
 	//{{AFX_MSG_MAP(CMainFrame)
 	ON_WM_CREATE()
@@ -421,6 +430,8 @@ m_niData.cbSize = sizeof(NOTIFYICONDATA);
 
 CMainFrame::~CMainFrame()
 {
+  for (size_t i=0;i<m_workspaceSplits.size();++i) delete m_workspaceSplits[i];
+  for (size_t i=0;i<m_workspaceTools.size();++i) delete m_workspaceTools[i];
 }
 
 int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
@@ -550,6 +561,15 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
     }
 
 
+  if (!m_workspacePane.Create(this)) return -1;
+  m_workspacePane.InstallDockContext(new CToolbarDockContext(&m_workspacePane));
+  m_workspacePane.EnableDocking(CBRS_ALIGN_ANY);
+  m_workspacePane.SetActionHandler(ActivateWorkspaceAction);
+  m_workspacePane.SetInputHandler(WorkspaceReviewInput);
+  m_workspacePane.SetPruneHandler(WorkspacePanePruned);
+  DockControlBar(&m_workspacePane, AFX_IDW_DOCKBAR_RIGHT);
+  ShowControlBar(&m_workspacePane, FALSE, FALSE);
+
   // set timer for activity window updates, and world timers
 
   if (App.m_nTimerInterval > 0)
@@ -586,6 +606,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
     timeLastTickFired  = CTime::GetCurrentTime();
     }
 
+  EnsureWorkspaceMenu();
 	return 0;
 }  // CMainFrame::OnCreate
 
@@ -676,6 +697,7 @@ void CMainFrame::OnClose()
   // close any outstanding MCI devices
   mciSendCommand(MCI_ALL_DEVICE_ID, MCI_CLOSE, MCI_WAIT, NULL);
 
+  SaveWorkspaceLayouts();
   SaveBarState(szCtrlBars);
 
    // put window back where it was if necessary
@@ -864,6 +886,7 @@ void CMainFrame::OnDestroy()
   if (m_ticktimer)
       KillTimer (m_ticktimer);
 
+  ShutdownWorkspaceTools();
   CMDIFrameWnd::OnDestroy();
 	
   if (m_niData.uID)
@@ -1097,6 +1120,10 @@ void CMainFrame::FixUpTitleBar (void)
 
 BOOL CMainFrame::PreTranslateMessage(MSG* pMsg) 
 {
+  if(pMsg->message==WM_KEYDOWN && pMsg->wParam>=VK_F1 && pMsg->wParam<=VK_F9 &&
+     (GetKeyState(VK_CONTROL)&0x8000) && (GetKeyState(VK_SHIFT)&0x8000) && !(GetKeyState(VK_MENU)&0x8000))
+    { if(FocusWorkspaceTranscript((size_t)(pMsg->wParam-VK_F1)))return TRUE; }
+
 
 // ******************* DOMAIN NAME resolution ********************
 
@@ -1858,6 +1885,7 @@ void CMainFrame::OnUpdateFrameMenu(HMENU hMenuAlt)
     return;
 
   CMDIFrameWnd::OnUpdateFrameMenu (hMenuAlt);
+  EnsureWorkspaceMenu();
 
   }  // end of CMainFrame::OnUpdateFrameMenu
 
@@ -2179,6 +2207,7 @@ void CMainFrame::AddTrayIcon (void)
 
 LRESULT CMainFrame::WindowProc(UINT message, WPARAM wParam, LPARAM lParam) 
 {
+  if(message==WM_INITMENU)EnsureWorkspaceMenu();
 
  if (message == WM_USER_TRAY_ICON_MESSAGE)
    {
@@ -2530,3 +2559,486 @@ void CMainFrame::CheckTimerFallback ()
 
   } // end of CMainFrame::CheckTimerFallback
 
+
+
+void CMainFrame::EnsureWorkspaceMenu()
+{
+  CMenu* menu=GetMenu();
+  if (!menu || menu->GetMenuState(ID_WORKSPACE_TRANSCRIPT, MF_BYCOMMAND)!=(UINT)-1) return;
+  CMenu* workspace=new CMenu;
+  workspace->CreatePopupMenu();
+  workspace->AppendMenu(MF_STRING, ID_WORKSPACE_TRANSCRIPT, "Open &transcript for active world");
+  workspace->AppendMenu(MF_STRING, 59006, "Manage named output &routes...");
+  workspace->AppendMenu(MF_STRING, 59007, "Agent review and debug &captures...");
+  workspace->AppendMenu(MF_STRING, 59005, "&Float selected transcript separately");
+  workspace->AppendMenu(MF_STRING, 59001, "PennMUSH code &editor...");
+  workspace->AppendMenu(MF_STRING, 59002, "Agent &access...");
+  workspace->AppendMenu(MF_STRING, 59003, "Agent &conversations...");
+  workspace->AppendMenu(MF_STRING, 59004, "Scene &director...");
+  CMenu shortcuts;shortcuts.CreatePopupMenu();
+  for(UINT index=0;index<9;++index) {CString label;label.Format("Pane %u\tCtrl+Shift+F%u",index+1,index+1);shortcuts.AppendMenu(MF_STRING,59010+index,label);}
+  workspace->AppendMenu(MF_POPUP,(UINT_PTR)shortcuts.Detach(),"Pane shortcuts");
+  menu->AppendMenu(MF_POPUP, (UINT_PTR)workspace->Detach(), "&Workspace");
+  delete workspace;
+  DrawMenuBar();
+}
+
+namespace {
+CString WorkspacePersistentWorld(const CString& identity)
+{
+  int runtime=identity.Find(":runtime:");return runtime>=0?identity.Left(runtime):identity;
+}
+bool WorkspaceLayoutSchema()
+{
+  if(!App.db) return false;
+  return sqlite3_exec(App.db,
+    "CREATE TABLE IF NOT EXISTS workspace_pane_layout_v1 (world_id TEXT NOT NULL,name TEXT NOT NULL,detached INTEGER,floating INTEGER,alignment INTEGER,x INTEGER,y INTEGER,width INTEGER,height INTEGER,PRIMARY KEY(world_id,name));"
+    "CREATE TABLE IF NOT EXISTS workspace_input_prefix_v1 (world_id TEXT NOT NULL,name TEXT NOT NULL,prefix TEXT NOT NULL,PRIMARY KEY(world_id,name));"
+    "CREATE TABLE IF NOT EXISTS workspace_route_v1 (world_id TEXT NOT NULL,name TEXT NOT NULL,pattern TEXT NOT NULL,regex INTEGER,omit_main INTEGER,PRIMARY KEY(world_id,name,pattern,regex));",
+    NULL,NULL,NULL)==SQLITE_OK;
+}
+std::string WorkspaceLayoutUtf8(const std::wstring& value)
+{
+  if(value.empty()) return std::string();
+  int bytes=WideCharToMultiByte(CP_UTF8,0,value.data(),(int)value.size(),NULL,0,NULL,NULL);
+  std::string result(bytes,'\0');if(bytes)WideCharToMultiByte(CP_UTF8,0,value.data(),(int)value.size(),&result[0],bytes,NULL,NULL);return result;
+}
+std::wstring WorkspaceLayoutWide(const char* value)
+{
+  if(!value) return std::wstring();
+  int bytes=(int)strlen(value);int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,value,bytes,NULL,0);
+  std::wstring result(count,L'\0');if(count)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,value,bytes,&result[0],count);return result;
+}
+bool WorkspaceReadLayout(const CString& identity,const CString& name,WorkspacePaneLayout& layout)
+{
+  if(!WorkspaceLayoutSchema())return false;
+  sqlite3_stmt* query=NULL;
+  if(sqlite3_prepare_v2(App.db,"SELECT detached,floating,alignment,x,y,width,height FROM workspace_pane_layout_v1 WHERE world_id=? AND name=?",-1,&query,NULL)!=SQLITE_OK)return false;
+  const CString world=WorkspacePersistentWorld(identity);
+  sqlite3_bind_text(query,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(query,2,name,-1,SQLITE_TRANSIENT);
+  bool found=sqlite3_step(query)==SQLITE_ROW;
+  if(found)
+    { layout.connectionId=identity;layout.name=name;layout.detached=sqlite3_column_int(query,0)!=0;
+      layout.floating=sqlite3_column_int(query,1)!=0;layout.alignment=sqlite3_column_int(query,2);
+      layout.x=sqlite3_column_int(query,3);layout.y=sqlite3_column_int(query,4);
+      layout.width=max(220,min(1500,sqlite3_column_int(query,5)));layout.height=max(140,min(1000,sqlite3_column_int(query,6))); }
+  sqlite3_finalize(query);return found;
+}
+void WorkspacePositionPane(CMainFrame& frame,CWorkspacePane& pane,const WorkspacePaneLayout& layout)
+{
+  WorkspacePaneLayout safe=layout;
+  pane.ApplyLayout(safe);
+  if(layout.floating)
+    {
+    RECT proposed={layout.x,layout.y,layout.x+layout.width,layout.y+layout.height};
+    HMONITOR monitor=MonitorFromRect(&proposed,MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info={sizeof(info)};
+    CPoint point(layout.x,layout.y);
+    if(GetMonitorInfo(monitor,&info))
+      {safe.width=max(220,min(safe.width,info.rcWork.right-info.rcWork.left-32));
+       safe.height=max(140,min(safe.height,info.rcWork.bottom-info.rcWork.top-48));pane.ApplyLayout(safe);
+       point.x=max(info.rcWork.left,min(point.x,info.rcWork.right-safe.width-32));
+       point.y=max(info.rcWork.top,min(point.y,info.rcWork.bottom-safe.height-48));}
+    frame.FloatControlBar(&pane,point,CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);
+    }
+  else
+    {
+    UINT dock=AFX_IDW_DOCKBAR_RIGHT;
+    if(layout.alignment==CBRS_ALIGN_LEFT)dock=AFX_IDW_DOCKBAR_LEFT;
+    else if(layout.alignment==CBRS_ALIGN_TOP)dock=AFX_IDW_DOCKBAR_TOP;
+    else if(layout.alignment==CBRS_ALIGN_BOTTOM)dock=AFX_IDW_DOCKBAR_BOTTOM;
+    frame.DockControlBar(&pane,dock);
+    }
+}
+}
+
+bool CMainFrame::OpenWorkspaceTranscript(const CString& connectionId, const CString& name)
+{
+  if(m_workspaceClosedConnections.find(connectionId)!=m_workspaceClosedConnections.end())return false;
+  RestoreWorkspaceRoutes(connectionId);
+  CWorkspacePane* target=&m_workspacePane;
+  if(target->HasTranscript(connectionId,name))
+    { target->OpenTranscript(connectionId,name);ShowControlBar(target,TRUE,FALSE);return true; }
+  for(size_t i=0;i<m_workspaceSplits.size();++i)
+    if(m_workspaceSplits[i]->HasTranscript(connectionId,name))
+      { m_workspaceSplits[i]->OpenTranscript(connectionId,name);ShowControlBar(m_workspaceSplits[i],TRUE,FALSE);return true; }
+  WorkspacePaneLayout layout;
+  const bool restore=WorkspaceReadLayout(connectionId,name,layout);
+  if(restore && layout.detached)
+    {
+    for(size_t i=0;i<m_workspaceSplits.size();++i)
+      if(m_workspaceSplits[i]->IsEmpty()) { target=m_workspaceSplits[i];break; }
+    if(target==&m_workspacePane && m_workspaceSplits.size()<8)
+      { CWorkspacePane* extra=new CWorkspacePane;
+        if(extra->Create(this,(UINT)(ID_WORKSPACE_BAR+1+m_workspaceSplits.size())))
+          { extra->InstallDockContext(new CToolbarDockContext(extra));extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceReviewInput);extra->SetPruneHandler(WorkspacePanePruned);
+            m_workspaceSplits.push_back(extra);target=extra; }
+        else delete extra; }
+    }
+  if (!target->OpenTranscript(connectionId,name)) return false;
+  if(WorkspaceLayoutSchema())
+    {sqlite3_stmt* query=NULL;
+     if(sqlite3_prepare_v2(App.db,"SELECT prefix FROM workspace_input_prefix_v1 WHERE world_id=? AND name=?",-1,&query,NULL)==SQLITE_OK)
+       {const CString world=WorkspacePersistentWorld(connectionId);sqlite3_bind_text(query,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(query,2,name,-1,SQLITE_TRANSIENT);
+        if(sqlite3_step(query)==SQLITE_ROW)target->SetInputPrefix(connectionId,name,WorkspaceLayoutWide((const char*)sqlite3_column_text(query,0)));
+        sqlite3_finalize(query);}}
+  if(restore) WorkspacePositionPane(*this,*target,layout);
+  ShowControlBar(target, TRUE, FALSE);
+  RecalcLayout();
+  return true;
+}
+bool CMainFrame::AppendWorkspaceRecord(const CString& name, const WorkspaceRecord& record)
+{
+  bool appended=m_workspacePane.AppendRecord(name,record);
+  for(size_t i=0;i<m_workspaceSplits.size();++i)
+    appended=m_workspaceSplits[i]->AppendRecord(name,record)||appended;
+  return appended;
+}
+void CMainFrame::CloseWorkspaceConnection(const CString& connectionId)
+{
+  SaveWorkspaceLayouts();
+  m_workspaceClosedConnections.insert(connectionId);
+  m_workspaceRestored.erase(connectionId);
+  for(size_t i=m_workspaceRoutes.size();i>0;--i)
+    if(m_workspaceRoutes[i-1].connectionId==connectionId) m_workspaceRoutes.erase(m_workspaceRoutes.begin()+i-1);
+  m_workspacePane.CloseConnection(connectionId);
+  for(size_t i=0;i<m_workspaceSplits.size();++i)
+    { m_workspaceSplits[i]->CloseConnection(connectionId);
+      if(m_workspaceSplits[i]->IsEmpty()) ShowControlBar(m_workspaceSplits[i],FALSE,FALSE); }
+}
+void CMainFrame::OnWorkspaceTranscript()
+{
+  CMDIChildWnd* child=MDIGetActive();
+  CMUSHclientDoc* doc=child?DYNAMIC_DOWNCAST(CMUSHclientDoc,child->GetActiveDocument()):NULL;
+  if (!doc) { AfxMessageBox("Open a world before creating its transcript."); return; }
+  const CString identity=WorkspaceConnectionId(doc);
+  bool existed=m_workspacePane.HasTranscript(identity,"Output");
+  for(size_t i=0;i<m_workspaceSplits.size();++i)existed=m_workspaceSplits[i]->HasTranscript(identity,"Output")||existed;
+  if(OpenWorkspaceTranscript(identity,"Output") && !existed)WorkspaceRebuildOutput(doc);
+}
+
+void CMainFrame::OnWorkspaceTool(UINT id)
+{
+  OpenWorkspaceTool(*this,id);
+}
+
+void CMainFrame::OnWorkspaceFloatTranscript()
+{
+  if (m_workspacePane.IsEmpty()) return;
+  CWorkspacePane* split=NULL;
+  for(size_t i=0;i<m_workspaceSplits.size();++i)
+    if(m_workspaceSplits[i]->IsEmpty()) { split=m_workspaceSplits[i]; break; }
+  if (!split)
+    {
+    if (m_workspaceSplits.size()>=8) { AfxMessageBox("Close a transcript before creating another separate pane."); return; }
+    split=new CWorkspacePane;
+    if (!split->Create(this,(UINT)(ID_WORKSPACE_BAR+1+m_workspaceSplits.size()))) { delete split; return; }
+    split->InstallDockContext(new CToolbarDockContext(split));
+    split->EnableDocking(CBRS_ALIGN_ANY); split->SetActionHandler(ActivateWorkspaceAction);
+    split->SetInputHandler(WorkspaceReviewInput);
+    split->SetPruneHandler(WorkspacePanePruned);
+    m_workspaceSplits.push_back(split);
+    }
+  if (!m_workspacePane.MoveSelectedTo(*split)) return;
+  CRect frame; GetWindowRect(frame);
+  FloatControlBar(split,frame.TopLeft()+CPoint(80,120),CBRS_ALIGN_TOP|CBRS_SIZE_DYNAMIC);
+  ShowControlBar(split,TRUE,FALSE);
+  if(m_workspacePane.IsEmpty()) ShowControlBar(&m_workspacePane,FALSE,FALSE);
+  RecalcLayout();
+}
+
+bool CMainFrame::HostWorkspaceTool(HWND toolWindow,const CString& title)
+{
+  if (!::IsWindow(toolWindow) || m_workspaceTools.size()>=32) return false;
+  for(size_t i=0;i<m_workspaceTools.size();++i)
+    if(::GetParent(toolWindow)==m_workspaceTools[i]->m_hWnd)
+      { ShowControlBar(m_workspaceTools[i],TRUE,FALSE); return true; }
+  CWorkspacePane* host=new CWorkspacePane;
+  if(!host->Create(this,(UINT)(0xE830+m_workspaceTools.size()))) { delete host; return false; }
+  host->InstallDockContext(new CToolbarDockContext(host));
+  host->EnableDocking(CBRS_ALIGN_ANY);
+  if(!host->HostTool(toolWindow,title)) { host->DestroyWindow();delete host;return false; }
+  m_workspaceTools.push_back(host);
+  DockControlBar(host,AFX_IDW_DOCKBAR_RIGHT); ShowControlBar(host,TRUE,FALSE); RecalcLayout();
+  return true;
+}
+
+bool CMainFrame::AddWorkspaceRoute(const WorkspaceRoute& source,CString& error)
+{
+  bool alreadyExists=false;
+  for(size_t i=0;i<m_workspaceRoutes.size();++i)
+    if(m_workspaceRoutes[i].connectionId==source.connectionId && m_workspaceRoutes[i].transcriptName==source.transcriptName &&
+       m_workspaceRoutes[i].pattern==source.pattern && m_workspaceRoutes[i].regex==source.regex)alreadyExists=true;
+  if(m_workspaceRoutes.size()>=64 && !alreadyExists) { error="Maximum of 64 workspace routes reached.";return false; }
+  WorkspaceRoute route=source;
+  if(!route.Compile(error)) return false;
+  if(!OpenWorkspaceTranscript(route.connectionId,route.transcriptName))
+    { error="Unable to create the transcript pane.";return false; }
+  bool replaced=false;
+  for(size_t i=0;i<m_workspaceRoutes.size();++i)
+    if(m_workspaceRoutes[i].connectionId==route.connectionId && m_workspaceRoutes[i].transcriptName==route.transcriptName &&
+       m_workspaceRoutes[i].pattern==route.pattern && m_workspaceRoutes[i].regex==route.regex)
+      { m_workspaceRoutes[i]=route;replaced=true;break; }
+  if(!replaced)m_workspaceRoutes.push_back(route);
+  if(WorkspaceLayoutSchema())
+    {
+    sqlite3_stmt* write=NULL;
+    if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_route_v1(world_id,name,pattern,regex,omit_main) VALUES(?,?,?,?,?)",-1,&write,NULL)==SQLITE_OK)
+      { const CString world=WorkspacePersistentWorld(route.connectionId);const std::string pattern=WorkspaceLayoutUtf8(route.pattern);
+        sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,route.transcriptName,-1,SQLITE_TRANSIENT);
+        sqlite3_bind_text(write,3,pattern.c_str(),(int)pattern.size(),SQLITE_TRANSIENT);
+        sqlite3_bind_int(write,4,route.regex);sqlite3_bind_int(write,5,route.omitFromMain);sqlite3_step(write);sqlite3_finalize(write); }
+    }
+  return true;
+}
+bool CMainFrame::RouteWorkspaceRecord(const WorkspaceRecord& record)
+{
+  bool omit=false;
+  std::set<CString> delivered;
+  for(size_t i=0;i<m_workspaceRoutes.size();++i)
+    {
+    const WorkspaceRoute& route=m_workspaceRoutes[i];
+    if(!route.Matches(record)) continue;
+    bool accepted=delivered.find(route.transcriptName)!=delivered.end();
+    if(!accepted)
+      { accepted=AppendWorkspaceRecord(route.transcriptName,record);
+        if(accepted)WorkspacePublishToPane(record.connectionId,route.transcriptName,record); }
+    if(accepted) { delivered.insert(route.transcriptName);omit=omit||route.omitFromMain; }
+    }
+  return omit;
+}
+
+void CMainFrame::SaveWorkspaceLayouts()
+{
+  if(!WorkspaceLayoutSchema()) return;
+  std::vector<WorkspacePaneLayout> layouts;m_workspacePane.GetLayouts(layouts,false);
+  for(size_t i=0;i<m_workspaceSplits.size();++i)m_workspaceSplits[i]->GetLayouts(layouts,true);
+  sqlite3_stmt* write=NULL;
+  if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_pane_layout_v1(world_id,name,detached,floating,alignment,x,y,width,height) VALUES(?,?,?,?,?,?,?,?,?)",-1,&write,NULL)!=SQLITE_OK)return;
+  for(size_t i=0;i<layouts.size();++i)
+    {
+    const WorkspacePaneLayout& layout=layouts[i];const CString world=WorkspacePersistentWorld(layout.connectionId);
+    sqlite3_reset(write);sqlite3_clear_bindings(write);sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,layout.name,-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int(write,3,layout.detached);sqlite3_bind_int(write,4,layout.floating);sqlite3_bind_int(write,5,layout.alignment);
+    sqlite3_bind_int(write,6,layout.x);sqlite3_bind_int(write,7,layout.y);sqlite3_bind_int(write,8,layout.width);sqlite3_bind_int(write,9,layout.height);sqlite3_step(write);
+    }
+  sqlite3_finalize(write);
+}
+void CMainFrame::RestoreWorkspaceRoutes(const CString& identity)
+{
+  if(!m_workspaceRestored.insert(identity).second || !WorkspaceLayoutSchema()) return;
+  sqlite3_stmt* query=NULL;
+  if(sqlite3_prepare_v2(App.db,"SELECT name,pattern,regex,omit_main FROM workspace_route_v1 WHERE world_id=? LIMIT 64",-1,&query,NULL)!=SQLITE_OK)return;
+  const CString world=WorkspacePersistentWorld(identity);sqlite3_bind_text(query,1,world,-1,SQLITE_TRANSIENT);
+  std::vector<WorkspaceRoute> pending;
+  while(sqlite3_step(query)==SQLITE_ROW)
+    { WorkspaceRoute route;route.connectionId=identity;route.transcriptName=(const char*)sqlite3_column_text(query,0);
+      route.pattern=WorkspaceLayoutWide((const char*)sqlite3_column_text(query,1));route.regex=sqlite3_column_int(query,2)!=0;
+      route.omitFromMain=sqlite3_column_int(query,3)!=0;pending.push_back(route); }
+  sqlite3_finalize(query);
+  for(size_t i=0;i<pending.size();++i) { CString error;AddWorkspaceRoute(pending[i],error); }
+}
+
+void CMainFrame::ClearWorkspaceTranscript(const CString& id,const CString& name)
+{
+  m_workspacePane.ClearTranscript(id,name);
+  for(size_t i=0;i<m_workspaceSplits.size();++i)m_workspaceSplits[i]->ClearTranscript(id,name);
+}
+
+void CMainFrame::OnWorkspaceAgentReview()
+{
+  OpenWorkspaceTool(*this,59007);
+}
+
+bool CMainFrame::RemoveWorkspaceRoute(const WorkspaceRoute& route)
+{
+  bool removed=false;
+  if(WorkspaceLayoutSchema())
+    {sqlite3_stmt* write=NULL;
+     if(sqlite3_prepare_v2(App.db,"DELETE FROM workspace_route_v1 WHERE world_id=? AND name=? AND pattern=? AND regex=?",-1,&write,NULL)!=SQLITE_OK)return false;
+     const CString world=WorkspacePersistentWorld(route.connectionId);const std::string pattern=WorkspaceLayoutUtf8(route.pattern);
+     sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,route.transcriptName,-1,SQLITE_TRANSIENT);
+     sqlite3_bind_text(write,3,pattern.c_str(),(int)pattern.size(),SQLITE_TRANSIENT);sqlite3_bind_int(write,4,route.regex);
+     const int status=sqlite3_step(write);removed=sqlite3_changes(App.db)>0;sqlite3_finalize(write);if(status!=SQLITE_DONE)return false;}
+  for(size_t i=m_workspaceRoutes.size();i>0;--i)
+    if(m_workspaceRoutes[i-1].connectionId==route.connectionId && m_workspaceRoutes[i-1].transcriptName==route.transcriptName &&
+       m_workspaceRoutes[i-1].pattern==route.pattern && m_workspaceRoutes[i-1].regex==route.regex)
+      {m_workspaceRoutes.erase(m_workspaceRoutes.begin()+i-1);removed=true;}
+  return removed;
+}
+bool CMainFrame::ReplaceWorkspaceRoute(const WorkspaceRoute& original,const WorkspaceRoute& replacement,CString& error)
+{
+  if(original.connectionId!=replacement.connectionId) {error="The route belongs to another connection.";return false;}
+  if(original.transcriptName==replacement.transcriptName && original.pattern==replacement.pattern && original.regex==replacement.regex)
+    return AddWorkspaceRoute(replacement,error);
+  WorkspaceRoute checked=replacement;if(!checked.Compile(error))return false;
+  size_t existing=m_workspaceRoutes.size();
+  for(size_t i=0;i<m_workspaceRoutes.size();++i)
+    if(m_workspaceRoutes[i].connectionId==original.connectionId && m_workspaceRoutes[i].transcriptName==original.transcriptName &&
+       m_workspaceRoutes[i].pattern==original.pattern && m_workspaceRoutes[i].regex==original.regex){existing=i;break;}
+  if(existing==m_workspaceRoutes.size()){error="That route has already been removed.";return false;}
+  m_workspaceRoutes.erase(m_workspaceRoutes.begin()+existing);
+  if(!AddWorkspaceRoute(checked,error)){m_workspaceRoutes.insert(m_workspaceRoutes.begin()+existing,original);return false;}
+  if(!RemoveWorkspaceRoute(original)){error="The replacement was created, but the old saved rule could not be removed.";return false;}
+  return true;
+}
+bool CMainFrame::SetWorkspaceInputPrefix(const CString& id,const CString& name,const std::wstring& prefix)
+{
+  if(prefix.size()>1024)return false;
+  bool found=m_workspacePane.SetInputPrefix(id,name,prefix);
+  for(size_t i=0;i<m_workspaceSplits.size();++i)found=m_workspaceSplits[i]->SetInputPrefix(id,name,prefix)||found;
+  if(!found || !WorkspaceLayoutSchema())return found;
+  sqlite3_stmt* write=NULL;
+  if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_input_prefix_v1(world_id,name,prefix) VALUES(?,?,?)",-1,&write,NULL)!=SQLITE_OK)return false;
+  const CString world=WorkspacePersistentWorld(id);const std::string utf8=WorkspaceLayoutUtf8(prefix);
+  sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,name,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,3,utf8.c_str(),(int)utf8.size(),SQLITE_TRANSIENT);
+  const int status=sqlite3_step(write);sqlite3_finalize(write);return status==SQLITE_DONE;
+}
+std::wstring CMainFrame::WorkspaceInputPrefix(const CString& id,const CString& name) const
+{
+  if(m_workspacePane.HasTranscript(id,name))return m_workspacePane.InputPrefix(id,name);
+  for(size_t i=0;i<m_workspaceSplits.size();++i)if(m_workspaceSplits[i]->HasTranscript(id,name))return m_workspaceSplits[i]->InputPrefix(id,name);
+  return std::wstring();
+}
+bool CMainFrame::FocusWorkspaceTranscript(size_t index)
+{
+  CWorkspacePane* host=&m_workspacePane;
+  if(index>=host->TranscriptCount())
+    {index-=host->TranscriptCount();host=NULL;
+     for(size_t i=0;i<m_workspaceSplits.size();++i)
+       {if(index<m_workspaceSplits[i]->TranscriptCount()){host=m_workspaceSplits[i];break;}index-=m_workspaceSplits[i]->TranscriptCount();}}
+  if(!host)return false;ShowControlBar(host,TRUE,FALSE);RecalcLayout();return host->FocusTranscript(index);
+}
+void CMainFrame::OnWorkspaceFocus(UINT id){FocusWorkspaceTranscript(id-59010);}
+void CMainFrame::OnUpdateWorkspaceFocus(CCmdUI* command)
+{
+  size_t count=m_workspacePane.TranscriptCount();for(size_t i=0;i<m_workspaceSplits.size();++i)count+=m_workspaceSplits[i]->TranscriptCount();
+  command->Enable(command->m_nID>=59010 && command->m_nID-59010<count);
+}
+
+// Modeless route manager captures its connection at creation.
+class CWorkspaceRouteDialog : public CWnd
+{
+  CMainFrame* frame;
+  CString identity;
+  CEdit name,pattern,prefix;
+  CListBox routes;
+  CButton regex,omit,save,cancel,newRoute,removeRoute;
+  CStatic nameLabel,patternLabel,prefixLabel;
+  std::vector<WorkspaceRoute> visibleRoutes;
+  int editing;
+  void RefreshRoutes()
+    {
+    visibleRoutes.clear();routes.ResetContent();
+    const std::vector<WorkspaceRoute>& all=frame->WorkspaceRoutes();
+    for(size_t i=0;i<all.size();++i)if(all[i].connectionId==identity)
+      {visibleRoutes.push_back(all[i]);
+       std::wstring label=WorkspaceLayoutWide((LPCTSTR)all[i].transcriptName)+L"  "+(all[i].regex?L"regex: ":L"text: ")+all[i].pattern;
+       if(all[i].omitFromMain)label+=L"  [hide from main]";
+       ::SendMessageW(routes.m_hWnd,LB_ADDSTRING,0,(LPARAM)label.c_str());}
+    editing=-1;removeRoute.EnableWindow(FALSE);save.SetWindowText("Create route");
+    }
+public:
+  CWorkspaceRouteDialog(CMainFrame* owner,const CString& id):frame(owner),identity(id),editing(-1){}
+  BOOL Open()
+    {
+    return CreateEx(WS_EX_DLGMODALFRAME,AfxRegisterWndClass(0,LoadCursor(NULL,IDC_ARROW),(HBRUSH)(COLOR_BTNFACE+1)),
+      "Manage named output routes",WS_POPUP|WS_CAPTION|WS_SYSMENU,CRect(200,140,760,640),frame,0);
+    }
+  virtual void PostNcDestroy(){delete this;}
+protected:
+  afx_msg int OnCreate(LPCREATESTRUCT cs)
+    {
+    if(CWnd::OnCreate(cs)==-1)return -1;
+    SetPropW(GetSafeHwnd(),L"MUSHclientWorkspace",(HANDLE)1);
+    HWND list=::CreateWindowExW(WS_EX_CLIENTEDGE,L"LISTBOX",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|LBS_NOTIFY,
+      16,16,515,105,m_hWnd,(HMENU)7,AfxGetInstanceHandle(),NULL);
+    if(!list || !routes.Attach(list))return -1;
+    newRoute.Create("New rule",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(280,128,400,155),this,8);
+    removeRoute.Create("Delete rule",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(411,128,531,155),this,9);
+    nameLabel.Create("Transcript name",WS_CHILD|WS_VISIBLE,CRect(16,169,531,191),this);
+    HWND nameWindow=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"Tells",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
+      16,193,515,26,m_hWnd,(HMENU)1,AfxGetInstanceHandle(),NULL);
+    HWND patternWindow=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
+      16,255,515,26,m_hWnd,(HMENU)2,AfxGetInstanceHandle(),NULL);
+    HWND prefixWindow=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
+      16,315,515,26,m_hWnd,(HMENU)10,AfxGetInstanceHandle(),NULL);
+    if(!nameWindow || !patternWindow || !prefixWindow || !name.Attach(nameWindow) || !pattern.Attach(patternWindow) || !prefix.Attach(prefixWindow))return -1;
+    ::SendMessageW(nameWindow,EM_SETLIMITTEXT,64,0);::SendMessageW(patternWindow,EM_SETLIMITTEXT,1024,0);::SendMessageW(prefixWindow,EM_SETLIMITTEXT,1024,0);
+    patternLabel.Create("Text to match",WS_CHILD|WS_VISIBLE,CRect(16,231,531,253),this);
+    prefixLabel.Create("Command prefix for this transcript (optional)",WS_CHILD|WS_VISIBLE,CRect(16,291,531,313),this);
+    regex.Create("Use regular expression",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,CRect(16,354,531,379),this,3);
+    omit.Create("Hide matching lines from the main transcript",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,CRect(16,384,531,409),this,4);
+    save.Create("Create route",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,CRect(280,425,400,455),this,5);
+    cancel.Create("Close",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(411,425,531,455),this,6);
+    for(HWND child=::GetWindow(m_hWnd,GW_CHILD);child;child=::GetWindow(child,GW_HWNDNEXT))
+      ::SendMessage(child,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
+    for(HWND child=::GetWindow(m_hWnd,GW_CHILD);child;child=::GetWindow(child,GW_HWNDNEXT))
+      {wchar_t cls[32]={0};::GetClassNameW(child,cls,32);
+       if(wcscmp(cls,L"Static")!=0)::SetWindowLongPtrW(child,GWL_STYLE,::GetWindowLongPtrW(child,GWL_STYLE)|WS_TABSTOP);}
+    RefreshRoutes();return 0;
+    }
+  afx_msg void OnSelect()
+    {
+    editing=routes.GetCurSel();if(editing<0 || editing>=(int)visibleRoutes.size())return;
+    const WorkspaceRoute& route=visibleRoutes[editing];
+    ::SetWindowTextW(name.m_hWnd,WorkspaceLayoutWide((LPCTSTR)route.transcriptName).c_str());
+    ::SetWindowTextW(pattern.m_hWnd,route.pattern.c_str());
+    ::SetWindowTextW(prefix.m_hWnd,frame->WorkspaceInputPrefix(identity,route.transcriptName).c_str());
+    regex.SetCheck(route.regex?BST_CHECKED:BST_UNCHECKED);omit.SetCheck(route.omitFromMain?BST_CHECKED:BST_UNCHECKED);
+    removeRoute.EnableWindow(TRUE);save.SetWindowText("Save changes");
+    }
+  afx_msg void OnNew()
+    {
+    editing=-1;routes.SetCurSel(-1);::SetWindowTextW(name.m_hWnd,L"Tells");::SetWindowTextW(pattern.m_hWnd,L"");::SetWindowTextW(prefix.m_hWnd,L"");
+    regex.SetCheck(BST_UNCHECKED);omit.SetCheck(BST_UNCHECKED);removeRoute.EnableWindow(FALSE);save.SetWindowText("Create route");name.SetFocus();
+    }
+  afx_msg void OnDelete()
+    {
+    if(editing<0 || editing>=(int)visibleRoutes.size())return;
+    if(!frame->RemoveWorkspaceRoute(visibleRoutes[editing])){AfxMessageBox("The route could not be removed.");return;}
+    RefreshRoutes();OnNew();
+    }
+  afx_msg void OnSave()
+    {
+    wchar_t nameText[65]={0},patternText[1025]={0},prefixText[1025]={0};
+    ::GetWindowTextW(name.m_hWnd,nameText,65);::GetWindowTextW(pattern.m_hWnd,patternText,1025);::GetWindowTextW(prefix.m_hWnd,prefixText,1025);
+    CString transcriptName;
+    for(size_t i=0;nameText[i];++i)
+      {if(nameText[i]<32 || nameText[i]>126){AfxMessageBox("Use letters, numbers, and punctuation from the English keyboard for the transcript name.");return;}
+       transcriptName+=(char)nameText[i];}
+    WorkspaceRoute route;route.connectionId=identity;route.transcriptName=transcriptName;route.pattern=patternText;
+    route.regex=regex.GetCheck()==BST_CHECKED;route.omitFromMain=omit.GetCheck()==BST_CHECKED;
+    CString error;
+    bool saved=editing>=0 && editing<(int)visibleRoutes.size()?frame->ReplaceWorkspaceRoute(visibleRoutes[editing],route,error):frame->AddWorkspaceRoute(route,error);
+    if(!saved){AfxMessageBox(error);return;}
+    if(!frame->SetWorkspaceInputPrefix(identity,transcriptName,prefixText)){AfxMessageBox("The route was saved, but the command prefix could not be saved.");return;}
+    RefreshRoutes();
+    for(size_t i=0;i<visibleRoutes.size();++i)
+      if(visibleRoutes[i].transcriptName==route.transcriptName && visibleRoutes[i].pattern==route.pattern && visibleRoutes[i].regex==route.regex)
+        {routes.SetCurSel((int)i);OnSelect();break;}
+    }
+  afx_msg void OnDestroy(){RemovePropW(GetSafeHwnd(),L"MUSHclientWorkspace");CWnd::OnDestroy();}
+  afx_msg void OnClose(){DestroyWindow();}
+  DECLARE_MESSAGE_MAP()
+};
+BEGIN_MESSAGE_MAP(CWorkspaceRouteDialog,CWnd)
+  ON_WM_CREATE()
+  ON_WM_CLOSE()
+  ON_WM_DESTROY()
+  ON_BN_CLICKED(5,OnSave)
+  ON_BN_CLICKED(6,OnClose)
+  ON_BN_CLICKED(8,OnNew)
+  ON_BN_CLICKED(9,OnDelete)
+  ON_LBN_SELCHANGE(7,OnSelect)
+END_MESSAGE_MAP()
+
+void CMainFrame::OnWorkspaceRoute()
+{
+  CMDIChildWnd* child=MDIGetActive();
+  CMUSHclientDoc* doc=child?DYNAMIC_DOWNCAST(CMUSHclientDoc,child->GetActiveDocument()):NULL;
+  if(!doc){AfxMessageBox("Open a world before creating an output route.");return;}
+  CWorkspaceRouteDialog* dialog=new CWorkspaceRouteDialog(this,WorkspaceConnectionId(doc));
+  if(!dialog->Open())return; // CWnd creation failure calls PostNcDestroy.
+  dialog->ShowWindow(SW_SHOW);dialog->SetForegroundWindow();
+}

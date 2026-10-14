@@ -5,6 +5,7 @@
 #include "stdafx.h"
 #include "..\..\MUSHclient.h"
 #include "..\..\doc.h"
+#include "..\..\WorkspaceIntegration.h"
 #include "..\..\MUSHview.h"
 #include "..\..\mainfrm.h"
 #include "..\errors.h"
@@ -306,6 +307,7 @@ POSITION pos;
   		}	  // end of being an output view
   	}   // end of doing each view
 
+  WorkspaceRebuildOutput(this);
 }  // end of DeleteLines
 
 

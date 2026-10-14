@@ -7,6 +7,7 @@
 #include "MUSHview.h"
 #include "mxp\mxp.h"
 #include "scripting\errors.h"
+#include "WorkspaceIntegration.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -182,6 +183,7 @@ assemble the full text of the original line.
   if (m_pCurrentLine->IsInlineImage ())
     {
     m_pCurrentLine->hard_return = true;
+    WorkspacePublishGuard workspaceRecord(this, false);
 
     if (m_bLogOutput)
       {
@@ -209,6 +211,19 @@ assemble the full text of the original line.
         if (!(m_bLogHTML && m_bLogInColour))
           WriteToLog ("\n", 1);
         }
+      }
+    if(workspaceRecord.PublishBeforeOmit())
+      {
+      // An image is one physical entry. Routing must hide it in the original
+      // transcript too, while the spawned pane retains its shared payload.
+      if(m_LineList.GetCount()%JUMP_SIZE==1)
+        m_pLinePositions[m_LineList.GetCount()/JUMP_SIZE]=NULL;
+      delete m_LineList.GetTail();m_LineList.RemoveTail();--m_total_lines;
+      ++m_inlineImageRevision;
+      m_pCurrentLine=new CLine(++m_total_lines,m_nWrapColumn,m_iFlags,m_iForeColour,m_iBackColour,m_bUTF_8);
+      POSITION fresh=m_LineList.AddTail(m_pCurrentLine);
+      if(m_LineList.GetCount()%JUMP_SIZE==1)m_pLinePositions[m_LineList.GetCount()/JUMP_SIZE]=fresh;
+      return true;
       }
     return false;
     }
@@ -277,6 +292,8 @@ assemble the full text of the original line.
 // *this* line ends with a hard break
 
   m_pCurrentLine->hard_return = true;
+
+  WorkspacePublishGuard workspaceRecord(this, (flags & NOTE_OR_COMMAND)==0);
 
 // for people with screen-readers
 
@@ -771,6 +788,9 @@ assemble the full text of the original line.
 
 
 // if omitting from output do that now
+
+  if(workspaceRecord.PublishBeforeOmit())
+    m_bLineOmittedFromOutput=true;
 
   if (m_bLineOmittedFromOutput)
     {

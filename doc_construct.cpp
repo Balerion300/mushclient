@@ -6,6 +6,7 @@
 #include "mainfrm.h"
 
 #include "doc.h"
+#include "WorkspaceIntegration.h"
 #include "genprint.h"
 #include "dialogs\QuickConnectDlg.h"
 #include "UDPsocket.h"
@@ -483,6 +484,7 @@ void closepane (pair<string, CPaneView *> item)
 
 CMUSHclientDoc::~CMUSHclientDoc()
 {
+  WorkspaceCloseDocument(this);
 int i;
 
   // stop sounds playing, release sound buffers

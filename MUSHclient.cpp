@@ -11,6 +11,7 @@
 #include "TextDocument.h"
 
 #include "mainfrm.h"
+#include "WorkspaceTools.h"
 #include "childfrm.h"
 #include "activitychildfrm.h"
 #include "textchildfrm.h"
@@ -1070,6 +1071,7 @@ void CMUSHclientApp::OnGameMinimiseprogram()
 
 BOOL CMUSHclientApp::PreTranslateMessage(MSG* pMsg)
 {
+  if(WorkspaceTranslateMessage(pMsg))return TRUE;
 	// CG: The following lines were added by the Splash Screen component.
 	if (CSplashWnd::PreTranslateAppMessage(pMsg))
 		return TRUE;
