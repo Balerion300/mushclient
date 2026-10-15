@@ -1,0 +1,19 @@
+param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,[ValidateSet("Release","Debug")][string]$Configuration="Release")
+$ErrorActionPreference='Stop'
+$taskVswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$taskVsRoot=& $taskVswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if(-not $taskVsRoot){throw 'Visual C++ tools are required.'}
+$taskCompilerRoot=(Get-ChildItem (Join-Path $taskVsRoot 'VC\Tools\MSVC') -Directory | Sort-Object {[version]$_.Name} -Descending | Select-Object -First 1).FullName
+$taskMfcLib=Join-Path $taskCompilerRoot 'atlmfc\lib\spectre\x86'
+if(-not(Test-Path -LiteralPath $taskMfcLib)){$taskMfcLib=Join-Path $taskCompilerRoot 'atlmfc\lib\x86'}
+$taskTemporary=Join-Path ([IO.Path]::GetTempPath()) ('mushclient-native-control-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $taskTemporary | Out-Null
+Set-Content -LiteralPath (Join-Path $taskTemporary 'framework.rc') -Value @('#include "afxres.h"','LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US','#include "afxribbon.rc"') -Encoding ascii
+$taskResponse=@('/nologo /O2 /MT /EHsc /std:c++14 /D_WIN32_WINNT=0x0601 /DNO_HTMLHELP /DNDEBUG /DWIN32 /D_WINDOWS /DZLIB_DLL /DLUA51 /D_CRT_SECURE_NO_WARNINGS /D_CRT_NON_CONFORMING_SWPRINTFS /DNO_WARN_MBCS_MFC_DEPRECATION',('/I"'+$RepoRoot+'" /I"'+$RepoRoot+'\luacom" /I"'+$RepoRoot+'\openssl\include"'),('/Fe"'+$taskTemporary+'\native-control-probe.exe" /Fo"'+$taskTemporary+'\\"'),('"'+$RepoRoot+'\tests\workspace\native_control_probe.cpp"'),('"'+$RepoRoot+'\WorkspaceStyle.cpp"'),('"'+$taskTemporary+'\framework.res"'),'/link /SUBSYSTEM:WINDOWS Shlwapi.lib Dwmapi.lib UxTheme.lib')
+if($Configuration -eq 'Debug'){$taskResponse[0]=$taskResponse[0].Replace('/O2 /MT','/Od /MTd').Replace('/DNDEBUG','/D_DEBUG')}
+$taskRsp=Join-Path $taskTemporary 'build.rsp';Set-Content -LiteralPath $taskRsp -Encoding ASCII -Value $taskResponse
+$taskCmd=Join-Path $taskTemporary 'build.cmd';Set-Content -LiteralPath $taskCmd -Encoding ASCII -Value @('@echo off',('call "'+$taskVsRoot+'\VC\Auxiliary\Build\vcvars32.bat" >nul'),('set LIB='+$taskMfcLib+';%LIB%'),('cd /d "'+$taskTemporary+'"'),('rc /nologo /i "'+$taskCompilerRoot+'\atlmfc\include" /fo framework.res framework.rc'),'if errorlevel 1 exit /b %errorlevel%',('cl @"'+$taskRsp+'"'))
+& cmd.exe /d /c $taskCmd
+if($LASTEXITCODE -ne 0){throw ('Native control fixture compilation failed; '+$taskTemporary)}
+Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $taskTemporary 'native-control-probe.exe'),(Join-Path $RepoRoot 'workspace\WorkspaceNativeControl.h'),(Join-Path $RepoRoot 'WorkspaceStyle.cpp') | Format-List | Out-File -LiteralPath (Join-Path $taskTemporary 'identity.txt')
+Write-Output ('Built only; native window test NOT run. Evidence: '+$taskTemporary)

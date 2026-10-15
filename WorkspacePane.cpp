@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "workspace/WorkspaceNativeControl.h"
 #include "WorkspacePane.h"
 #include "pcre/pcre.h"
 #include "WorkspaceResources.h"
@@ -124,14 +125,14 @@ int CWorkspacePane::OnCreate(LPCREATESTRUCT cs)
   m_tabs.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   HWND input=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
     0,0,1,1,m_hWnd,(HMENU)2,AfxGetInstanceHandle(),NULL);
-  if(!input || !m_input.Attach(input)) return -1;
+  if(!input || !workspace_native_control::Attach(m_input,input)) return -1;
   ::SendMessageW(input,EM_SETLIMITTEXT,16384,0);
   ::SendMessageW(input,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
   if(!m_reviewInput.Create("Send",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,3)) return -1;
   m_reviewInput.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   HWND search=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
     0,0,1,1,m_hWnd,(HMENU)4,AfxGetInstanceHandle(),NULL);
-  if(!search || !m_search.Attach(search))return -1;
+  if(!search || !workspace_native_control::Attach(m_search,search))return -1;
   ::SendMessageW(search,EM_SETLIMITTEXT,1024,0);::SendMessageW(search,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
   if(!m_findNext.Create("Find next",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,5) ||
      !m_pause.Create("Pause",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,CRect(0,0,1,1),this,6))return -1;
@@ -180,7 +181,7 @@ bool CWorkspacePane::OpenTranscript(const CString& id, const CString& name)
       WS_CHILD | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP | ES_MULTILINE |
       ES_READONLY | ES_AUTOVSCROLL | ES_NOHIDESEL, 0,0,1,1,m_hWnd,
       (HMENU)(UINT_PTR)controlId,AfxGetInstanceHandle(),NULL);
-    if (!textWindow || !transcript->text.Attach(textWindow))
+    if (!textWindow || !workspace_native_control::Attach(transcript->text,textWindow))
       { if (textWindow) ::DestroyWindow(textWindow); delete transcript; return false; }
     WorkspaceOleCallback* oleCallback=new WorkspaceOleCallback;
     ::SendMessageW(textWindow,EM_SETOLECALLBACK,0,(LPARAM)oleCallback);oleCallback->Release();
