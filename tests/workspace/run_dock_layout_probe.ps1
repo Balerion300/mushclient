@@ -8,6 +8,7 @@ $taskMfcLib=Join-Path $taskCompilerRoot 'atlmfc\lib\spectre\x86'
 if(-not(Test-Path -LiteralPath $taskMfcLib)){$taskMfcLib=Join-Path $taskCompilerRoot 'atlmfc\lib\x86'}
 $taskTemporary=Join-Path ([IO.Path]::GetTempPath()) ('mushclient-dock-layout-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $taskTemporary | Out-Null
+Set-Content -LiteralPath (Join-Path $taskTemporary 'framework.rc') -Encoding ascii -Value @('#include "afxres.h"','LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US','#include "afxribbon.rc"')
 $taskPcreObjects=Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'WinRel') -Filter 'pcre_*.obj'
 if($taskPcreObjects.Count -lt 10){throw 'Existing Release PCRE objects are required.'}
 $taskResponse=@(
@@ -18,12 +19,15 @@ $taskResponse=@(
   ('"'+$RepoRoot+'\WorkspacePane.cpp"'),
   ('"'+$RepoRoot+'\InlineImage.cpp"'),
   ('"'+$RepoRoot+'\workspace\WorkspaceInputPolicy.cpp"'),
+  ('"'+$RepoRoot+'\WorkspaceDockGuides.cpp"'),
+  ('"'+$RepoRoot+'\WorkspaceStyle.cpp"'),
+  ('"'+$taskTemporary+'\framework.res"'),
   '/link /SUBSYSTEM:WINDOWS /LTCG Shlwapi.lib Psapi.lib'
 )
 $taskResponse += $taskPcreObjects | ForEach-Object {'"'+$_.FullName+'"'}
 $taskRsp=Join-Path $taskTemporary 'build.rsp';Set-Content -LiteralPath $taskRsp -Encoding ASCII -Value $taskResponse
 $taskCmd=Join-Path $taskTemporary 'build.cmd'
-Set-Content -LiteralPath $taskCmd -Encoding ASCII -Value @('@echo off',('call "'+$taskVsRoot+'\VC\Auxiliary\Build\vcvars32.bat" >nul'),('set LIB='+$taskMfcLib+';%LIB%'),('cd /d "'+$taskTemporary+'"'),('cl @"'+$taskRsp+'"'))
+Set-Content -LiteralPath $taskCmd -Encoding ASCII -Value @('@echo off',('call "'+$taskVsRoot+'\VC\Auxiliary\Build\vcvars32.bat" >nul'),('set LIB='+$taskMfcLib+';%LIB%'),('cd /d "'+$taskTemporary+'"'),('rc /nologo /i "'+$taskCompilerRoot+'\atlmfc\include" /fo framework.res framework.rc'),'if errorlevel 1 exit /b %errorlevel%',('cl @"'+$taskRsp+'"'))
 & cmd.exe /d /c $taskCmd
 if($LASTEXITCODE -ne 0){throw ('Dock layout fixture compilation failed; '+$taskTemporary)}
 $taskProcess=Start-Process -FilePath (Join-Path $taskTemporary 'dock-layout-probe.exe') -WorkingDirectory $taskTemporary -WindowStyle Hidden -PassThru
