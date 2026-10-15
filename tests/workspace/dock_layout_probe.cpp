@@ -7,6 +7,11 @@
 namespace wd=workspace_dock;
 class DockPane:public CWorkspacePane {
 public:
+  CBasePane* dropTarget=NULL;
+  AFX_CS_STATUS IsChangeState(int sensitivity,CBasePane** target) const override {
+    if(dropTarget){*target=dropTarget;return CS_DELAY_DOCK;}
+    return CWorkspacePane::IsChangeState(sensitivity,target);
+  }
   CRichEditCtrl& Text(){return m_transcripts[0]->text;}
   long End(size_t index){return m_transcripts[0]->renderedEnds[index];}
 };
@@ -41,10 +46,17 @@ class DockApp:public CWinApp {
   panes[1]->AttachToTabWnd(panes[0],DM_SHOW,FALSE);panes[2]->AttachToTabWnd(panes[0],DM_SHOW,FALSE);
   const Surface original=Save(*panes[0]);
   auto* old=panes[0]->GetParentTabbedPane();ok=Check(log,"initial native tab group has three unique transcript panes",old && old->GetTabsNum()==3)&&ok;
+  ok=Check(log,"native tab host retains resource-aware class after pane creation",old && !strcmp(old->GetRuntimeClass()->m_lpszClassName,"WorkspaceNativeTabs"))&&ok;
   ok=frame->FloatWorkspacePane(*panes[0],CRect(120,160,820,660))&&ok;
   old=panes[1]->GetParentTabbedPane();ok=Check(log,"native detach removes the original tab before floating: three -> two plus float",old && old->GetTabsNum()==2 && !panes[0]->IsTabbed() && panes[0]->IsFloating() && Same(*panes[0],original))&&ok;
+  ok=Check(log,"floating host retains resource-aware class after pane creation",panes[0]->GetParentMiniFrame() && !strcmp(panes[0]->GetParentMiniFrame()->GetRuntimeClass()->m_lpszClassName,"WorkspaceNativeFloat"))&&ok;
   ok=panes[0]->DockToRecentPos()!=FALSE&&ok;old=panes[0]->GetParentTabbedPane();
   ok=Check(log,"native recent redock returns exactly three tabs and preserves original transcript HWND/text/selection",old && old->GetTabsNum()==3 && Same(*panes[0],original))&&ok;
+  frame->FloatWorkspacePane(*panes[5],CRect(120,160,820,660));
+  frame->FloatWorkspacePane(*panes[6],CRect(850,160,1450,660));
+  panes[6]->dropTarget=panes[5];BOOL dropped=FALSE;
+  CPane* accepted=panes[6]->DockPaneStandard(dropped);panes[6]->dropTarget=NULL;
+  ok=Check(log,"native mouse-docking path accepts a floating split target instead of rejecting it",accepted==panes[6])&&ok;
 
   wd::Forest model;const int ab=Leaf(model,{entries[0].key,entries[1].key},1),c=Leaf(model,{entries[2].key}),d=Leaf(model,{entries[3].key}),e=Leaf(model,{entries[4].key});
   const int top=Split(model,ab,c,false,600),bottom=Split(model,d,e,false,400),main=Split(model,top,bottom,true,550);

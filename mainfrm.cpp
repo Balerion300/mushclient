@@ -577,6 +577,8 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	m_wndActivityToolBar.EnableDocking(CBRS_ALIGN_ANY);
 
   EnableWorkspaceDocking();
+  // Create the native drop guides before a mouse drag enters its modal loop.
+  {WorkspaceModernResources resources;GetDockingManager()->GetSmartDockingManager();}
   
 	DockControlBar(&m_wndToolBar);
 	DockControlBar(&m_wndGameToolBar);

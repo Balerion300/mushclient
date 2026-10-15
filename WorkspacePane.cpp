@@ -83,8 +83,13 @@ CWorkspacePane::~CWorkspacePane()
 BOOL CWorkspacePane::Create(CFrameWnd* frame,UINT barId)
 {
   WorkspaceModernResources resources;
-  SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));
-  return CDockablePane::Create("Transcripts",frame,CRect(0,0,360,350),TRUE,barId,WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|CBRS_RIGHT);
+  // Native mouse docking rejects edge drops into floating groups unless the
+  // individual pane advertises multi-pane floating support.
+  const BOOL created=CDockablePane::Create("Transcripts",frame,CRect(0,0,360,350),TRUE,barId,WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|CBRS_RIGHT|CBRS_FLOAT_MULTI);
+  // CreateEx selects its default classes. Install our resource-aware hosts
+  // afterwards so tab detachment and later floating keep using them.
+  if(created){SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));}
+  return created;
 }
 CDockablePane* CWorkspacePane::AttachToTabWnd(CDockablePane* target,AFX_DOCK_METHOD method,BOOL active,CDockablePane** group)
 {WorkspaceModernResources resources;return CDockablePane::AttachToTabWnd(target,method,active,group);}
