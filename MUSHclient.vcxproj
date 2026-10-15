@@ -1513,6 +1513,13 @@
     <None Include="res\doc.ico" />
     <None Include="res\idr_main.ico" />
     <None Include="res\MUSHclient.ico" />
+    <None Include="res\valyria.ico" />
+    <None Include="res\valyria-desktop.ico" />
+    <None Include="res\valyria.svg" />
+    <None Include="res\valyria-desktop.svg" />
+    <None Include="res\valyria.png" />
+    <None Include="res\valyria-desktop.png" />
+    <None Include="res\valyria-brand-provenance.json" />
     <None Include="zlib\readme.txt" />
     <None Include="pcre\readme.txt" />
     <None Include="png\readme.txt" />

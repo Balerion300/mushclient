@@ -38,6 +38,13 @@ notices = dest/'licences'
 shutil.copytree(ROOT/'licences',notices)
 shutil.copy2(ROOT/'third_party/scintilla/License.txt',notices/'Scintilla-LICENSE.txt')
 shutil.copy2(ROOT/'third_party/SCINTILLA_NOTICE.md',notices/'SCINTILLA_NOTICE.md')
+# User-authorized Fourteen Flames identity, kept separate from engine licensing.
+icons = dest/'icons'
+icons.mkdir(exist_ok=True)
+for name in ('valyria.ico','valyria.svg','valyria.png','valyria-desktop.ico',
+             'valyria-desktop.svg','valyria-desktop.png','valyria-brand-provenance.json'):
+    shutil.copy2(ROOT/'res'/name,icons/name)
+shutil.copy2(ROOT/'docs/VALYRIA_BRANDING.md',notices/'VALYRIA_BRANDING.md')
 for name in ('LICENSE.MIT','PYTHON-LICENSE.txt','PYINSTALLER-COPYING.txt'):
     shutil.copy2(ROOT/'agent_companion/vendor'/name,notices/('JSON-LICENSE.txt' if name=='LICENSE.MIT' else name))
 shutil.copytree(ROOT/'third_party/pennmush-reference',dest/'pennmush-reference')
