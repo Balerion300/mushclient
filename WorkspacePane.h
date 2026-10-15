@@ -89,6 +89,7 @@ public:
   bool RetainedSourceAfter(const CString& id,const CString& name,unsigned __int64 boundary) const;
   size_t TranscriptCount() const { return m_transcripts.size(); }
   bool FocusTranscript(size_t index);
+  bool FocusSearch(){if(!m_search.GetSafeHwnd())return false;m_search.SetFocus();return true;}
   unsigned int UnreadCount(const CString& id,const CString& name) const;
   unsigned int MentionCount(const CString& id,const CString& name) const;
   bool SetPreferences(const CString& id,const CString& name,const workspace_spawn::Preferences& preferences);

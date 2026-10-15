@@ -324,3 +324,21 @@ so the numbers do not establish an equal-workload speed regression or gain.
 They measure completed output and scripted Execute/echo, not physical typing
 or display paint latency. This is a short responsiveness gate; daily use and
 mixed-DPI mouse interaction remain separate. No memory investigation was resumed.
+
+## October 15 native UI regression
+
+Release `48573ebca09f3cdd4cdfdb7475bb1d4a3582d730314e7a40da3c4fa877c8b432`
+completed the same 120-second, 80 offered text lines/second workload with four
+configured split spawns, mentions/following-image routes and visible startup.
+The world font receipt remains Fixedsys for input and output. All 1,190 batches
+completed (8,610 offered lines), with no TCP backpressure or client exit during
+the requested interval. Output p95 was 62.97 ms (maximum 177.18 ms); scripted
+command/echo p95 was 9.49 ms (maximum 40.11 ms). GUI timer-gap p95 was 85.18 ms
+and maximum 170.43 ms. Fourteen images were confirmed ready, zero failed, and
+sixteen left retained history before readiness was recorded.
+
+Builds and native fixtures were stopped before measurement. The timing supports
+steady bounded responsiveness after the UI changes; it is not a sustained-use,
+physical typing, foreground paint or statistically established speed-gain claim.
+Reproduce with the preceding command and label `modern-ui`. No memory analysis
+was reopened. Raw evidence remains private Temp data outside the package.

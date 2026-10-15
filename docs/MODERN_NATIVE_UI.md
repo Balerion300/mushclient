@@ -67,3 +67,36 @@ native layout, workflow, input, image and logging checks where affected, followe
 by a short actual-client responsiveness check. Screenshots and fixture evidence
 must identify their exact candidate. Native tests do not replace physical
 mixed-monitor, screen-reader or daily-use acceptance.
+
+## First implementation checkpoint
+
+The separate UI branch now contains the shared chrome, daily action bar,
+Worlds/Channels navigator and workflow forms. Read `NATIVE_CHROME_STYLE.md`,
+`WORKSPACE_SHELL.md` and `NATIVE_WORKFLOW_UI.md` for behavior and reproducible
+checks. This is a first native UI pass; legacy settings dialogs and native MDI
+window frames remain available. It does not provide a new rendering engine or
+turn the separately owned editor into a fully docked IDE.
+
+The final Release executable SHA256 is
+`48573ebca09f3cdd4cdfdb7475bb1d4a3582d730314e7a40da3c4fa877c8b432`;
+Debug is `fdc9cb007e6af5c8f65419d08ea80c1875b2a6c4d6993c4cffcaa485a1987f2f`.
+Both build. Focused fictional native fixtures pass 27 shared-component checks,
+20 shell checks and 65 workflow-form checks, plus logging-form and existing
+private-read/scene/recovery regressions. Native dock-tree and spawn fixtures
+retain their 30 and 74 passing checks.
+
+An isolated actual Release client was inspected through the supported desktop
+tools. The action bar, navigator, original transcript/composer and Tools menu
+rendered; the menu opened the editor for the named original world. The final
+candidate also exposes an enabled Open a world button after idle updates. The
+earlier disabled-button defect was reproduced and corrected with a native
+command-update handler. Desktop automation still misaddresses separately owned
+editor controls; its attempted button action returned an out-of-bounds error.
+This does not complete private attribute-read or final scene-send desktop
+acceptance. Mixed-monitor dragging and screen-reader operation remain open.
+
+The navigator's custom width, floating and auto-hide placement are not yet
+serialized. Transcript nested splits and auto-hide use the separate WDL3 forest.
+Short scene work areas expose the full form through both-axis scrolling rather
+than overlapping fields. Existing personal profiles and installed clients were
+not changed.

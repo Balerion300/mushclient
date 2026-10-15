@@ -416,3 +416,33 @@ thirteen left retained history before readiness was recorded. No builds ran
 during this measurement. This is a bounded synthetic regression, not physical
 key-to-pixel latency, daily-use acceptance, or an equal-workload comparison to
 the earlier two-pane runs. The memory investigation remains closed.
+
+## Separate native UI preview, October 15
+
+The `codex/modern-native-ui` branch builds on the preceding functional checkpoint.
+Release SHA256 is
+`48573ebca09f3cdd4cdfdb7475bb1d4a3582d730314e7a40da3c4fa877c8b432`;
+Debug is `fdc9cb007e6af5c8f65419d08ea80c1875b2a6c4d6993c4cffcaa485a1987f2f`.
+Both builds pass. The focused native fixtures pass 27 style, 20 navigation,
+65 workflow-form, 30 dock-tree and 74 spawn checks. Existing native
+private-publication/read/scene/recovery tests and the logging form pass. All
+13 actual-client scripted-logging cases passed the initial UI candidate
+`1de31631b5922613d75e88fd98af81d566464fd6ed9457037a86ca8df062f835`;
+the captured live reply replay passed the final Release candidate again.
+
+The final quiet 120-second actual-client run completed all 1,190 batches at
+80 offered lines/second with four configured split spawns and Fixedsys input/
+output. Output p95 was 62.97 ms, scripted command/echo p95 9.49 ms, with no
+backpressure or client exit. See `PERFORMANCE_TESTS.md` for limits and image
+readiness receipts. Native fixture screenshots and actual desktop inspection
+found and fixed narrow action/status overlap, clipped logging captions,
+constrained scene overlap, stale grant-state copy and idle disabling of the
+Open a world action. The new world action guard rejects focus-script redirection
+or closure before dispatch.
+
+`MODERN_NATIVE_UI.md` records the first-pass UI scope and desktop evidence.
+The actual owned-editor private-read and scene-send gap remains; the desktop
+tool's owned-control click still returned an out-of-bounds error. Navigator
+custom docking placement is not yet serialized, and physical mixed-DPI,
+screen-reader and daily-use acceptance remain open. Existing personal profiles
+and installed clients were not modified.

@@ -19,6 +19,19 @@ void Click(HWND dialog, int id) {
   HWND button = GetDlgItem(dialog, id);
   assert(button); PostMessageW(button, BM_CLICK, 0, 0);
 }
+void CaptionFits(HWND button) {
+  wchar_t text[256]={};GetWindowTextW(button,text,256);std::wstring label=text;
+  label.erase(std::remove(label.begin(),label.end(),L'&'),label.end());
+  HDC dc=GetDC(button);auto old=SelectObject(dc,(HFONT)SendMessageW(button,WM_GETFONT,0,0));
+  SIZE extent={};GetTextExtentPoint32W(dc,label.data(),(int)label.size(),&extent);
+  RECT bounds;GetClientRect(button,&bounds);
+  assert(extent.cx+workspace_style::Scale(button,44)<=bounds.right);
+  SelectObject(dc,old);ReleaseDC(button,dc);
+}
+bool InViewport(HWND dialog,HWND child) {
+  RECT r,client;GetWindowRect(child,&r);MapWindowPoints(0,dialog,(POINT*)&r,2);GetClientRect(dialog,&client);
+  return r.left>=0 && r.top>=0 && r.right<=client.right && r.bottom<=client.bottom;
+}
 void Snapshot(HWND dialog, const std::wstring &path) {
   RECT rect; GetWindowRect(dialog, &rect);
   int width = rect.right - rect.left, height = rect.bottom - rect.top;
@@ -53,8 +66,23 @@ int wmain(int argc, wchar_t **argv) {
   options.plugins.push_back({L"Scripted Log Names", NamingPlugin, ""});
   auto edit = std::thread([&] {
     auto setup = WaitDialog(L"Logging Setup", owner);
+    assert(!IsWindowVisible(GetDlgItem(setup,Function)));
+    CaptionFits(GetDlgItem(setup,IDOK));CaptionFits(GetDlgItem(setup,IDCANCEL));
+    Snapshot(setup,std::wstring(argv[1])+L"\\logging-basic.bmp");
     Click(setup, ConfigureNames);
     auto form = WaitDialog(L"Automatic log file names", setup);
+    assert(!IsWindowVisible(GetDlgItem(form,Request)));
+    Click(form,AdvancedNames);
+    for(int i=0;i<1000 && !IsWindowVisible(GetDlgItem(form,Request));++i)Sleep(1);
+    assert(IsWindowVisible(GetDlgItem(form,Request)));
+    CaptionFits(GetDlgItem(form,IDOK));CaptionFits(GetDlgItem(form,IDCANCEL));
+    RECT full;GetWindowRect(form,&full);
+    SetWindowPos(form,0,0,0,480,360,SWP_NOMOVE|SWP_NOZORDER);
+    SendMessageW(form,WM_NEXTDLGCTL,(WPARAM)GetDlgItem(form,IDOK),TRUE);
+    for(int i=0;i<1000 && !InViewport(form,GetDlgItem(form,IDOK));++i)Sleep(1);
+    assert(InViewport(form,GetDlgItem(form,IDOK)));
+    Snapshot(form,std::wstring(argv[1])+L"\\logging-narrow.bmp");
+    SetWindowPos(form,0,0,0,full.right-full.left,full.bottom-full.top,SWP_NOMOVE|SWP_NOZORDER);
     SetDlgItemTextW(form, Filename, L"{game_year}-{number}.txt");
     SetDlgItemTextW(form, Request, L"fictional-date");
     SetDlgItemTextW(form, StartReply, L"^BEGIN$");

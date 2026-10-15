@@ -9,7 +9,8 @@
 #include "MDITabs.h"
 #include "WorkspacePane.h"
 #include "WorkspaceFrame.h"
-#include "workspace/WorkspaceDockLayout.h"
+namespace workspace_dock {class Session;struct Entry;}
+class CWorkspaceShell;
 
 class CMUSHclientDoc;
 
@@ -125,10 +126,20 @@ public:
    bool WorkspaceShortcutAvailable(unsigned short chord,const CString& connectionId,const CString& name,CString& error);
    bool FocusRelativeWorkspaceTranscript(int direction);
    void SaveWorkspaceLayouts();
-  workspace_dock::Session m_workspaceDockSession;
+  workspace_dock::Session* m_workspaceDockSession;
   std::vector<workspace_dock::Entry> WorkspaceDockEntries() const;
   void LoadWorkspaceDockState();
   bool RestoreWorkspaceDockState(CWorkspacePane& pane,const CString& world,const CString& name);
+  CWorkspaceShell* m_workspaceShell;
+  CString m_workspaceShellWorld,m_workspaceShellName;
+  bool m_workspaceShellReady;
+  unsigned m_workspaceLegacyMask;
+  void UpdateWorkspaceShell();
+  void WorkspaceShellAction(int action,const std::string& world,const std::string& name);
+  void SaveWorkspaceShell();
+  afx_msg LRESULT OnInitializeWorkspaceShell(WPARAM,LPARAM);
+  afx_msg void OnWorkspaceShellCommand(UINT command);
+  afx_msg void OnUpdateWorkspaceShellCommand(CCmdUI* command);
    void RestoreWorkspaceRoutes(const CString& connectionId);
    const std::vector<WorkspaceRoute>& WorkspaceRoutes() const { return m_workspaceRoutes; }
 
