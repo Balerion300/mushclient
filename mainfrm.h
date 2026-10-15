@@ -132,7 +132,10 @@ public:
   bool RestoreWorkspaceDockState(CWorkspacePane& pane,const CString& world,const CString& name);
   CWorkspaceShell* m_workspaceShell;
   CString m_workspaceShellWorld,m_workspaceShellName;
+  std::map<CString,std::pair<std::wstring,std::wstring>> m_workspaceCharacterLabels;
   bool m_workspaceShellReady;
+  bool m_workspaceTabbedWorlds;
+  void SetWorkspaceTabbedWorlds(bool enabled);
   unsigned m_workspaceLegacyMask;
   void UpdateWorkspaceShell();
   void WorkspaceShellAction(int action,const std::string& world,const std::string& name);

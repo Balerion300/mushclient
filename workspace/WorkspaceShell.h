@@ -6,10 +6,13 @@
 
 class CMDIFrameWndEx;
 namespace workspace_shell {
-enum Action {ToggleWorlds,Connect,Disconnect,Find,Logging,Channels,Tools,Select,OpenWorld,Legacy,ThemeSystem,ThemeLight,ThemeDark};
+enum Action {ToggleWorlds,Connect,Disconnect,Find,Logging,Channels,Tools,Select,OpenWorld,Legacy,ThemeSystem,ThemeLight,ThemeDark,OrganizeCharacter,ToggleWorldTabs};
 struct Row {
   std::string world,name;
   std::wstring label;
+  // Cosmetic grouping only; world/name remain the exact runtime destination.
+  std::string game;
+  std::wstring gameLabel,characterLabel;
   bool channel=false,connected=false,connecting=false,disconnecting=false,logging=false;
   unsigned unread=0,mentions=0;
   int priority=0;

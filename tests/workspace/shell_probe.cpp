@@ -58,6 +58,25 @@ class ShellApp:public CWinApp {
   frame->SetWindowPos(NULL,0,0,600,700,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);frame->RecalcLayout();bool inside=true;for(int i=0;i<6;++i)inside=Inside(::GetDlgItem(bar,0x7800+i),bar)&&inside;
   ok=Check(out,"narrow daily action bar wraps every labeled action inside its reserved height",inside && Inside(::GetDlgItem(bar,0x7806),bar))&&ok;
   ok=Check(out,"wrapped status and every action occupy separate rectangles",Separate(bar))&&ok;ok=Check(out,"narrow composition screenshot",Screenshot(frame->m_hWnd,L"shell-narrow.bmp"))&&ok;
+  frame->SetWindowPos(NULL,0,0,1280,880,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);shell.ShowNavigator(true);
+  snapshot.rows={harbor,chat,ash,watch};snapshot.rows[0].game="game-harbor";snapshot.rows[0].gameLabel=L"Silver Harbor";snapshot.rows[0].characterLabel=L"Mira";
+  snapshot.rows[1].world=harbor.world;snapshot.rows[1].name="Chat";snapshot.rows[1].label=L"Chat";
+  snapshot.rows[2].game="game-harbor";snapshot.rows[2].gameLabel=L"Silver Harbor";snapshot.rows[2].characterLabel=L"Rowan";
+  ws::Row secondChat=snapshot.rows[1];secondChat.world=ash.world;snapshot.rows.insert(snapshot.rows.begin()+3,secondChat);
+  snapshot.rows[4].game="game-watch";snapshot.rows[4].gameLabel=L"Ash Hill";snapshot.rows[4].characterLabel=L"Quinn";
+  snapshot.world=harbor.world;snapshot.name.clear();shell.Update(snapshot);frame->RecalcLayout();
+  const HTREEITEM gameRoot=nativeTree->GetRootItem(),mira=nativeTree->GetChildItem(gameRoot),rowan=nativeTree->GetNextSiblingItem(mira);
+  const HTREEITEM miraChat=nativeTree->GetChildItem(mira),rowanChat=nativeTree->GetChildItem(rowan);
+  ok=Check(out,"one game groups two distinct own-character connections",gameRoot && mira && rowan && nativeTree->GetParentItem(rowan)==gameRoot && nativeTree->GetNextSiblingItem(gameRoot))&&ok;
+  ok=Check(out,"same-name spawns remain distinct children of their own character",miraChat && rowanChat && miraChat!=rowanChat && nativeTree->GetParentItem(miraChat)==mira && nativeTree->GetParentItem(rowanChat)==rowan)&&ok;
+  const int beforeGroup=actions;nativeTree->SelectItem(gameRoot);ok=Check(out,"selecting cosmetic game group never dispatches a character command",actions==beforeGroup)&&ok;
+  nativeTree->SelectItem(miraChat);ok=Check(out,"first character Chat retains its exact runtime target",last==ws::Select && world==harbor.world && name=="Chat")&&ok;
+  nativeTree->SelectItem(rowanChat);ok=Check(out,"second same-name Chat dispatches only its own runtime target",last==ws::Select && world==ash.world && name=="Chat")&&ok;
+  snapshot.rows[2].characterLabel=L"Rowan renamed";shell.Update(snapshot);ok=Check(out,"character rename preserves native items and runtime identity",nativeTree->GetChildItem(gameRoot)==mira && nativeTree->GetNextSiblingItem(mira)==rowan)&&ok;
+  nativeTree->SelectItem(rowan);ok=Check(out,"display rename cannot change the original connection destination",world==ash.world && name.empty())&&ok;
+  nativeTree->Expand(gameRoot,TVE_COLLAPSE);for(int i=0;i<100;++i){snapshot.rows[1].unread=i;shell.Update(snapshot);}ok=Check(out,"passive spawn updates keep cosmetic game group collapsed",!(nativeTree->GetItemState(gameRoot,TVIS_EXPANDED)&TVIS_EXPANDED))&&ok;
+  nativeTree->Expand(gameRoot,TVE_EXPAND);workspace_style::SetTheme(workspace_style::Theme::Light);frame->RedrawWindow(NULL,NULL,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);ok=Check(out,"character hierarchy light screenshot",Screenshot(frame->m_hWnd,L"shell-characters-light.bmp"))&&ok;
+  workspace_style::SetTheme(workspace_style::Theme::Dark);frame->RedrawWindow(NULL,NULL,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);ok=Check(out,"character hierarchy dark screenshot",Screenshot(frame->m_hWnd,L"shell-characters-dark.bmp"))&&ok;
   out<<(ok?"PASS":"FAIL")<<" native shell fixture; native API simulation, no physical mixed-DPI/screen-reader acceptance\n";frame->DestroyWindow();DeleteObject(original);result_=ok?0:1;return FALSE;
  }
  int ExitInstance(){return result_;}
