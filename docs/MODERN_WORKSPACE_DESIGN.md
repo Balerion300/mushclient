@@ -1,93 +1,200 @@
-# Modern workspace direction
+# Valyria modern workspace direction
 
-Status: interactive design study, not an installed native client change.
-Based on `9b4d6fa` with the existing docking fixes retained underneath.
+Status: substantial interactive browser prototype, October 15, 2026. The user
+approved the modern direction and clarified the navigation and channel model.
+This document describes that direction; it does not claim the native client has
+already acquired this interface. Native icon integration is documented separately
+in [VALYRIA_BRANDING.md](VALYRIA_BRANDING.md).
 
-Visual thesis: a calm desktop workspace organized around games, your characters,
-and their channels. Broad flat surfaces, readable tabs, and clear destinations
-replace compact legacy chrome. One accent marks the current context and drop
-destination. Discord is a reference for navigation clarity, not a skin to copy.
+## Visual and interaction direction
 
-Content plan: a narrow game rail; an adjacent character/channel navigator; the
-main transcript; optional split or tabbed spawns; a persistent destination-aware
-composer. Connection state belongs beside the character. Editor, logging, search,
-automation, and settings remain reachable by labeled actions or a tools menu.
+Visual thesis: a calm, space-efficient desktop workspace, with neutral surfaces,
+readable output, and a restrained red accent that carries Valyria's identity.
+Light and dark are equally considered; blue is an optional accent alternative.
+The authorized Fourteen Flames mark retains its exact source geometry and colors.
+An ivory tile keeps the original gradient legible on both surface modes.
 
-Interaction thesis: dragging a tab exposes a labeled drop target and a shaded
-preview of the actual destination. Center joins tabs, edges create splits.
-An equivalent placement menu supports keyboard users and makes the behavior
-discoverable before dragging. Rearrangement preserves the original transcript,
-draft, selection, connection identity, and reading position.
+Content plan: a narrow game rail; an adjacent tree of the user's own characters
+and their channels; the main output and freely arranged channel panes; an explicit
+destination-aware composer. Editor, review, logging, automation, search, and
+appearance stay reachable through labeled tools and the command palette.
+
+Interaction thesis: a dragged tab previews the actual pane-relative destination
+with shading and a plain label. Center joins tabs; edges create nested splits.
+The Arrange dialog exposes identical choices without dragging. Short hover and
+dialog transitions sharpen affordances; reduced-motion preferences remove them.
+
+## Product model: games, your characters, their channels
+
+Characters are the user's own logins, never a roster of other players. A game
+groups separately configured connections as display metadata. Expanding a
+character reveals that character's channels directly beneath it. Several
+characters can remain expanded at once. Choosing Rowan's Public channel changes
+the composer to Rowan's connection, even if Mira's Public channel was previously
+active. An identical channel label does not imply an identical destination.
+
+A **channel is a user-arranged filtered output stream**. Public, roleplay, pages,
+staff output, and Main all fit this model. A channel does not require a
+server-native MUSH channel entity. It can remain included in Main, also have its
+own tab, join other tabs, or occupy its own docked or detached pane. The prototype
+demonstrates “Separate channel only” and “Show in Main as well” with a labeled
+sample echo in Main. Native routing must continue to place an image with its
+matching text; the browser sample does not implement that routing engine.
+
+The prototype also includes Notes and Activity as local views. They cannot send
+commands. Connection identity is explicit at the composer and in channel
+settings, independent of labels, selected game, tab position, and layout.
 
 ## Reviewable prototype
 
-Open `prototypes/modern-workspace.html` in a browser. It is self-contained, uses
-fictional local data, makes no network requests, and sends no game commands.
-It demonstrates game/character/channel navigation, draft retention per
-connection/channel, tab joining and splitting, contextual placement controls,
-and System/Light/Dark appearance with three accent presets. Settings persist
-locally in this prototype only. Browser chrome is not a proposed client frame.
-The Editor and Tools panels are explanatory placeholders, not working editors
-or agent permissions. Dragging in this study is a design demonstration, not
-evidence of native MFC docking acceptance. The study models one primary pane
-group and one secondary group; it does not model arbitrary nested layouts.
+Open [prototypes/modern-workspace.html](prototypes/modern-workspace.html), keeping
+the adjacent CSS, JavaScript and illustration plus `../../res/valyria-desktop.svg`
+in their relative locations. The package is dependency-free and uses classic
+scripts. It can be opened directly or served locally; local-file storage behavior
+depends on the browser. A repo-root local server preserves the relative brand
+asset path. See [the prototype readme](prototypes/README.md).
 
-## Presentation contract
+The browser prototype implements:
 
-- 40 logical-pixel tabs and pane headers, generous click targets, quiet dividers.
-- A consistent font and spacing scale for chrome; transcript and editor fonts
-  remain independently configurable, including existing Fixedsys preferences.
-- Dark and light share identical structure and semantic color roles. System
-  follows Windows appearance. Accent is separate from background mode.
-- Theme roles cover base, navigation, surface, elevated surface, text, muted
-  text, divider, accent, focus, selection, error, and connection state. Future
-  named themes use these roles rather than hard-coded colors in each control.
-- Active/connected/unread states use labels or shapes as well as color.
-- Native window resize, snap, system menu, focus, accessibility, and high
-  contrast remain acceptance requirements. Avoid gratuitous layout animation.
-- A narrow window can collapse secondary navigation without removing access
-  to destinations or advanced tools. Persist layout separately from themes.
+- Two fictional games and four fictional character identities, with expandable
+  per-character channel trees and example unread counts that clear on selection.
+- Main, Public, Roleplay, Pages, Staff, Notes and Activity views. Character and
+  channel drafts, notes, editor buffers, routing examples and layouts remain
+  distinct; choosing a different owner restores that owner's state.
+- An arbitrary binary tree of nested horizontal/vertical splits across the
+  sample channels. Tabs reorder, join groups, or split at any pane edge. Empty
+  groups collapse after moves. Layout validity checks reject missing, duplicate,
+  or cross-owner channel identities when restoring stored data.
+- Shaded, labeled center/edge drop previews, tab-insertion indicators, Escape
+  cancellation, keyboard tab navigation/reordering, an accessible placement
+  dialog, pointer resize handles, and arrow-key separator resizing.
+- In-browser detached panes with movable headers, keyboard positioning, browser
+  resize corners, and Rejoin. Detaching every channel is supported. These panes
+  are explicitly labeled previews; they are not operating-system windows.
+- Persistent layout, theme, drafts, reading offsets, private notes, example
+  configuration, and editor buffers in this browser's local storage. Reset layout
+  retains the other state. Storage failures fall back to the current session.
+- A local Lua-text editor with line numbers, per-character save, indentation,
+  and a small insertion-based completion list. “Check example” only checks a
+  fixed list of review keywords; it is not a parser or a safety guarantee.
+- A fixed agent proposal whose changes can be reviewed, individually selected,
+  rejected, or applied to the local example alias/trigger list and notes. No
+  agent runs, and no permissions or native configuration are changed.
+- Logging preferences, automatic filename expansion, format and stream choices,
+  and a download containing fictional sample output. An optional pre-start flow
+  previews a game-agnostic command or startup-script buffer, then matches an
+  editable sample reply against a named-group regular expression. Gathered
+  `game_year`, `game_month`, `game_day`, and arbitrary named captures are
+  available alongside real-date tokens. Waiting, matched, missing-field,
+  invalid-expression and timeout states control whether a filename is ready.
+  The fictional date and illustrative BoD `+loginfo` presets are configuration
+  examples, not hard-coded game behavior. No command/script runs, no logger
+  starts, and no selected filesystem folder is accessed. The live native reply
+  format and regex engine must be verified independently.
+- Local sample-output search, a searchable keyboard command palette, editable
+  private notes, example alias/trigger enable switches, and a shortcut reference.
+- System/Light/Dark surfaces, **red as the default accent**, blue as the optional
+  alternative, interface text scaling, independent transcript text size, visible
+  focus, reduced-motion handling, and forced-colors CSS.
+- An original minimal courtyard illustration retained from the preceding study,
+  presented as an inline room image with a local enlarged preview. This is not
+  recovered artwork or a demonstration of live MXP/Pueblo decoding.
 
-## Implementation boundary and checkpoints
+Custom sample regex evaluation runs in a disposable local worker with a one-second
+timeout. Direct-file mode supports the fixed presets; arbitrary regex preview
+requires a local HTTP server to permit the worker. This is explicit in the UI.
 
-Keep the connection, scripting, trigger, world, transcript storage, routing,
-editor engine, and reviewed agent-action code. Do not copy another client's
-implementation or ship personal profiles. Treat presentation as replaceable.
+The command action is always **Preview send**, shows its stable connection
+identity, and retains the draft. Content Security Policy disables network
+connections (`connect-src 'none'`). No transport, credentials, actual server
+profiles, network requests, script execution, or background agent is included.
+All resource loads are local prototype/branding files.
 
-1. Review this composition in light/dark, normal/narrow sizes, and joined/split
-   states. Confirm hierarchy and controls before implementing new native chrome.
-2. Establish shared native color/font/spacing tokens and accessible controls.
-   Replace the small tab/header presentation with a component that owns its
-   measurement, drawing, hit testing, focus, and accessibility. MFC's supported
-   tab sizing API does not provide the per-instance height/font control this
-   design needs; painting over its old geometry is insufficient.
-3. Prove a native vertical slice: two fictional connections, identical channel
-   names, joined and split panes, detached frame, and System/Light/Dark. Adapt
-   existing routing and pane hosts rather than duplicating transcript state.
-   Existing MFC docking may remain behind the presentation only if it supports
-   the interaction contract. If it prevents this, replace the docking host too.
-   Select a new toolkit only after that focused feasibility check; this HTML
-   study is not a decision to embed a browser in the product.
-4. Apply the same components to navigation, action bars, floating frames,
-   composer, menus, and tool dialogs. Keep advanced commands discoverable.
-5. Accept real mouse and keyboard joining/splitting, cancellation, mixed DPI,
-   nested restoration, auto-hide, theme changes, assistive access, and retained
-   drafts/selections. Measure long-history output/input and drag latency against
-   the current build. Avoid per-output layout rebuilding or transcript replay.
+## Presentation and native window contract
 
-No toolkit migration, native performance claim, release readiness, or personal
-installation is implied by this design study.
+- Use consistent semantic tokens for base, navigation, surface, elevated surface,
+  primary text, muted text, divider, accent, selected state, focus, success,
+  warning and error. Red identity does not make red the only error indicator.
+  States carry labels, shapes or focus outlines in addition to color.
+- Aim for approximately 40 logical-pixel pane headers/tabs, independently
+  measurable hit regions and readable labels. Transcript/editor typography is
+  independent from chrome; existing output font preferences, including Fixedsys,
+  remain an engine-side compatibility requirement.
+- Keep density deliberate. No dashboard-card mosaic, decorative title-bar
+  substitutes, or red-tinted application background. Tool dialogs use the same
+  surfaces, spacing, text hierarchy and control language as the workspace.
+- Preserve the real Windows frame, resizing borders, native maximize/snap
+  behavior, system menu, taskbar identity, focus, and accessibility. Do not
+  imitate working minimize/maximize/close controls in HTML. Native detached
+  frames must use the same real operating-system contract.
+- Narrow windows collapse the tree into a toggleable drawer. Very small dock
+  viewports scroll inside the dock area rather than overflowing the application.
+  This study is desktop-first, not a complete touch/mobile client.
+- Themes, layout and routing are separate preferences. Switching one must not
+  silently change connection identity, input drafts, output selection, or
+  transcript content. Browser reading offsets are demonstrated; preserving an
+  arbitrary native text selection requires native acceptance work.
 
-## Design-study verification, October 15, 2026
+## Keep the engine; replace obstructing presentation
 
-Browser checks confirmed separate character/channel drafts, switching games
-with an explicit destination, joining and restoring a right/bottom split,
-keyboard tab navigation, placement-menu navigation and Escape cancellation.
-A browser mouse drag showed the shaded "Join tabs" preview and completed the
-join. System appearance followed emulated light/dark changes; accent switching
-and saved appearance survived reload. The 760-pixel-wide layout exposed its
-navigation toggle without horizontal page overflow. Dark, light, narrow, and
-join-preview screenshots were captured using fictional profiles. Dark/light
-and join-preview captures were visually inspected. This verifies the browser
-study only; native dragging, screen-reader operation, and performance remain
-separate acceptance work.
+The connection, Telnet/TLS, scripting, triggers, aliases, world configuration,
+transcript storage, channel routing, inline images, editor engine, logging and
+reviewed agent-action code remain valuable. Adapt them behind a presentation
+boundary. Do not copy another client's implementation, ship personal profiles,
+or conflate this browser mock with production connection logic.
+
+1. **Confirm the composition and terminology.** Review light/dark/red/blue,
+   narrow widths, expanded character trees, selected destination, nested splits,
+   detached frames, and advanced tool reachability with fictional profiles.
+2. **Define a stable presentation model.** Give each connection, stream and pane
+   a stable identifier. Views bind to stream IDs; commands resolve the owning
+   connection just before dispatch and abort if it changed or closed. Treat
+   topology as a tree independent from transcript data. Preserve image/text
+   routing and existing authorization boundaries.
+3. **Prove a native vertical slice.** Implement two fictional characters with
+   identically named channels, main output, a destination-aware composer,
+   three nested pane groups, a detached native frame, and live theme switching.
+   Test actual mouse center-join and all four edge-split actions, keyboard
+   placement, cancellation, restoration, and retained drafts.
+4. **Own the geometry where MFC cannot.** MFC's existing tab sizing hooks do not
+   deliver the desired per-instance height/font/hit regions. Introduce controls
+   that own measurement, drawing, hit testing, focus and accessibility, rather
+   than repainting a legacy rectangle. Retain existing docking only if it can
+   meet the model and physical interaction contract; replace the docking host
+   too if it blocks it. Choose a toolkit after this focused feasibility proof.
+   This prototype is not a decision to embed a browser into the native client.
+5. **Apply the same components to remaining tools.** Editor/completion, logging,
+   aliases/triggers, reviewed agent operations, profiles, menus and status
+   surfaces should share the system. Production agent review must show actual
+   proposed changes and existing permissions, not the study's fixed examples.
+   Preserve the existing game-agnostic logging preflight: run the optional
+   configured command/script under its existing authorization, wait for the
+   configured reply trigger, collect fields, resolve the filename, then start
+   logging. Display missing-field and timeout states instead of silently using
+   an incomplete name. BoD `+loginfo` remains a preset rather than engine logic.
+6. **Accept behavior and performance.** Check real mouse/keyboard operation,
+   assistive technologies, high contrast, mixed DPI, snap, floating/rejoining,
+   nested restoration, reading positions and selections, routing correctness,
+   long histories, image output, typing latency and sustained use. Avoid rebuilding
+   the layout or replaying transcript history on each output update.
+
+The separated browser model may inform a future web interface. It does not
+implement a webclient, server transport, authentication, credential protection,
+session recovery, or secure remote agent review. Those are separate design and
+engineering work.
+
+## Verification boundary
+
+`node docs/prototypes/workspace-model.test.cjs` passes 81 focused assertions for
+edge moves, joining, reordering, nested trees, all-detached recovery, persistence,
+resize clamps and identity rejection. Independent seeded stress testing passed
+9,000 move/join/split/detach/rejoin/resize operations across three fictional
+profiles, validating every resulting layout and JSON roundtrip. JavaScript
+syntax checks pass. The worker parser has separate named-field, invalid-pattern,
+nonmatch and input-bound checks. These checks concern the original browser model
+and local sample parsing only.
+
+Browser interaction and screenshot acceptance is recorded separately with the
+review run. Neither this model evidence nor browser screenshots establish native
+MFC interaction, physical mixed-DPI behavior, screen-reader acceptance,
+production performance or release readiness.

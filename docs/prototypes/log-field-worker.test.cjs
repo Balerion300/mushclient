@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {parseReply}=require('./log-field-worker.js');
+const pattern='^IC (?<game_year>\\d+)-(?<game_month>\\d+)-(?<game_day>\\d+)$';
+assert.deepEqual(parseReply(pattern,'IC 178-04-18'),{matched:true,fields:{game_year:'178',game_month:'04',game_day:'18'}});
+assert.equal(parseReply(pattern,'Other output').matched,false);
+assert.equal(parseReply(pattern,'First line\nIC 178-04-18\nLast line').fields.game_day,'18');
+assert.ok(parseReply('[','x').error);
+assert.deepEqual(parseReply('hello','hello'),{matched:true,fields:{}});
+assert.ok(parseReply('x'.repeat(501),'x').error);
+assert.ok(parseReply('x','x'.repeat(4001)).error);
+assert.deepEqual(parseReply('Room: (?<room>.+)','Room: Lantern Court').fields,{room:'Lantern Court'});
+console.log(JSON.stringify({pass:true,checks:8,scope:'Sample named-field parser only. UI worker timeout is separate browser acceptance.'}));

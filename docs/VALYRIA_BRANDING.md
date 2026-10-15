@@ -24,7 +24,10 @@ remain intact. Importing these branding assets does not grant a separate MIT
 license to the Fourteen Flames identity or imply third-party trademark rights.
 
 Verification: the seven imported files match the installed source byte for byte.
-The Release executable built successfully. Its three icon groups each contain
+The Release and Debug executables built successfully. The Release icon groups contain
 the original fourteen image payloads (16 through 256 pixels), verified directly
-from the compiled resources. A fictional loopback client startup and Lua
-plugin/logging smoke test passed. Existing installed clients were untouched.
+from the compiled resources. Fictional loopback client startup and Lua
+plugin/logging smoke tests passed in both configurations. Existing installed
+clients were untouched.
+Clean full-package generation also passed; all seven packaged identity files
+matched the source assets and the branding/provenance notice was included.
