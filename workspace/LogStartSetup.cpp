@@ -1,12 +1,14 @@
 #define NOMINMAX
 #include "LogStartSetup.h"
 #include "LogNameConfig.h"
+#include "WorkflowUi.h"
 #include <algorithm>
 #include <cstring>
 #include <cwctype>
 
 namespace {
-enum { Normal = 101, Script, Target, Function, World, ConfigureNames };
+enum { Normal = 101, Script, Target, Function, World, ConfigureNames,
+       SourceLabel, FunctionLabel, ScriptHint, LoggingHelp };
 const wchar_t *NamingPlugin = L"7c1e480cf1d24cb28f9a1062";
 
 struct SetupState {
@@ -62,15 +64,15 @@ std::vector<unsigned char> Template() {
           Normal, 0x80, L"&Normal logging (choose a file when starting)");
   Control(bytes, BS_AUTORADIOBUTTON | WS_TABSTOP, 12, 63, 358, 14, Script,
           0x80, L"Advanced: run a start &script");
-  Control(bytes, SS_LEFT, 24, 89, 70, 12, WORD(-1), 0x82, L"Script &source:");
+  Control(bytes, SS_LEFT, 24, 89, 70, 12, SourceLabel, 0x82, L"Script &source:");
   Control(bytes, CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP,
           97, 86, 273, 125, Target, 0x85, L"");
-  Control(bytes, SS_LEFT, 24, 117, 70, 12, WORD(-1), 0x82, L"&Function name:");
+  Control(bytes, SS_LEFT, 24, 117, 70, 12, FunctionLabel, 0x82, L"&Function name:");
   Control(bytes, WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 97, 114, 273, 16,
           Function, 0x81, L"");
-  Control(bytes, SS_LEFT, 24, 139, 346, 19, WORD(-1), 0x82,
+  Control(bytes, SS_LEFT, 24, 139, 346, 19, ScriptHint, 0x82,
           L"Leave the function name empty to use normal logging.");
-  Control(bytes, SS_LEFT, 12, 165, 358, 47, WORD(-1), 0x82,
+  Control(bytes, SS_LEFT, 12, 165, 358, 47, LoggingHelp, 0x82,
           L"File > Log session runs the chosen function when starting a log. "
           L"Your script can gather server details with triggers, then call "
           L"OpenLogExclusive(filename) and WriteLog(text) to create the log "
@@ -95,8 +97,20 @@ std::wstring GetText(HWND control) {
 }
 void EnableScript(HWND dialog) {
   bool script = IsDlgButtonChecked(dialog, Script) == BST_CHECKED;
-  EnableWindow(GetDlgItem(dialog, Target), script);
-  EnableWindow(GetDlgItem(dialog, Function), script);
+  for(int id:{Target,Function,SourceLabel,FunctionLabel,ScriptHint}){
+    EnableWindow(GetDlgItem(dialog,id),script);ShowWindow(GetDlgItem(dialog,id),script?SW_SHOW:SW_HIDE);
+  }
+  auto move=[&](int id,int x,int y,int w,int h){RECT r={x,y,x+w,y+h};MapDialogRect(dialog,&r);MoveWindow(GetDlgItem(dialog,id),r.left,r.top,r.right-r.left,r.bottom-r.top,TRUE);};
+  SetDlgItemTextW(dialog,LoggingHelp,script?
+    L"The start function runs only when you start a log. It can collect server details and open a new log file.":
+    L"Choose a file when starting a log, or set up automatic file names. Saving this setup does not start logging or send a game command.");
+  move(LoggingHelp,12,script?165:88,358,script?47:36);
+  move(ConfigureNames,12,script?219:131,222,22);
+  move(IDOK,244,script?241:162,60,22);move(IDCANCEL,310,script?241:162,60,22);
+  RECT content={0,0,382,script?274:194};MapDialogRect(dialog,&content);
+  AdjustWindowRectEx(&content,(DWORD)GetWindowLongPtrW(dialog,GWL_STYLE),FALSE,(DWORD)GetWindowLongPtrW(dialog,GWL_EXSTYLE));
+  SetWindowPos(dialog,0,0,0,content.right-content.left,content.bottom-content.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+  workspace_style::FitToWorkArea(dialog);
 }
 void Center(HWND dialog, HWND owner) {
   RECT bounds = {}, parent = {};
@@ -118,7 +132,7 @@ void Center(HWND dialog, HWND owner) {
 }
 enum { Folder = 201, Filename, Request, StartReply, EndReply, Header,
        Fields, FieldName, FieldRegex, Capture, Transform, Required,
-       AddField, RemoveField };
+       AddField, RemoveField, AdvancedNames };
 bool LocalEncodingFailed = false;
 std::string LocalText(const std::wstring &text) {
   if (text.empty()) return "";
@@ -190,12 +204,43 @@ std::vector<unsigned char> NamesTemplate() {
           L"Capture is a group number (1, 2, ...) or a named group. Example: "
           L"field game_year, match ^Year: (\\d+)$, capture 1. Request and rules "
           L"run only when you later choose Start Logging. Reply collection is bounded to 30 seconds.");
-  control(BS_DEFPUSHBUTTON | WS_TABSTOP | WS_GROUP, 302, 327, 60, 17, IDOK, 0x80, L"Use settings");
+  control(BS_DEFPUSHBUTTON | WS_TABSTOP | WS_GROUP, 302, 327, 60, 17, IDOK, 0x80, L"&Save");
   control(BS_PUSHBUTTON | WS_TABSTOP, 368, 327, 60, 17, IDCANCEL, 0x80, L"Cancel");
   reinterpret_cast<DLGTEMPLATE *>(bytes.data())->cdit = count;
   return bytes;
 }
-struct NamesState { LogNameConfiguration config; int selected = -1; };
+struct NamesState {
+  LogNameConfiguration config; int selected = -1;
+  struct Item {HWND control;RECT rect;bool advanced;};
+  std::vector<Item> controls;
+  bool expanded=false;
+  int contentWidth=0,contentHeight=0,advancedTop=0,x=0,y=0;
+};
+void NamesLayout(HWND dialog,NamesState& state,bool resize=false){
+  const int gap=workspace_style::Scale(dialog,36),pad=workspace_style::Scale(dialog,12);
+  int contentHeight=state.expanded?state.contentHeight+gap:state.advancedTop+gap+workspace_style::Scale(dialog,48);
+  if(resize){RECT outer,client;GetWindowRect(dialog,&outer);GetClientRect(dialog,&client);
+    SetWindowPos(dialog,0,0,0,outer.right-outer.left,contentHeight+outer.bottom-outer.top-(client.bottom-client.top),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+    workspace_style::FitToWorkArea(dialog);
+  }
+  RECT client;GetClientRect(dialog,&client);
+  state.x=std::max(0,std::min(state.x,std::max(0,state.contentWidth-(int)client.right)));
+  state.y=std::max(0,std::min(state.y,std::max(0,contentHeight-(int)client.bottom)));
+  SCROLLINFO vertical={sizeof(vertical),SIF_RANGE|SIF_PAGE|SIF_POS,0,contentHeight-1,(UINT)std::max(1L,client.bottom),state.y,0};
+  SCROLLINFO horizontal={sizeof(horizontal),SIF_RANGE|SIF_PAGE|SIF_POS,0,state.contentWidth-1,(UINT)std::max(1L,client.right),state.x,0};
+  SetScrollInfo(dialog,SB_VERT,&vertical,TRUE);SetScrollInfo(dialog,SB_HORZ,&horizontal,TRUE);
+  for(const auto& item:state.controls){RECT r=item.rect;int id=GetDlgCtrlID(item.control);
+    if(item.advanced){ShowWindow(item.control,state.expanded?SW_SHOW:SW_HIDE);r.top+=gap;r.bottom+=gap;}
+    if(id==IDOK || id==IDCANCEL){const int height=r.bottom-r.top;r.top=state.expanded?r.top+gap:state.advancedTop+gap+pad;r.bottom=r.top+height;}
+    MoveWindow(item.control,r.left-state.x,r.top-state.y,r.right-r.left,r.bottom-r.top,TRUE);
+  }
+  MoveWindow(GetDlgItem(dialog,AdvancedNames),pad-state.x,state.advancedTop-state.y,state.contentWidth-2*pad,gap-pad,TRUE);
+  SetDlgItemTextW(dialog,AdvancedNames,state.expanded?L"Hide optional server details":L"Optional server details and reply rules...");
+}
+void NamesRevealFocus(HWND dialog,NamesState& state){HWND focus=GetFocus();if(!focus || !IsChild(dialog,focus))return;RECT r,client;GetWindowRect(focus,&r);MapWindowPoints(0,dialog,(POINT*)&r,2);GetClientRect(dialog,&client);
+  const int pad=workspace_style::Scale(dialog,8);int dx=r.left<pad?r.left-pad:r.right>client.right-pad?r.right-client.right+pad:0;
+  int dy=r.top<pad?r.top-pad:r.bottom>client.bottom-pad?r.bottom-client.bottom+pad:0;
+  if(dx || dy){state.x+=dx;state.y+=dy;NamesLayout(dialog,state);}}
 bool Name(const std::string &name) {
   return !name.empty() && name.size() <= 64 &&
          ((name[0] >= 'A' && name[0] <= 'Z') ||
@@ -288,12 +333,33 @@ INT_PTR CALLBACK NamesProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     CheckDlgButton(dialog, Header, cfg.header ? BST_CHECKED : BST_UNCHECKED);
     for (auto name : {L"As captured", L"Unsigned number", L"Two or more digits", L"Month name to 01-12"})
       SendDlgItemMessageW(dialog, Transform, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name));
-    FillFields(dialog, *state); Center(dialog, GetWindow(dialog, GW_OWNER)); return TRUE;
+    FillFields(dialog, *state);
+    RECT client,request;GetClientRect(dialog,&client);GetWindowRect(GetDlgItem(dialog,Request),&request);MapWindowPoints(0,dialog,(POINT*)&request,2);
+    state->contentWidth=client.right;state->contentHeight=client.bottom;state->advancedTop=request.top;
+    for(HWND child=GetWindow(dialog,GW_CHILD);child;child=GetWindow(child,GW_HWNDNEXT)){RECT r;GetWindowRect(child,&r);MapWindowPoints(0,dialog,(POINT*)&r,2);int id=GetDlgCtrlID(child);
+      state->controls.push_back({child,r,r.top>=request.top && id!=IDOK && id!=IDCANCEL});}
+    CreateWindowW(L"BUTTON",L"Optional server details and reply rules...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,dialog,(HMENU)AdvancedNames,GetModuleHandleW(0),0);
+    state->expanded=!cfg.request.empty() || !cfg.fields.empty();
+    workflow_ui::Polish(dialog);
+    workflow_ui::Button(dialog,AdvancedNames,workspace_style::Icon::Settings);
+    workflow_ui::Button(dialog,IDOK,workspace_style::Icon::Save,true);
+    workflow_ui::Button(dialog,IDCANCEL,workspace_style::Icon::Close);
+    workflow_ui::Button(dialog,AddField,workspace_style::Icon::Add);
+    workflow_ui::Button(dialog,RemoveField,workspace_style::Icon::Remove);
+    NamesLayout(dialog,*state,true);Center(dialog,GetWindow(dialog,GW_OWNER));return TRUE;
   }
   if (!state) return FALSE;
+  if(message==WM_SIZE && !state->controls.empty()){NamesLayout(dialog,*state);return TRUE;}
+  if(message==WM_VSCROLL || message==WM_HSCROLL){const int bar=message==WM_VSCROLL?SB_VERT:SB_HORZ;SCROLLINFO info={sizeof(info),SIF_ALL};GetScrollInfo(dialog,bar,&info);int& offset=bar==SB_VERT?state->y:state->x;
+    switch(LOWORD(wp)){case SB_LINEUP:offset-=workspace_style::Scale(dialog,24);break;case SB_LINEDOWN:offset+=workspace_style::Scale(dialog,24);break;case SB_PAGEUP:offset-=(int)info.nPage;break;case SB_PAGEDOWN:offset+=(int)info.nPage;break;case SB_THUMBTRACK:offset=info.nTrackPos;break;}
+    NamesLayout(dialog,*state);return TRUE;}
+  if(message==WM_MOUSEWHEEL){state->y-=MulDiv(GET_WHEEL_DELTA_WPARAM(wp),workspace_style::Scale(dialog,56),WHEEL_DELTA);NamesLayout(dialog,*state);return TRUE;}
+  if(message==WM_NEXTDLGCTL){PostMessageW(dialog,WM_APP+741,0,0);return FALSE;}
+  if(message==WM_APP+741){NamesRevealFocus(dialog,*state);return TRUE;}
   if (message == WM_CLOSE) { EndDialog(dialog, IDCANCEL); return TRUE; }
   if (message != WM_COMMAND) return FALSE;
   switch (LOWORD(wp)) {
+  case AdvancedNames:state->expanded=!state->expanded;NamesLayout(dialog,*state,true);return TRUE;
   case Fields:
     if (HIWORD(wp) == CBN_SELCHANGE) {
       int selected = static_cast<int>(SendDlgItemMessageW(dialog, Fields, CB_GETCURSEL, 0, 0));
@@ -408,6 +474,10 @@ INT_PTR CALLBACK Proc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     CheckRadioButton(dialog, Normal, Script,
                       state->options.script.empty() ? Normal : Script);
     EnableScript(dialog);
+    workflow_ui::Polish(dialog);
+    workflow_ui::Button(dialog,IDOK,workspace_style::Icon::Save,true);
+    workflow_ui::Button(dialog,IDCANCEL,workspace_style::Icon::Close);
+    workflow_ui::Button(dialog,ConfigureNames,workspace_style::Icon::Logging);
     Center(dialog, GetWindow(dialog, GW_OWNER));
     return TRUE;
   }

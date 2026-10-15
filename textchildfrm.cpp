@@ -16,9 +16,9 @@ static char BASED_CODE THIS_FILE[] = __FILE__;
 /////////////////////////////////////////////////////////////////////////////
 // CTextChildFrame
 
-IMPLEMENT_DYNCREATE(CTextChildFrame, CMDIChildWnd)
+IMPLEMENT_DYNCREATE(CTextChildFrame, CMDIChildWndEx)
 
-BEGIN_MESSAGE_MAP(CTextChildFrame, CMDIChildWnd)
+BEGIN_MESSAGE_MAP(CTextChildFrame, CMDIChildWndEx)
 	//{{AFX_MSG_MAP(CTextChildFrame)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
@@ -42,12 +42,12 @@ CTextChildFrame::~CTextChildFrame()
 #ifdef _DEBUG
 void CTextChildFrame::AssertValid() const
 {
-	CMDIChildWnd::AssertValid();
+	CMDIChildWndEx::AssertValid();
 }
 
 void CTextChildFrame::Dump(CDumpContext& dc) const
 {
-	CMDIChildWnd::Dump(dc);
+	CMDIChildWndEx::Dump(dc);
 }
 
 #endif //_DEBUG
@@ -61,7 +61,7 @@ BOOL CTextChildFrame::PreCreateWindow(CREATESTRUCT& cs)
 	
 	cs.style &= ~FWS_ADDTOTITLE;  // do not add document name to window title
 		
-	return CMDIChildWnd::PreCreateWindow(cs);
+	return CMDIChildWndEx::PreCreateWindow(cs);
 }
 
 
@@ -72,7 +72,7 @@ void CTextChildFrame::OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, HMEN
   if (Frame.IsFullScreen ())
     return;
 
-  CMDIChildWnd::OnUpdateFrameMenu (bActivate, pActivateWnd, hMenuAlt);
+  CMDIChildWndEx::OnUpdateFrameMenu (bActivate, pActivateWnd, hMenuAlt);
 
   }
 
@@ -81,5 +81,21 @@ BOOL CTextChildFrame::OnCreateClient(LPCREATESTRUCT lpcs, CCreateContext* pConte
    m_pDoc = (CTextDocument*) pContext->m_pCurrentDoc;
    ASSERT_VALID(m_pDoc);
 	
-	return CMDIChildWnd::OnCreateClient(lpcs, pContext);
+	return CMDIChildWndEx::OnCreateClient(lpcs, pContext);
+}
+
+void CTextChildFrame::OnUpdateFrameTitle(BOOL addToTitle)
+{
+  WorkspaceModernResources resources;
+  CMDIChildWndEx::OnUpdateFrameTitle(addToTitle);
+}
+
+LRESULT CTextChildFrame::WindowProc(UINT message, WPARAM wp, LPARAM lp)
+{
+  if(message==WM_MDIACTIVATE || message==WM_SETTEXT || message==WM_SIZE)
+  {
+    WorkspaceModernResources resources;
+    return CMDIChildWndEx::WindowProc(message,wp,lp);
+  }
+  return CMDIChildWndEx::WindowProc(message,wp,lp);
 }

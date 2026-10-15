@@ -8,6 +8,7 @@
 #include <afxtabbedpane.h>
 #pragma pop_macro("Translate")
 #include "workspace/WorkspaceInputPolicy.h"
+#include "workspace/WorkspaceSpawnPolicy.h"
 
 // Independently implemented native workspace; no external client code.
 #define ID_WORKSPACE_TRANSCRIPT 59000
@@ -31,6 +32,7 @@ struct WorkspaceRecord
   unsigned __int64 firstSourceCookie;
   CString connectionId;
   bool hasSurfaceColors, bleedBackground;
+  bool serverOutput = false, imageOnly = false;
   COLORREF surfaceForeground, surfaceBackground;
   std::vector<WorkspaceRun> runs;
   std::shared_ptr<CInlineImage> image;
@@ -58,6 +60,7 @@ struct WorkspaceRoute
   CString connectionId, transcriptName;
   std::wstring pattern;
   bool regex, omitFromMain;
+  bool followingImages = false;
   std::shared_ptr<void> compiled;
   WorkspaceRoute() : regex(false), omitFromMain(false) {}
   bool Compile(CString& error);
@@ -86,7 +89,10 @@ public:
   bool RetainedSourceAfter(const CString& id,const CString& name,unsigned __int64 boundary) const;
   size_t TranscriptCount() const { return m_transcripts.size(); }
   bool FocusTranscript(size_t index);
+  bool FocusSearch(){if(!m_search.GetSafeHwnd())return false;m_search.SetFocus();return true;}
   unsigned int UnreadCount(const CString& id,const CString& name) const;
+  unsigned int MentionCount(const CString& id,const CString& name) const;
+  bool SetPreferences(const CString& id,const CString& name,const workspace_spawn::Preferences& preferences);
   std::wstring InputPrefix(const CString& id,const CString& name) const;
   bool IsEmpty() const { return m_transcripts.empty(); }
   bool OpenTranscript(const CString& connectionId, const CString& name);
@@ -137,6 +143,9 @@ protected:
     bool batchPending;
     ViewState batchView;
     unsigned int unread;
+    unsigned int mentions = 0;
+    workspace_spawn::Preferences preferences;
+    std::wstring foldedMention;
     int renderedWidth,connectionState;
     COLORREF surfaceForeground,surfaceBackground;
     Transcript():deferredRemoved(0),retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1),surfaceForeground(RGB(225,225,225)),surfaceBackground(RGB(25,25,28)){}

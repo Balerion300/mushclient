@@ -22,10 +22,13 @@ p.add_argument('--ascii',action='store_true')
 p.add_argument('--font',default='Consolas')
 p.add_argument('--image-url',default='https://raw.githubusercontent.com/Balerion300/mushclient/codex/inline-static-images/tests/fixture-scene.png')
 p.add_argument('--blocked-images',action='store_true')
+p.add_argument('--spawn-features',action='store_true',help='Exercise opt-in mention matching, priorities and following-image routes.')
+p.add_argument('--split-spawns',action='store_true',help='Restore a balanced visible split layout instead of tabbing the routed panes.')
 a=p.parse_args()
 if a.seconds<1 or a.rate<0 or not 0<=a.routes<=8:p.error('Use positive seconds, nonnegative rate and zero to eight routes.')
+if a.split_spawns and a.routes<2:p.error('Split-spawn profiling requires at least two routes.')
 dest=pathlib.Path(tempfile.mkdtemp(prefix='mush-perf-'+a.label+'-'))
-(dest/'config.json').write_text(json.dumps({'sha256':hashlib.sha256(a.exe.read_bytes()).hexdigest(),'seconds':a.seconds,'rate':a.rate,'routes':a.routes,'heartbeat':not a.no_heartbeat,'ascii':a.ascii,'visible_startup':a.visible,'font':a.font,'images':'blocked-loopback' if a.blocked_images else a.image_url}))
+(dest/'config.json').write_text(json.dumps({'sha256':hashlib.sha256(a.exe.read_bytes()).hexdigest(),'seconds':a.seconds,'rate':a.rate,'routes':a.routes,'heartbeat':not a.no_heartbeat,'ascii':a.ascii,'visible_startup':a.visible,'font':a.font,'spawn_features':a.spawn_features,'split_spawns':a.split_spawns,'images':'blocked-loopback' if a.blocked_images else a.image_url}))
 runtime=ROOT/'.distribution-source/extracted'
 shutil.copytree(runtime/'locale',dest/'locale')
 for f in (a.exe,runtime/'lua5.1.dll',ROOT/'third_party/scintilla/bin/Scintilla.dll'):
@@ -115,7 +118,32 @@ db=sqlite3.connect(dest/'mushclient_prefs.sqlite')
 db.executescript('CREATE TABLE control(name TEXT PRIMARY KEY,value INT);CREATE TABLE prefs(name TEXT PRIMARY KEY,value TEXT);CREATE TABLE worlds(name TEXT PRIMARY KEY,value TEXT);CREATE TABLE workspace_route_v1(world_id TEXT,name TEXT,pattern TEXT,regex INTEGER,omit_main INTEGER,PRIMARY KEY(world_id,name,pattern,regex));')
 db.executemany('INSERT INTO control VALUES(?,?)',[('database_version',1),('First time',0),('Version',507),('Tip_StartUp',1)])
 db.executemany('INSERT INTO prefs VALUES(?,?)',[('WorldList',str(world)),('EnableSpellCheck','0'),('AutoConnectWorlds','1'),('OpenWorldsMaximised','1'),('ConfirmBeforeClosingMushclient','0'),('ConfirmBeforeClosingWorld','0')])
-for i in range(a.routes):db.execute('INSERT INTO workspace_route_v1 VALUES(?,?,?,?,?)',('ab12cd34ef56ab12cd34ef56','Profile '+str(i),'^DATA|fixture-scene',1,0))
+if a.spawn_features:
+    db.executescript('CREATE TABLE workspace_spawn_preferences_v1(world_id TEXT NOT NULL,name TEXT NOT NULL,mention TEXT NOT NULL,priority INTEGER NOT NULL,shortcut INTEGER NOT NULL,PRIMARY KEY(world_id,name));CREATE TABLE workspace_route_images_v1(world_id TEXT NOT NULL,name TEXT NOT NULL,pattern TEXT NOT NULL,regex INTEGER NOT NULL,following_images INTEGER NOT NULL,PRIMARY KEY(world_id,name,pattern,regex));')
+for i in range(a.routes):
+    key=('ab12cd34ef56ab12cd34ef56','Profile '+str(i))
+    pattern='^DATA' if a.spawn_features else '^DATA|fixture-scene'
+    db.execute('INSERT INTO workspace_route_v1 VALUES(?,?,?,?,?)',(*key,pattern,1,0))
+    if a.spawn_features:
+        db.execute('INSERT INTO workspace_spawn_preferences_v1 VALUES(?,?,?,?,?)',(*key,'fictional output',i,0))
+        db.execute('INSERT INTO workspace_route_images_v1 VALUES(?,?,?,?,?)',(*key,pattern,1,1))
+if a.split_spawns:
+    nodes=[]
+    def split_model(indices, horizontal=False):
+        if len(indices)==1:
+            values=('ab12cd34ef56ab12cd34ef56','Profile '+str(indices[0]))
+            node='-1 -1 500 0 0 1\n'+''.join(value.encode('utf-8').hex()+'\n' for value in values)
+        else:
+            middle=len(indices)//2
+            left=split_model(indices[:middle],not horizontal)
+            right=split_model(indices[middle:],not horizontal)
+            node=f'{left} {right} 500 0 {int(horizontal)} 0\n'
+        nodes.append(node)
+        return len(nodes)-1
+    root_node=split_model(list(range(a.routes)))
+    forest=f'WDL3\n{len(nodes)} 1\n'+''.join(nodes)+f'{root_node} 32768 0 0 1 600 100 1800 1000\n'
+    db.execute('CREATE TABLE IF NOT EXISTS workspace_dock_forest_v3(slot INTEGER PRIMARY KEY CHECK(slot=1),data BLOB NOT NULL)')
+    db.execute('INSERT INTO workspace_dock_forest_v3 VALUES(1,?)',(forest.encode('ascii'),))
 db.commit();db.close()
 startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=1 if a.visible else 0
 client=subprocess.Popen([str(dest/a.exe.name),'/noregister'],cwd=dest,startupinfo=startup)

@@ -5,7 +5,10 @@
 #include "doc.h"
 #include "mainfrm.h"
 #include "workspace/WorkspaceInputPolicy.h"
+#include "workspace/WorkflowUi.h"
 #include <algorithm>
+#include <commctrl.h>
+#include <cstring>
 namespace {
 std::wstring RouteWide(const char *value) {
   if (!value)
@@ -60,6 +63,66 @@ bool RouteUtf8(const std::wstring &text, std::string &result) {
                              static_cast<int>(text.size()), &result[0], size,
                              NULL, NULL) != 0;
 }
+struct SpawnOptions {
+  CMainFrame* frame;
+  CString identity,name;
+  workspace_spawn::Preferences preferences;
+};
+HWND OptionControl(HWND dialog,const wchar_t* kind,const wchar_t* text,DWORD style,int id,int x,int y,int width,int height)
+{
+  RECT bounds={x,y,x+width,y+height};MapDialogRect(dialog,&bounds);
+  HWND control=::CreateWindowExW(!wcscmp(kind,L"EDIT")?WS_EX_CLIENTEDGE:0,kind,text,WS_CHILD|WS_VISIBLE|style,bounds.left,bounds.top,bounds.right-bounds.left,bounds.bottom-bounds.top,dialog,(HMENU)(INT_PTR)id,AfxGetInstanceHandle(),NULL);
+  ::SendMessageW(control,WM_SETFONT,::SendMessageW(dialog,WM_GETFONT,0,0),TRUE);return control;
+}
+INT_PTR CALLBACK SpawnOptionsProc(HWND dialog,UINT message,WPARAM wp,LPARAM lp)
+{
+  auto* options=(SpawnOptions*)GetWindowLongPtrW(dialog,DWLP_USER);
+  if(message==WM_INITDIALOG){
+    options=(SpawnOptions*)lp;SetWindowLongPtrW(dialog,DWLP_USER,lp);
+    SetWindowTextW(dialog,(L"Transcript options: "+RouteWide(options->name)).c_str());
+    auto label=[&](const wchar_t* text,int x,int y,int width,int height){OptionControl(dialog,L"STATIC",text,SS_LEFT,-1,x,y,width,height);};
+    label(L"Mention text (optional, literal, case-insensitive)",10,10,280,12);
+    HWND mention=OptionControl(dialog,L"EDIT",options->preferences.mention.c_str(),WS_TABSTOP|ES_AUTOHSCROLL,101,10,25,280,16);::SendMessageW(mention,EM_SETLIMITTEXT,128,0);
+    label(L"Mentions add unread badges only. No sound or focus change.",10,45,280,20);
+    label(L"Priority (-100 to 100; higher comes first)",10,70,220,14);
+    HWND priority=OptionControl(dialog,L"EDIT",std::to_wstring(options->preferences.priority).c_str(),WS_TABSTOP|ES_AUTOHSCROLL,102,238,67,52,17);::SendMessageW(priority,EM_SETLIMITTEXT,4,0);
+    label(L"Applies to the route list and pane navigation; docking stays as arranged.",10,90,280,23);
+    label(L"Focus shortcut (optional)",10,118,280,12);
+    HWND hotkey=OptionControl(dialog,HOTKEY_CLASSW,L"",WS_TABSTOP,103,10,133,215,18);::SendMessageW(hotkey,HKM_SETHOTKEY,options->preferences.shortcut,0);
+    OptionControl(dialog,L"BUTTON",L"Clear",WS_TABSTOP|BS_PUSHBUTTON,104,233,133,57,18);
+    label(L"Ctrl+Alt with a letter/digit, or a modified F key. F4/F6/F10, existing commands and Ctrl+Shift+F1-F9 are reserved. AltGr never moves focus.",10,157,280,30);
+    label(L"Ctrl+Alt+PageUp / PageDown moves through priority order when unused by existing commands.",10,190,280,25);
+    OptionControl(dialog,L"BUTTON",L"Save options",WS_TABSTOP|BS_DEFPUSHBUTTON,IDOK,163,222,61,18);
+    OptionControl(dialog,L"BUTTON",L"Cancel",WS_TABSTOP|BS_PUSHBUTTON,IDCANCEL,231,222,59,18);
+    return TRUE;
+  }
+  if(!options)return FALSE;
+  if(message==WM_CLOSE){EndDialog(dialog,IDCANCEL);return TRUE;}
+  if(message!=WM_COMMAND)return FALSE;
+  if(LOWORD(wp)==104){SendDlgItemMessageW(dialog,103,HKM_SETHOTKEY,0,0);return TRUE;}
+  if(LOWORD(wp)==IDCANCEL){EndDialog(dialog,IDCANCEL);return TRUE;}
+  if(LOWORD(wp)==IDOK){
+    try {
+      auto preferences=options->preferences;preferences.mention=Read(GetDlgItem(dialog,101),128);
+      auto priority=Read(GetDlgItem(dialog,102),4);wchar_t* end=NULL;long number=wcstol(priority.c_str(),&end,10);
+      if(priority.empty() || !end || *end || number < -100 || number>100){MessageBoxW(dialog,L"Choose a priority from -100 to 100.",L"Transcript options",MB_ICONWARNING);return TRUE;}
+      preferences.priority=(int)number;preferences.shortcut=(unsigned short)SendDlgItemMessageW(dialog,103,HKM_GETHOTKEY,0,0);
+      CString error;if(!options->frame->SetWorkspaceTranscriptPreferences(options->identity,options->name,preferences,error)){MessageBoxW(dialog,RouteWide(error).c_str(),L"Transcript options",MB_ICONWARNING);return TRUE;}
+      options->preferences=preferences;EndDialog(dialog,IDOK);
+    }catch(const std::exception& error){MessageBoxW(dialog,RouteWide(error.what()).c_str(),L"Transcript options",MB_ICONWARNING);}
+    return TRUE;
+  }
+  return FALSE;
+}
+void ShowSpawnOptions(HWND owner,SpawnOptions& options)
+{
+  std::vector<unsigned char> bytes(sizeof(DLGTEMPLATE),0);
+  auto* dialog=(DLGTEMPLATE*)bytes.data();dialog->style=WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_SETFONT;dialog->cx=300;dialog->cy=250;
+  auto append=[&](const void* value,size_t size){const auto* begin=(const unsigned char*)value;bytes.insert(bytes.end(),begin,begin+size);};
+  WORD zero=0,fontSize=9;append(&zero,sizeof(zero));append(&zero,sizeof(zero));
+  const wchar_t title[]=L"Transcript options";append(title,sizeof(title));append(&fontSize,sizeof(fontSize));const wchar_t face[]=L"Segoe UI";append(face,sizeof(face));
+  DialogBoxIndirectParamW(AfxGetInstanceHandle(),(DLGTEMPLATE*)bytes.data(),owner,SpawnOptionsProc,(LPARAM)&options);
+}
 } // namespace
 // This modeless tool retains its original connection regardless of world focus.
 class CWorkspaceRouteDialog : public CWnd {
@@ -67,26 +130,21 @@ class CWorkspaceRouteDialog : public CWnd {
   CString identity;
   CEdit name, pattern, prefix;
   CListBox routes;
-  CButton regex, omit, save, cancel, newRoute, removeRoute, channelExample,
+  CButton regex, omit, followingImages, advancedButton, optionsButton, save, cancel, newRoute, removeRoute, channelExample,
       tellExample;
   CStatic nameLabel, patternLabel, prefixLabel, destination, hint, feedback;
   CFont font;
   std::vector<WorkspaceRoute> visibleRoutes;
   int editing;
+  bool advanced=false;
+  int scrollOffset=0,contentHeight=0;
   UINT dpi;
   int Scale(int value) const { return MulDiv(value, dpi, 96); }
   void Feedback(const std::wstring &value) {
     ::SetWindowTextW(feedback.m_hWnd, value.c_str());
   }
   void Font() {
-    font.DeleteObject();
-    LOGFONT info = {};
-    GetObject(GetStockObject(DEFAULT_GUI_FONT), sizeof(info), &info);
-    info.lfHeight = -MulDiv(9, dpi, 72);
-    font.CreateFontIndirect(&info);
-    for (HWND child = ::GetWindow(m_hWnd, GW_CHILD); child;
-         child = ::GetWindow(child, GW_HWNDNEXT))
-      ::SendMessage(child, WM_SETFONT, (WPARAM)font.GetSafeHandle(), TRUE);
+    workflow_ui::Polish(m_hWnd);
   }
   void Destination() {
     CString world = "Closed world";
@@ -116,58 +174,53 @@ class CWorkspaceRouteDialog : public CWnd {
     CRect client;
     GetClientRect(client);
     int pad = Scale(12), width = max(120, client.Width() - 2 * pad),
-        listHeight = max(Scale(80), client.Height() - Scale(485));
+        listHeight = Scale(88);
+    contentHeight=Scale(594+(advanced?76:0));
+    scrollOffset=max(0,min(scrollOffset,max(0,contentHeight-client.Height())));
+    SCROLLINFO scrolling={sizeof(scrolling),SIF_RANGE|SIF_PAGE|SIF_POS,0,contentHeight-1,(UINT)max(1,client.Height()),scrollOffset,0};
+    SetScrollInfo(SB_VERT,&scrolling,TRUE);
     int y = pad;
-    destination.MoveWindow(pad, y, width, Scale(30));
-    y += Scale(34);
-    routes.MoveWindow(pad, y, width, listHeight);
-    y += listHeight + Scale(8);
-    int button = max(60, (width - 3 * Scale(6)) / 4);
-    CWnd *actions[] = {&newRoute, &removeRoute, &channelExample, &tellExample};
-    for (int i = 0; i < 4; ++i)
-      actions[i]->MoveWindow(pad + i * (button + Scale(6)), y, button,
-                             Scale(28));
-    y += Scale(38);
-    nameLabel.MoveWindow(pad, y, width, Scale(22));
-    y += Scale(24);
-    name.MoveWindow(pad, y, width, Scale(26));
-    y += Scale(34);
-    patternLabel.MoveWindow(pad, y, width, Scale(22));
-    y += Scale(24);
-    pattern.MoveWindow(pad, y, width, Scale(26));
-    y += Scale(34);
-    prefixLabel.MoveWindow(pad, y, width, Scale(22));
-    y += Scale(24);
-    prefix.MoveWindow(pad, y, width, Scale(26));
-    y += Scale(34);
-    regex.MoveWindow(pad, y, width, Scale(26));
-    y += Scale(30);
-    omit.MoveWindow(pad, y, width, Scale(32));
-    y += Scale(36);
-    hint.MoveWindow(pad, y, width, Scale(44));
-    y += Scale(48);
-    save.MoveWindow(pad, y, max(90, width - Scale(112)), Scale(30));
-    cancel.MoveWindow(pad + width - Scale(104), y, Scale(104), Scale(30));
-    y += Scale(36);
-    feedback.MoveWindow(pad, y, width,
-                        max(Scale(32), client.Height() - y - pad));
+    auto move=[&](CWnd& control,int x,int row,int w,int height){control.MoveWindow(x,row-scrollOffset,w,height);};
+    move(destination,pad,y,width,Scale(34));y+=Scale(40);
+    const int third=(width-Scale(16))/3;
+    CWnd* common[]={&channelExample,&tellExample,&newRoute};
+    for(int i=0;i<3;++i)move(*common[i],pad+i*(third+Scale(8)),y,third,Scale(30));y+=Scale(38);
+    move(routes,pad,y,width,listHeight);y+=listHeight+Scale(8);
+    const int half=(width-Scale(8))/2;
+    move(optionsButton,pad,y,half,Scale(28));move(removeRoute,pad+half+Scale(8),y,half,Scale(28));y+=Scale(36);
+    CWnd* labels[]={&nameLabel,&patternLabel,&prefixLabel};CWnd* edits[]={&name,&pattern,&prefix};
+    for(int i=0;i<3;++i){move(*labels[i],pad,y,width,Scale(20));y+=Scale(22);move(*edits[i],pad,y,width,Scale(28));y+=Scale(34);}
+    move(omit,pad,y,width,Scale(30));y+=Scale(34);
+    move(advancedButton,pad,y,width,Scale(28));y+=Scale(34);
+    regex.ShowWindow(advanced?SW_SHOW:SW_HIDE);followingImages.ShowWindow(advanced?SW_SHOW:SW_HIDE);
+    if(advanced){move(regex,pad,y,width,Scale(28));y+=Scale(32);move(followingImages,pad,y,width,Scale(38));y+=Scale(44);}
+    move(hint,pad,y,width,Scale(34));y+=Scale(40);
+    move(save,pad,y,max(90,width-Scale(112)),Scale(32));move(cancel,pad+width-Scale(104),y,Scale(104),Scale(32));y+=Scale(40);
+    move(feedback,pad,y,width,Scale(44));
+    contentHeight=y+Scale(56);
+    scrolling.nMax=contentHeight-1;SetScrollInfo(SB_VERT,&scrolling,TRUE);
   }
+  void RevealFocus(){HWND focused=::GetFocus();if(!focused || !::IsChild(m_hWnd,focused))return;
+    CRect control,client;::GetWindowRect(focused,control);ScreenToClient(control);GetClientRect(client);
+    int delta=control.top<Scale(12)?control.top-Scale(12):control.bottom>client.bottom-Scale(12)?control.bottom-client.bottom+Scale(12):0;
+    if(delta){scrollOffset=max(0,min(scrollOffset+delta,max(0,contentHeight-client.Height())));Layout();}}
   void RefreshRoutes() {
     visibleRoutes.clear();
     routes.ResetContent();
     const std::vector<WorkspaceRoute> &all = frame->WorkspaceRoutes();
-    for (size_t i = 0; i < all.size(); ++i)
-      if (all[i].connectionId == identity) {
-        visibleRoutes.push_back(all[i]);
+    auto sorted=all;std::stable_sort(sorted.begin(),sorted.end(),[&](const WorkspaceRoute& a,const WorkspaceRoute& b){const int pa=frame->WorkspaceTranscriptPreferences(a.connectionId,a.transcriptName).priority,pb=frame->WorkspaceTranscriptPreferences(b.connectionId,b.transcriptName).priority;if(pa!=pb)return pa>pb;const int name=a.transcriptName.Compare(b.transcriptName);return name?name<0:a.pattern<b.pattern;});
+    for (size_t i = 0; i < sorted.size(); ++i)
+      if (sorted[i].connectionId == identity) {
+        const auto& route=sorted[i];visibleRoutes.push_back(route);
         std::wstring label =
-            RouteWide((LPCTSTR)all[i].transcriptName) + L" | " +
-            (all[i].regex ? L"regex: " : L"literal: ") + all[i].pattern +
-            (all[i].omitFromMain ? L" | hidden from Main"
-                                 : L" | copied from Main");
+            RouteWide((LPCTSTR)route.transcriptName) + L" | priority "+std::to_wstring(frame->WorkspaceTranscriptPreferences(identity,route.transcriptName).priority)+L" | " +
+            (route.regex ? L"regex: " : L"literal: ") + route.pattern +
+            (route.omitFromMain ? L" | hidden from Main" : L" | copied from Main")+(route.followingImages?L" | following images":L"");
         ::SendMessageW(routes.m_hWnd, LB_ADDSTRING, 0, (LPARAM)label.c_str());
       }
     editing = -1;
     removeRoute.EnableWindow(FALSE);
+    optionsButton.EnableWindow(FALSE);
     save.SetWindowText("Create route");
     Destination();
   }
@@ -179,14 +232,15 @@ public:
     return CreateEx(WS_EX_DLGMODALFRAME,
                     AfxRegisterWndClass(0, LoadCursor(NULL, IDC_ARROW),
                                         (HBRUSH)(COLOR_BTNFACE + 1)),
-                    "Output routes and spawn input",
+                    "Channels & tells",
                     WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME |
-                        WS_MINIMIZEBOX,
+                        WS_MINIMIZEBOX | WS_VSCROLL,
                     CRect(200, 100, 860, 800), frame, 0);
   }
   virtual void PostNcDestroy() { delete this; }
   virtual BOOL PreTranslateMessage(MSG *message) {
     if (message->message == WM_KEYDOWN) {
+      if(message->wParam==VK_TAB && ::IsDialogMessage(m_hWnd,message)){RevealFocus();return TRUE;}
       if (message->wParam == VK_ESCAPE) {
         OnClose();
         return TRUE;
@@ -231,27 +285,26 @@ protected:
     removeRoute.Create("Delete",
                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                        CRect(0, 0, 1, 1), this, 9);
-    channelExample.Create("Channel example",
+    channelExample.Create("Channel",
                           WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                           CRect(0, 0, 1, 1), this, 11);
-    tellExample.Create("Tell example",
+    tellExample.Create("Tell",
                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                        CRect(0, 0, 1, 1), this, 12);
+    optionsButton.Create("Options...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,13);
+    advancedButton.Create("Advanced routing",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,15);
     nameLabel.Create("Transcript name", WS_CHILD | WS_VISIBLE,
                      CRect(0, 0, 1, 1), this);
-    patternLabel.Create("Incoming text to match (case-sensitive unless your "
-                        "regex says otherwise)",
+    patternLabel.Create("Incoming label or text to match",
                         WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     prefixLabel.Create(
-        "Outgoing command prefix (include the needed trailing space or =)",
+        "Reply prefix (include a trailing space or = when needed)",
         WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     destination.Create("Original world", WS_CHILD | WS_VISIBLE,
                        CRect(0, 0, 1, 1), this);
-    hint.Create("Blank prefix: type a complete game command. Enter submits "
-                "human input to this original world; agent/editor proposals "
-                "require their separate review.",
+    hint.Create("A blank reply prefix accepts complete commands. Replies go to the original world shown above.",
                 WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
-    feedback.Create("Choose New or select an existing rule to edit it.",
+    feedback.Create("Choose a channel or tell example, or select a saved rule. Select a rule to enable Options and Delete.",
                     WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     CEdit *edits[] = {&name, &pattern, &prefix};
     int ids[] = {1, 2, 10};
@@ -276,12 +329,22 @@ protected:
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX |
                     BS_MULTILINE,
                 CRect(0, 0, 1, 1), this, 4);
+    followingImages.Create("Include up to 4 immediately following server images (within 2 seconds)",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX|BS_MULTILINE,CRect(0,0,1,1),this,14);
     save.Create("Create route",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
                 CRect(0, 0, 1, 1), this, 5);
     cancel.Create("Close", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                   CRect(0, 0, 1, 1), this, 6);
     Font();
+    using workspace_style::Icon;
+    workflow_ui::Button(m_hWnd,5,Icon::Save,true);
+    workflow_ui::Button(m_hWnd,6,Icon::Close);
+    workflow_ui::Button(m_hWnd,8,Icon::Add);
+    workflow_ui::Button(m_hWnd,9,Icon::Remove);
+    workflow_ui::Button(m_hWnd,11,Icon::Channels,false,L"Fill a channel example. Replace its label and reply prefix before saving.");
+    workflow_ui::Button(m_hWnd,12,Icon::Channels,false,L"Fill a tell example. Choose the recipient and match text before saving.");
+    workflow_ui::Button(m_hWnd,13,Icon::Settings);
+    workflow_ui::Button(m_hWnd,15,Icon::ChevronDown);
     Layout();
     RefreshRoutes();
     SetTimer(1, 1000, NULL);
@@ -292,8 +355,8 @@ protected:
     Layout();
   }
   afx_msg void OnGetMinMaxInfo(MINMAXINFO *info) {
-    info->ptMinTrackSize.x = Scale(520);
-    info->ptMinTrackSize.y = Scale(650);
+    info->ptMinTrackSize.x = Scale(400);
+    info->ptMinTrackSize.y = Scale(420);
     CWnd::OnGetMinMaxInfo(info);
   }
   afx_msg LRESULT OnDpiChanged(WPARAM value, LPARAM bounds) {
@@ -307,6 +370,11 @@ protected:
     Layout();
     return 0;
   }
+  afx_msg void OnAdvanced(){advanced=!advanced;advancedButton.SetWindowText(advanced?"Hide advanced routing":"Advanced routing");Layout();}
+  afx_msg void OnVScroll(UINT code,UINT,CScrollBar*){SCROLLINFO info={sizeof(info),SIF_ALL};GetScrollInfo(SB_VERT,&info);int next=scrollOffset;
+    if(code==SB_LINEUP)next-=Scale(28);else if(code==SB_LINEDOWN)next+=Scale(28);else if(code==SB_PAGEUP)next-=(int)info.nPage;else if(code==SB_PAGEDOWN)next+=(int)info.nPage;else if(code==SB_THUMBTRACK)next=info.nTrackPos;
+    scrollOffset=max(0,min(next,max(0,contentHeight-(int)info.nPage)));Layout();}
+  afx_msg BOOL OnMouseWheel(UINT,short delta,CPoint){scrollOffset=max(0,scrollOffset-MulDiv(delta,Scale(56),WHEEL_DELTA));Layout();return TRUE;}
   afx_msg void OnTimer(UINT_PTR id) {
     if (id == 1)
       Destination();
@@ -325,6 +393,9 @@ protected:
         frame->WorkspaceInputPrefix(identity, route.transcriptName).c_str());
     regex.SetCheck(route.regex ? BST_CHECKED : BST_UNCHECKED);
     omit.SetCheck(route.omitFromMain ? BST_CHECKED : BST_UNCHECKED);
+    followingImages.SetCheck(route.followingImages?BST_CHECKED:BST_UNCHECKED);
+    if(route.regex || route.followingImages){advanced=true;advancedButton.SetWindowText("Hide advanced routing");Layout();}
+    optionsButton.EnableWindow(TRUE);
     removeRoute.EnableWindow(TRUE);
     save.SetWindowText("Save changes");
     Feedback(L"Editing the selected rule. The prefix applies to this entire "
@@ -338,6 +409,7 @@ protected:
     ::SetWindowTextW(prefix.m_hWnd, L"");
     regex.SetCheck(BST_UNCHECKED);
     omit.SetCheck(BST_UNCHECKED);
+    followingImages.SetCheck(BST_UNCHECKED);optionsButton.EnableWindow(FALSE);
     removeRoute.EnableWindow(FALSE);
     save.SetWindowText("Create route");
     Feedback(L"New rule: choose received text to match and an optional "
@@ -428,6 +500,7 @@ protected:
       route.pattern = patternText;
       route.regex = regex.GetCheck() == BST_CHECKED;
       route.omitFromMain = omit.GetCheck() == BST_CHECKED;
+      route.followingImages=followingImages.GetCheck()==BST_CHECKED;
       CString error;
       if (!route.Compile(error)) {
         Feedback(RouteWide((LPCTSTR)error));
@@ -470,6 +543,7 @@ protected:
     CWnd::OnDestroy();
   }
   afx_msg void OnClose() { DestroyWindow(); }
+  afx_msg void OnOptions(){if(editing<0 || editing>=(int)visibleRoutes.size())return;SpawnOptions options;options.frame=frame;options.identity=identity;options.name=visibleRoutes[editing].transcriptName;options.preferences=frame->WorkspaceTranscriptPreferences(identity,options.name);const HWND owner=m_hWnd;ShowSpawnOptions(owner,options);if(::IsWindow(owner) && CWnd::FromHandlePermanent(owner)==this)RefreshRoutes();}
   DECLARE_MESSAGE_MAP()
 };
 BEGIN_MESSAGE_MAP(CWorkspaceRouteDialog, CWnd)
@@ -479,6 +553,8 @@ ON_WM_DESTROY()
 ON_WM_SIZE()
 ON_WM_GETMINMAXINFO()
 ON_WM_TIMER()
+ON_WM_VSCROLL()
+ON_WM_MOUSEWHEEL()
 ON_MESSAGE(WM_DPICHANGED, OnDpiChanged)
 ON_BN_CLICKED(5, OnSave)
 ON_BN_CLICKED(6, OnClose)
@@ -486,6 +562,8 @@ ON_BN_CLICKED(8, OnNew)
 ON_BN_CLICKED(9, OnDelete)
 ON_BN_CLICKED(11, OnChannel)
 ON_BN_CLICKED(12, OnTell)
+ON_BN_CLICKED(13, OnOptions)
+ON_BN_CLICKED(15, OnAdvanced)
 ON_LBN_SELCHANGE(7, OnSelect)
 END_MESSAGE_MAP()
 void OpenWorkspaceRouteManager(CMainFrame *frame, const CString &identity) {
@@ -493,5 +571,6 @@ void OpenWorkspaceRouteManager(CMainFrame *frame, const CString &identity) {
   if (!dialog->Open())
     return;
   dialog->ShowWindow(SW_SHOW);
+  workspace_style::FitToWorkArea(dialog->GetSafeHwnd(),400,420);
   dialog->SetForegroundWindow();
 }

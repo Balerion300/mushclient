@@ -8,6 +8,7 @@
 #include "AgentBridgeHost.h"
 #include "WorkspaceSceneDirector.h"
 #include "workspace/AgentReviewPane.h"
+#include "workspace/WorkflowUi.h"
 #include <map>
 #include <regex>
 
@@ -53,16 +54,7 @@ std::string text(HWND w) {
 }
 int scale(Ui &u, int value) { return MulDiv(value, u.dpi, 96); }
 void setFont(Ui &u) {
-  HFONT old = u.font;
-  LOGFONTW info = {};
-  GetObjectW(GetStockObject(DEFAULT_GUI_FONT), sizeof(info), &info);
-  info.lfHeight = -MulDiv(9, u.dpi, 72);
-  u.font = CreateFontIndirectW(&info);
-  for (HWND child = GetWindow(u.window, GW_CHILD); child;
-       child = GetWindow(child, GW_HWNDNEXT))
-    SendMessageW(child, WM_SETFONT, (WPARAM)u.font, TRUE);
-  if (old)
-    DeleteObject(old);
+  workflow_ui::Polish(u.window);
 }
 void layout(Ui &u, int width, int height) {
   if (!u.list)
@@ -118,7 +110,7 @@ void layout(Ui &u, int width, int height) {
 }
 HWND control(Ui &u, const wchar_t *cls, const wchar_t *caption, DWORD style,
              int id, int x, int y, int w, int h) {
-  HWND c = CreateWindowExW(WS_EX_CLIENTEDGE, cls, caption,
+  HWND c = CreateWindowExW(!wcscmp(cls,L"EDIT") || !wcscmp(cls,L"LISTBOX")?WS_EX_CLIENTEDGE:0, cls, caption,
                            WS_CHILD | WS_VISIBLE | style |
                                (!wcscmp(cls, L"STATIC") ? 0 : WS_TABSTOP),
                            x, y, w, h, u.window, (HMENU)(INT_PTR)id,
@@ -165,6 +157,10 @@ void accessStatus(Ui &u) {
   SetWindowTextW(u.session, wide(label).c_str());
   if (u.kind == 59003)
     EnableWindow(GetDlgItem(u.window, 20), summary.session != 0);
+  if(u.kind==59002)EnableWindow(GetDlgItem(u.window,20),SendMessageW(u.list,LB_GETSELCOUNT,0,0)>0);
+  EnableWindow(GetDlgItem(u.window,22),summary.session!=0);
+  if(u.kind==59003 && !summary.session)status(u,"Posting is unavailable while access is off. Open Access & sharing to choose output for this agent.");
+  if(u.kind==59002 && SendMessageW(u.list,LB_GETSELCOUNT,0,0)<=0 && !summary.session)status(u,"Select one or more output windows to enable access. Draft sharing is optional and stays off until checked.");
 }
 std::string displayLines(const std::string &value) {
   std::string result;
@@ -298,10 +294,10 @@ LRESULT CALLBACK proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       u->session = control(*u, L"STATIC", L"Access starts disabled", 0, 27, 12,
                            36, 740, 25);
       if (u->kind == 59003)
-        control(*u, L"BUTTON", L"Access / sharing...", BS_PUSHBUTTON, 25, 12,
+        control(*u, L"BUTTON", L"Access && sharing...", BS_PUSHBUTTON, 25, 12,
                 465, 180, 28);
       if (u->kind == 59003)
-        control(*u, L"BUTTON", L"Review / captures...", BS_PUSHBUTTON, 26, 202,
+        control(*u, L"BUTTON", L"Review drafts && activity...", BS_PUSHBUTTON, 26, 202,
                 465, 180, 28);
       if (u->kind == 59002)
         control(*u, L"BUTTON", L"Allow unsent drafts and reviewed edits",
@@ -312,6 +308,14 @@ LRESULT CALLBACK proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
           *u, L"STATIC",
           L"Access starts disabled. Select only the output you want to share.",
           0, 0, 12, 505, 740, 55);
+      workflow_ui::Polish(w);
+      using workspace_style::Icon;
+      workflow_ui::Button(w,20,u->kind==59003?Icon::Send:Icon::Agent,true);
+      workflow_ui::Button(w,21,Icon::Refresh);
+      workflow_ui::Button(w,22,Icon::Close);
+      workflow_ui::Button(w,23,Icon::Close);
+      if(u->kind==59003){workflow_ui::Button(w,25,Icon::Settings);workflow_ui::Button(w,26,Icon::Editor);}
+      workflow_ui::Button(w,29,Icon::ChevronDown);
       refresh(*u);
       accessStatus(*u);
       SetTimer(w, 1, 1000, NULL);
@@ -325,8 +329,8 @@ LRESULT CALLBACK proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == WM_GETMINMAXINFO) {
       auto limits = (MINMAXINFO *)lp;
-      limits->ptMinTrackSize.x = 340;
-      limits->ptMinTrackSize.y = 440;
+      limits->ptMinTrackSize.x = scale(*u,380);
+      limits->ptMinTrackSize.y = scale(*u,440);
       return 0;
     }
     if (msg == WM_SIZE && u->list) {
@@ -335,6 +339,7 @@ LRESULT CALLBACK proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == WM_DPICHANGED) {
       u->dpi = LOWORD(wp);
+      workflow_ui::DpiChanged(w,lp);
       setFont(*u);
       RECT client;
       GetClientRect(w, &client);
@@ -347,6 +352,7 @@ LRESULT CALLBACK proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       accessStatus(*u);
       return 0;
     }
+    if(msg==WM_COMMAND && LOWORD(wp)==11 && HIWORD(wp)==LBN_SELCHANGE){accessStatus(*u);return 0;}
     if (msg == WM_COMMAND && HIWORD(wp) == BN_CLICKED) {
       unsigned id = LOWORD(wp);
       std::string a;
@@ -501,6 +507,7 @@ void OpenWorkspaceTool(CMainFrame &frame, UINT command) {
                       WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 790,
                       630, frame.GetSafeHwnd(), NULL, cls.hInstance, u);
   if (w) {
+    workspace_style::FitToWorkArea(w,380,440);
     if (command == 59003)
       frame.HostWorkspaceTool(w, "Agent conversations");
     ShowWindow(w, SW_SHOW);
@@ -513,6 +520,7 @@ void ShutdownWorkspaceTools() {
 }
 
 BOOL WorkspaceTranslateMessage(MSG *message) {
+  if(App.m_pMainWnd && Frame.GetSafeHwnd() && Frame.HandleWorkspaceShortcut(message))return TRUE;
   if (message->message < WM_KEYFIRST || message->message > WM_KEYLAST)
     return FALSE;
   HWND owner = NULL;
@@ -562,6 +570,7 @@ BOOL WorkspaceTranslateMessage(MSG *message) {
     return TRUE;
   wchar_t focusedClass[80] = {0};
   ::GetClassNameW(message->hwnd, focusedClass, 80);
+  if(workflow_ui::Keyboard(owner,message))return TRUE;
   if (message->message == WM_KEYDOWN && control && message->wParam == 'A' &&
       (!_wcsicmp(focusedClass, L"EDIT") ||
        !_wcsicmp(focusedClass, L"RICHEDIT50W"))) {
@@ -570,8 +579,12 @@ BOOL WorkspaceTranslateMessage(MSG *message) {
   }
   if (message->message == WM_KEYDOWN && message->wParam == VK_TAB &&
       _wcsicmp(focusedClass, L"Scintilla") &&
-      ::IsDialogMessageW(owner, message))
+      ::IsDialogMessageW(owner, message)) {
+    // A constrained tool viewport follows keyboard focus, including controls
+    // nested inside a native combo/hotkey control.
+    ::PostMessageW(owner,WM_APP+742,0,0);
     return TRUE;
+  }
   // Deliver native control/subclass shortcuts before the legacy game
   // accelerators.
   ::TranslateMessage(message);

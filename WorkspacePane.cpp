@@ -83,8 +83,13 @@ CWorkspacePane::~CWorkspacePane()
 BOOL CWorkspacePane::Create(CFrameWnd* frame,UINT barId)
 {
   WorkspaceModernResources resources;
-  SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));
-  return CDockablePane::Create("Transcripts",frame,CRect(0,0,360,350),TRUE,barId,WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|CBRS_RIGHT);
+  // Native mouse docking rejects edge drops into floating groups unless the
+  // individual pane advertises multi-pane floating support.
+  const BOOL created=CDockablePane::Create("Transcripts",frame,CRect(0,0,360,350),TRUE,barId,WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|CBRS_RIGHT|CBRS_FLOAT_MULTI);
+  // CreateEx selects its default classes. Install our resource-aware hosts
+  // afterwards so tab detachment and later floating keep using them.
+  if(created){SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));}
+  return created;
 }
 CDockablePane* CWorkspacePane::AttachToTabWnd(CDockablePane* target,AFX_DOCK_METHOD method,BOOL active,CDockablePane** group)
 {WorkspaceModernResources resources;return CDockablePane::AttachToTabWnd(target,method,active,group);}
@@ -166,7 +171,7 @@ bool CWorkspacePane::OpenTranscript(const CString& id, const CString& name)
     }
   for (size_t i=0; i<m_transcripts.size(); ++i)
     if (m_transcripts[i]==transcript) m_tabs.SetCurSel((int)i);
-  if(!transcript->paused){transcript->unread=0;for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]==transcript)UpdateTabLabel(i);}
+  if(!transcript->paused){transcript->unread=0;transcript->mentions=0;for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]==transcript)UpdateTabLabel(i);}
   LayoutChildren();
   return true;
 }
@@ -265,6 +270,23 @@ void CWorkspacePane::EndRenderBatch()
     transcript->text.Invalidate();
   }
 }
+namespace {
+std::wstring MentionFold(const std::wstring& text)
+{
+  if(text.empty())return {};
+  int length=LCMapStringEx(LOCALE_NAME_INVARIANT,LCMAP_LOWERCASE,text.data(),(int)text.size(),NULL,0,NULL,NULL,0);
+  if(!length)return {};
+  std::wstring folded(length,L'\0');
+  if(!LCMapStringEx(LOCALE_NAME_INVARIANT,LCMAP_LOWERCASE,text.data(),(int)text.size(),&folded[0],length,NULL,NULL,0))return {};
+  return folded;
+}
+bool RecordMentions(const WorkspaceRecord& record,const std::wstring& mention)
+{
+  if(mention.empty() || !record.serverOutput || record.imageOnly)return false;
+  std::wstring text;for(const auto& run:record.runs)text+=run.text;
+  return MentionFold(text).find(mention)!=std::wstring::npos;
+}
+}
 bool CWorkspacePane::AppendRecord(const CString& name, const WorkspaceRecord& record)
 {
   Transcript* transcript=Find(record.connectionId,name);
@@ -276,6 +298,7 @@ bool CWorkspacePane::AppendRecord(const CString& name, const WorkspaceRecord& re
   CBaseTabbedPane* group=IsTabbed()?GetParentTabbedPane():NULL;
   const bool inactive=group && group->GetUnderlyingWindow() && group->GetUnderlyingWindow()->GetActiveWnd()!=this;
   if(transcript->paused || inactive){
+    if(RecordMentions(record,transcript->foldedMention))transcript->mentions=min(9999U,transcript->mentions+1);
     transcript->deferred=true;
     transcript->records.push_back(record);
     transcript->retainedBytes+=incoming*sizeof(wchar_t)+(record.image?512*384*4:0);
@@ -297,7 +320,7 @@ bool CWorkspacePane::AppendRecord(const CString& name, const WorkspaceRecord& re
   const bool follow=view.follow;
   size_t tabIndex=0;for(;tabIndex<m_transcripts.size();++tabIndex)if(m_transcripts[tabIndex]==transcript)break;
   const bool visible=IsWindowVisible()!=FALSE && m_tabs.GetCurSel()==(int)tabIndex && !transcript->paused && follow;
-  if(!visible) { transcript->unread=min(9999U,transcript->unread+1);m_labelDirty=true; }
+  if(!visible) { transcript->unread=min(9999U,transcript->unread+1);if(RecordMentions(record,transcript->foldedMention))transcript->mentions=min(9999U,transcript->mentions+1);m_labelDirty=true; }
   transcript->text.SetRedraw(FALSE);
   transcript->records.push_back(record);
   size_t& retainedBytes=transcript->retainedBytes;
@@ -400,14 +423,14 @@ void CWorkspacePane::OnSetFocus(CWnd* oldWindow)
 {
   RefreshDeferred();
   CDockablePane::OnSetFocus(oldWindow);
-  if(!m_transcripts.empty() && !m_transcripts[0]->paused){m_transcripts[0]->unread=0;UpdateTabLabel(0);}
+  if(!m_transcripts.empty() && !m_transcripts[0]->paused){m_transcripts[0]->unread=0;m_transcripts[0]->mentions=0;UpdateTabLabel(0);}
 }
 void CWorkspacePane::OnTabChanged(NMHDR*,LRESULT* result)
 {
   SaveInputDraft();
   const int selected=m_tabs.GetCurSel();
   if(selected>=0 && selected<(int)m_transcripts.size() && !m_transcripts[selected]->paused)
-    {m_transcripts[selected]->unread=0;UpdateTabLabel(selected);}
+    {m_transcripts[selected]->unread=0;m_transcripts[selected]->mentions=0;UpdateTabLabel(selected);}
   LayoutChildren(); *result=0;
 }
 
@@ -860,7 +883,7 @@ bool CWorkspacePane::HasTranscript(const CString& id,const CString& name) const
 bool CWorkspacePane::ClearTranscript(const CString& id,const CString& name)
 {
   Transcript* transcript=Find(id,name);if(!transcript)return false;
-  transcript->records.clear();transcript->links.clear();transcript->imageStates.clear();transcript->renderedEnds.clear();transcript->deferredRemoved=0;transcript->retainedBytes=0;transcript->deferred=false;transcript->unread=0;
+  transcript->records.clear();transcript->links.clear();transcript->imageStates.clear();transcript->renderedEnds.clear();transcript->deferredRemoved=0;transcript->retainedBytes=0;transcript->deferred=false;transcript->unread=0;transcript->mentions=0;
   for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]==transcript)UpdateTabLabel(i);
   ::SetWindowTextW(transcript->text.m_hWnd,L"");
   if(name!="Output" && m_pruneHandler)m_pruneHandler(id,name,transcript->records);
@@ -882,7 +905,7 @@ void CWorkspacePane::OnPause()
 {
   const int selected=m_tabs.GetCurSel();if(selected<0 || selected>=(int)m_transcripts.size())return;
   Transcript& transcript=*m_transcripts[selected];transcript.paused=m_pause.GetCheck()==BST_CHECKED;
-  if(!transcript.paused) {transcript.unread=0;UpdateTabLabel(selected);RefreshDeferred();}
+  if(!transcript.paused) {transcript.unread=0;transcript.mentions=0;UpdateTabLabel(selected);RefreshDeferred();}
 }
 
 void CWorkspacePane::UpdateTabLabel(size_t index)
@@ -892,6 +915,7 @@ void CWorkspacePane::UpdateTabLabel(size_t index)
   const Transcript& transcript=*m_transcripts[index];
   CString label=transcript.name+" ["+transcript.connectionId.Left(8)+"]";
   if(transcript.unread) {CString count;count.Format(" (%u)",transcript.unread);label+=count;}
+  if(transcript.mentions){CString count;count.Format(" [mentions: %u]",transcript.mentions);label+=count;}
   TCITEM item;memset(&item,0,sizeof(item));item.mask=TCIF_TEXT;item.pszText=const_cast<char*>((LPCTSTR)label);
   m_tabs.SetItem((int)index,&item);SetWindowText(label);
   if(IsTabbed()){CBaseTabbedPane* group=GetParentTabbedPane();if(group && group->GetUnderlyingWindow()){CMFCBaseTabCtrl* tabs=group->GetUnderlyingWindow();int tab=tabs->GetTabFromHwnd(m_hWnd);if(tab>=0)tabs->SetTabLabel(tab,label);}}
@@ -900,13 +924,24 @@ bool CWorkspacePane::FocusTranscript(size_t index)
 {
   if(index>=m_transcripts.size())return false;SaveInputDraft();m_tabs.SetCurSel((int)index);
   Transcript& transcript=*m_transcripts[index];
-  if(!transcript.paused){transcript.unread=0;UpdateTabLabel(index);}
+  if(!transcript.paused){transcript.unread=0;transcript.mentions=0;UpdateTabLabel(index);}
   LayoutChildren();transcript.text.SetFocus();return true;
 }
 unsigned int CWorkspacePane::UnreadCount(const CString& id,const CString& name) const
 {
   for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]->connectionId==id && m_transcripts[i]->name==name)return m_transcripts[i]->unread;
   return 0;
+}
+unsigned int CWorkspacePane::MentionCount(const CString& id,const CString& name) const
+{
+  for(const auto* transcript:m_transcripts)if(transcript->connectionId==id && transcript->name==name)return transcript->mentions;
+  return 0;
+}
+bool CWorkspacePane::SetPreferences(const CString& id,const CString& name,const workspace_spawn::Preferences& preferences)
+{
+  auto* transcript=Find(id,name);if(!transcript || !workspace_spawn::Valid(preferences))return false;
+  if(transcript->preferences.mention!=preferences.mention)transcript->mentions=0;
+  transcript->preferences=preferences;transcript->foldedMention=MentionFold(preferences.mention);m_labelDirty=true;return true;
 }
 std::wstring CWorkspacePane::InputPrefix(const CString& id,const CString& name) const
 {

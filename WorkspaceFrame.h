@@ -9,6 +9,7 @@
 #include <functional>
 #include <vector>
 #pragma pop_macro("Translate")
+#include "WorkspaceResources.h"
 
 // The enhanced docking manager owns workspace panes. Classic MUSHclient bars
 // still use their original docking contexts and reserve their measured area.
@@ -68,6 +69,18 @@ public:
   {
     CMDIFrameWnd::EnableDocking(CBRS_ALIGN_ANY);
     CMDIFrameWndEx::EnableDocking(CBRS_ALIGN_ANY);
+    CMDIFrameWndEx::EnableAutoHidePanes(CBRS_ALIGN_ANY);
     CDockingManager::SetDockingMode(DT_SMART);
+  }
+  // FloatPane alone reparents a tabbed leaf without removing its old tab.
+  // Use the tab host's native detach path so recent docking information and
+  // the original transcript HWND remain intact for caption double-click.
+  BOOL FloatWorkspacePane(CDockablePane& pane,const CRect& bounds)
+  {
+    WorkspaceModernResources resources;
+    if(pane.IsAutoHideMode())pane.SetAutoHideMode(FALSE,CBRS_ALIGN_ANY);
+    CBaseTabbedPane* group=pane.GetParentTabbedPane();
+    if(group && !group->DetachPane(&pane,TRUE))return FALSE;
+    return pane.FloatPane(bounds,DM_SHOW);
   }
 };

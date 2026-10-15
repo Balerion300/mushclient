@@ -183,3 +183,36 @@ of a channel match with following image records, and an opt-in Notepad adapter.
 They do not block testing the requested primary editor, docking and agent flows.
 Do not mark the preview release-ready until its final acceptance evidence and
 real-device/daily-use limitations have been reviewed. See WORKSPACE_TESTS.md.
+
+## October 15 follow-up and redesign gate
+
+PR #2 is merged into the fork's default `master` branch at `d2af77a`.
+The next functional work runs on `codex/workspace-completion`:
+
+1. Complete agent workflow acceptance, including explicit private reads,
+   transcript deletion and reviewed scene sends. Keep supported UI automation
+   limits separate from native/mock-transport correctness checks.
+2. Repair duplicate tabs after float/redock and implement versioned portable
+   nested split-tree and auto-hide restoration, preserving existing pane identity.
+3. Add opt-in mention matching, configurable transcript focus shortcuts,
+   deterministic priority navigation and bounded same-world following-image
+   association. Preserve user dock order, original destinations and privacy.
+4. Verify the actual live `+loginfo` format against the bundled optional preset,
+   retaining live output only outside Git and clean packages.
+5. Build and run focused regressions plus a short actual-client input/output
+   responsiveness test. The memory investigation remains closed.
+
+Only after these checks pass, create a separate redesign branch from the
+validated functional candidate and reassign three Sol-high agents to:
+
+- Shared native styling, typography, spacing, DPI metrics and icon/button
+  components, independent of game transcript fonts and ANSI colors.
+- Main navigation and labeled daily action bars, with friendly world/channel
+  organization and discoverable advanced commands.
+- Workflow-oriented tools/settings, with clear destinations, progressive
+  disclosure, keyboard access and retained review/sharing boundaries.
+
+The redesign retains the connection, scripting, triggers, world management,
+bounded transcript rendering and portable personal-state boundary. It uses
+independent native UI work; no Valyria/Atlantis implementation or assets are
+copied. Prototype the redesigned main window before broadly converting dialogs.

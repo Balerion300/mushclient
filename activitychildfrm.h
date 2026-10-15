@@ -2,7 +2,13 @@
 //
 /////////////////////////////////////////////////////////////////////////////
 
-class CActivityChildFrame : public CMDIChildWnd
+#pragma push_macro("Translate")
+#undef Translate
+#include <afxmdichildwndex.h>
+#pragma pop_macro("Translate")
+#include "WorkspaceResources.h"
+
+class CActivityChildFrame : public CMDIChildWndEx
 {
 	DECLARE_DYNCREATE(CActivityChildFrame)
 public:
@@ -14,6 +20,8 @@ protected:
 // Operations
 public:
 
+  virtual void OnUpdateFrameTitle(BOOL addToTitle) override;
+  virtual LRESULT WindowProc(UINT message, WPARAM wp, LPARAM lp) override;
   virtual void OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, HMENU hMenuAlt);
 
 // Overrides

@@ -12,5 +12,5 @@ public:
  void EnableDocking(DWORD) {EnableWorkspaceDocking();}
  void DockControlBar(CDockablePane* pane,UINT dock=AFX_IDW_DOCKBAR_RIGHT){DockPane(pane,dock);}
  void ShowControlBar(CDockablePane* pane,BOOL show,BOOL delay){pane->ShowPane(show,delay,show);}
- void FloatControlBar(CDockablePane* pane,CPoint point,DWORD){pane->FloatPane(CRect(point,CSize(500,350)),DM_SHOW);}
+ void FloatControlBar(CDockablePane* pane,CPoint point,DWORD){FloatWorkspacePane(*pane,CRect(point,CSize(500,350)));}
 };

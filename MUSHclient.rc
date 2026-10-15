@@ -123,9 +123,9 @@ END
 
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
-IDR_MAINFRAME           ICON    DISCARDABLE     "res\\MUSHclient.ico"
-IDR_MUSHCLTYPE          ICON    DISCARDABLE     "res\\MUSHclient.ico"
-IDR_NORMALTYPE          ICON    DISCARDABLE     "res\\MUSHclient.ico"
+IDR_MAINFRAME           ICON    DISCARDABLE     "res\\valyria.ico"
+IDR_MUSHCLTYPE          ICON    DISCARDABLE     "res\\valyria.ico"
+IDR_NORMALTYPE          ICON    DISCARDABLE     "res\\valyria.ico"
 #endif    // English (Australia) resources
 /////////////////////////////////////////////////////////////////////////////
 

@@ -64,6 +64,7 @@ void WorkspaceExpireConnection(CMUSHclientDoc* doc)
 {
   std::map<CMUSHclientDoc*,Identity>::iterator it=identities.find(doc);
   if(it==identities.end()) return;
+  if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(it->second.id);
   PennEditorInvalidateEndpoint((LPCTSTR)it->second.id);
   humanInputErrors[it->second.id]=L"Original world disconnected; draft preserved.";
   const std::string panePrefix=std::string((LPCTSTR)it->second.id)+"/pane/";
@@ -77,6 +78,7 @@ void WorkspaceCloseDocument(CMUSHclientDoc* doc)
 {
   std::map<CMUSHclientDoc*,Identity>::iterator it=identities.find(doc);
   if(it==identities.end()) return;
+  if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(it->second.id);
   PennEditorInvalidateEndpoint((LPCTSTR)it->second.id);
   humanInputErrors.erase(it->second.id);
   const std::string panePrefix=std::string((LPCTSTR)it->second.id)+"/pane/";
@@ -90,6 +92,7 @@ void WorkspaceCloseDocument(CMUSHclientDoc* doc)
 }
 void WorkspaceClearOutput(CMUSHclientDoc* doc)
 {
+  auto connection=identities.find(doc);if(connection!=identities.end() && App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(connection->second.id);
   auto found=identities.find(doc);
   if(found!=identities.end()) {
     agentStore.resetWindow((LPCTSTR)found->second.id);
@@ -107,10 +110,12 @@ WorkspaceRecord captureLines(CMUSHclientDoc* doc,const std::vector<CLine*>& line
     doc->TranslateColour(doc->m_bCustom16isDefaultColour?doc->m_customback[15]:doc->m_normalcolour[BLACK],1.0);
   record.surfaceForeground=doc->TranslateColour(doc->m_bCustom16isDefaultColour?doc->m_customtext[15]:doc->m_normalcolour[WHITE],1.0);
   if(lines.empty())return record;
+  record.serverOutput=(lines.front()->flags&NOTE_OR_COMMAND)==0;
   record.firstSourceCookie=lines.front()->m_workspaceCookie;
   CLine* final=lines.back();
   record.receivedAtMillis=static_cast<unsigned __int64>(final->m_theTime.GetTime())*1000;
   if(final->IsInlineImage()) {record.image=final->m_inlineImage;record.imageWidth=final->m_imageWidth;record.imageHeight=final->m_imageHeight;record.imageAction=final->m_imageSource;}
+  record.imageOnly=record.serverOutput && lines.size()==1 && final->IsInlineImage();
   size_t remaining=131072;
   for(CLine* line:lines) {
     if(!remaining)break;
@@ -210,8 +215,8 @@ bool WorkspacePublishRecord(CMUSHclientDoc* doc,const WorkspaceRecord& prepared,
   std::wstring text;
   for(size_t i=0;i<record.runs.size();++i) text+=record.runs[i].text;
   // Correlated private IDE replies never enter shared transcripts or routes.
-  if(PennEditorHandleOutput((LPCTSTR)record.connectionId,utf8(text)))return true;
-  if(omitted)return false;
+  if(PennEditorHandleOutput((LPCTSTR)record.connectionId,utf8(text))){if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(record.connectionId);return true;}
+  if(omitted){if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(record.connectionId);return false;}
   // A completed logical record is copied once; neither sink invokes triggers.
   bool routedOmit=App.m_pMainWnd && Frame.GetSafeHwnd() && Frame.RouteWorkspaceRecord(record);
   if(!routedOmit)
@@ -246,7 +251,7 @@ WorkspacePublishGuard::~WorkspacePublishGuard()
           auto& deferred=deferredLocalLines[doc_];deferred.insert(sourceCookie_);
           while(deferred.size()>10000)deferred.erase(deferred.begin());
         } else WorkspacePublishRecord(doc_,captureAt(doc_,source),received_ && doc_->m_bLineOmittedFromOutput);
-      }
+      } else if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(identities[doc_].id);
     }
   }catch(...) { /* Optional workspace must not interrupt the existing receive path. */ }
   auto pending=pendingSourceLines.find(doc_);if(pending!=pendingSourceLines.end()){pending->second.erase(sourceCookie_);if(pending->second.empty())pendingSourceLines.erase(pending);}
@@ -264,7 +269,7 @@ bool WorkspacePublishGuard::PublishBeforeOmit()
   if(published_) return false;published_=true;
   if(!identities.count(doc_))return false;
   POSITION source=sourcePosition(doc_,sourceCookie_);
-  if(!source){auto pending=pendingSourceLines.find(doc_);if(pending!=pendingSourceLines.end()){pending->second.erase(sourceCookie_);if(pending->second.empty())pendingSourceLines.erase(pending);}return false;}
+  if(!source){if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(identities[doc_].id);auto pending=pendingSourceLines.find(doc_);if(pending!=pendingSourceLines.end()){pending->second.erase(sourceCookie_);if(pending->second.empty())pendingSourceLines.erase(pending);}return false;}
   record_=captureAt(doc_,source); // Original retained record, including trigger-adjusted styles.
   bool omit=false;try {omit=WorkspacePublishRecord(doc_,record_,received_ && doc_->m_bLineOmittedFromOutput);}catch(...){}
   auto pending=pendingSourceLines.find(doc_);if(pending!=pendingSourceLines.end()){pending->second.erase(sourceCookie_);if(pending->second.empty())pendingSourceLines.erase(pending);}
@@ -386,7 +391,10 @@ void WorkspaceBindSceneDraft(unsigned __int64 documentID,const std::string& draf
 bool WorkspaceSendPreparedEditor(const std::string& endpoint,unsigned __int64 documentID,unsigned __int64,const std::vector<std::string>& commands)
 {
   auto binding=sceneDraftBindings.find(documentID);
-  if(binding!=sceneDraftBindings.end() && (commands.size()!=1 || !agentStore.validateStagedDraft(binding->second,commands[0])))return false;
+  // SendMsg may run callbacks that close/rebind editor documents. Never retain
+  // a scene-binding iterator across that call; review belongs to this snapshot.
+  const std::string sceneDraft=binding==sceneDraftBindings.end()?std::string():binding->second;
+  if(!sceneDraft.empty() && (commands.size()!=1 || !agentStore.validateStagedDraft(sceneDraft,commands[0])))return false;
   if(commands.empty() || commands.size()>128)return false;
   size_t bytes=0;
   for(const auto& command:commands)
@@ -406,14 +414,19 @@ bool WorkspaceSendPreparedEditor(const std::string& endpoint,unsigned __int64 do
         // Validate connection before every line; SendMsg may run Lua callbacks.
         auto live=identities.find(doc);
         if(live==identities.end() || endpoint!=(LPCTSTR)live->second.id || doc->m_iConnectPhase!=eConnectConnectedToMud)return false;
-        if(binding!=sceneDraftBindings.end() && !agentStore.validateStagedDraft(binding->second,command))return false;
+        if(!sceneDraft.empty() && !agentStore.validateStagedDraft(sceneDraft,command))return false;
         const auto sent=doc->m_nTotalLinesSent;const auto queued=doc->m_QueuedCommandsList.GetCount();
         doc->SendMsg(encoded[commandIndex++].c_str(),true,false,false);
         live=identities.find(doc);
-        if(live==identities.end())return false;
+        if(live==identities.end() || endpoint!=(LPCTSTR)live->second.id || doc->m_iConnectPhase!=eConnectConnectedToMud)return false;
         if(doc->m_nTotalLinesSent==sent && doc->m_QueuedCommandsList.GetCount()<=queued)return false;
         }
-      if(binding!=sceneDraftBindings.end())agentStore.markStagedQueued(binding->second);
+      if(!sceneDraft.empty()) {
+        // A callback may pause/revoke/change the scene after dispatch. Report
+        // the uncertain result without throwing out of the native review UI.
+        if(!agentStore.validateStagedDraft(sceneDraft))return false;
+        agentStore.markStagedQueued(sceneDraft);
+      }
       return true;
       }
   return false;

@@ -9,6 +9,8 @@
 #include "MDITabs.h"
 #include "WorkspacePane.h"
 #include "WorkspaceFrame.h"
+namespace workspace_dock {class Session;struct Entry;}
+class CWorkspaceShell;
 
 class CMUSHclientDoc;
 
@@ -117,7 +119,30 @@ public:
    std::wstring WorkspaceInputPrefix(const CString& connectionId,const CString& name) const;
    bool FocusWorkspaceTranscript(size_t index);
    bool RouteWorkspaceRecord(const WorkspaceRecord& record);
+   void ClearWorkspaceImageAssociation(const CString& connectionId) { m_workspaceImages.Clear((LPCTSTR)connectionId); }
+   workspace_spawn::Preferences WorkspaceTranscriptPreferences(const CString& connectionId,const CString& name);
+   bool SetWorkspaceTranscriptPreferences(const CString& connectionId,const CString& name,const workspace_spawn::Preferences& preferences,CString& error);
+   bool HandleWorkspaceShortcut(MSG* message);
+   bool WorkspaceShortcutAvailable(unsigned short chord,const CString& connectionId,const CString& name,CString& error);
+   bool FocusRelativeWorkspaceTranscript(int direction);
    void SaveWorkspaceLayouts();
+  workspace_dock::Session* m_workspaceDockSession;
+  std::vector<workspace_dock::Entry> WorkspaceDockEntries() const;
+  void LoadWorkspaceDockState();
+  bool RestoreWorkspaceDockState(CWorkspacePane& pane,const CString& world,const CString& name);
+  CWorkspaceShell* m_workspaceShell;
+  CString m_workspaceShellWorld,m_workspaceShellName;
+  std::map<CString,std::pair<std::wstring,std::wstring>> m_workspaceCharacterLabels;
+  bool m_workspaceShellReady;
+  bool m_workspaceTabbedWorlds;
+  void SetWorkspaceTabbedWorlds(bool enabled);
+  unsigned m_workspaceLegacyMask;
+  void UpdateWorkspaceShell();
+  void WorkspaceShellAction(int action,const std::string& world,const std::string& name);
+  void SaveWorkspaceShell();
+  afx_msg LRESULT OnInitializeWorkspaceShell(WPARAM,LPARAM);
+  afx_msg void OnWorkspaceShellCommand(UINT command);
+  afx_msg void OnUpdateWorkspaceShellCommand(CCmdUI* command);
    void RestoreWorkspaceRoutes(const CString& connectionId);
    const std::vector<WorkspaceRoute>& WorkspaceRoutes() const { return m_workspaceRoutes; }
 
@@ -162,6 +187,8 @@ public:
   std::vector<CWorkspacePane*> m_workspaceSplits;
   std::vector<CWorkspacePane*> m_workspaceTools;
   std::vector<WorkspaceRoute> m_workspaceRoutes;
+  workspace_spawn::ImageAssociation m_workspaceImages;
+  std::map<std::pair<CString,CString>,workspace_spawn::Preferences> m_workspacePreferences;
   std::map<CWorkspacePane*,WorkspacePaneLayout> m_workspaceRestoreGroups;
   std::set<CWorkspacePane*> m_workspaceRestoredSplits;
   void RestoreWorkspacePaneGroup(CWorkspacePane& pane,const WorkspacePaneLayout& layout);

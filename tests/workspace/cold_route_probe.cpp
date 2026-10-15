@@ -7,6 +7,7 @@
 struct FixtureStore {sqlite3* db;};FixtureStore App={NULL};
 CString WorkspacePersistentWorld(const CString& id){const int marker=id.Find(":runtime:");return marker<0?id:id.Left(marker);}
 bool WorkspaceLayoutSchema(){return App.db!=NULL;}
+bool WorkspaceSpawnSchema(){return App.db && sqlite3_exec(App.db,"CREATE TABLE IF NOT EXISTS workspace_route_images_v1(world_id,name,pattern,regex,following_images,PRIMARY KEY(world_id,name,pattern,regex));",NULL,NULL,NULL)==SQLITE_OK;}
 std::wstring WorkspaceLayoutWide(const char* text){if(!text)return L"";int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text,-1,NULL,0);std::wstring out(n,L'\0');if(n)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text,-1,&out[0],n);if(n)out.resize(n-1);return out;}
 int published=0;void WorkspacePublishToPane(const CString&,const CString&,const WorkspaceRecord&){++published;}
 class CMainFrame
@@ -15,6 +16,7 @@ public:
  CWorkspacePane pane;
  std::vector<WorkspaceRoute> m_workspaceRoutes;
  std::set<CString> m_workspaceRestored,m_workspaceClosedConnections;
+ workspace_spawn::ImageAssociation m_workspaceImages;
  bool RouteWorkspaceRecord(const WorkspaceRecord& record);
  void RestoreWorkspaceRoutes(const CString& identity);
  bool AppendWorkspaceRecord(const CString& name,const WorkspaceRecord& record){return pane.AppendRecord(name,record);}

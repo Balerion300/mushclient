@@ -3,6 +3,7 @@
 #include "../AgentWorkspaceCore.h"
 #include "PennEditorWindow.h"
 #include "PennLanguage.h"
+#include "WorkflowUi.h"
 #include <algorithm>
 #include <chrono>
 #include <map>
@@ -35,6 +36,7 @@ struct Ui {
   std::string previewID, previewAgent, selectionWindow;
   uint64_t previewRevision = 0, previewSession = 0;
   bool previewCurrent = false;
+  bool hadGrant = false;
 };
 HWND Pane = 0;
 std::wstring Wide(const std::string &s) {
@@ -73,13 +75,15 @@ void StatusText(Ui *u, const std::string &s) {
 }
 HWND Control(Ui *u, const wchar_t *cls, const wchar_t *title, DWORD style,
              int id) {
-  auto h = CreateWindowExW(WS_EX_CLIENTEDGE, cls, title,
+  auto h = CreateWindowExW(!wcscmp(cls,L"STATIC") || !wcscmp(cls,L"BUTTON")?0:WS_EX_CLIENTEDGE, cls, title,
                            WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, u->window,
                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                            GetModuleHandleW(0), 0);
   SendMessageW(h, WM_SETFONT,
                reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),
                TRUE);
+  if(!wcscmp(cls,L"BUTTON"))workspace_style::StyleButton(h);
+  else workspace_style::StyleControl(h);
   return h;
 }
 int ModeValue(Ui *u) {
@@ -150,8 +154,10 @@ void RefreshList(Ui *u) {
   if (mode == Editors) {
     for (auto &e : u->snapshots) {
       ids.push_back(EditorKey(e.documentID));
+      std::string destination="Local / disconnected";
+      for(const auto& window:store.humanWindows())if(window.id==e.endpoint)destination=window.world+" / "+window.title;
       labels.push_back(
-          "Document " + std::to_string(e.documentID) + " | " + e.endpoint +
+          destination + " | document " + std::to_string(e.documentID) +
           " | revision " + std::to_string(e.revision) +
           (grant.editors.count(ids.back()) ? " | SHARED" : " | private"));
     }
@@ -246,10 +252,17 @@ void RefreshList(Ui *u) {
                mode == Outputs || mode == Captures);
   EnableWindow(GetDlgItem(u->window, Primary),
                mode != Proposals || u->previewCurrent);
+  const bool selectedItem=SendMessageW(u->list,LB_GETCURSEL,0,0)!=LB_ERR;
+  if(!selectedItem || (!grant.session && mode!=Drafts)){
+    for(int id:{Primary,Secondary,Snapshot})EnableWindow(GetDlgItem(u->window,id),FALSE);
+  }
   ShowWindow(u->detail, mode == Outputs ? SW_SHOW : SW_HIDE);
   if (!grant.session)
     StatusText(u, "Agent access is disabled or expired. Enable explicit output "
                   "grants in Agent access first.");
+  else if(!u->hadGrant)StatusText(u,"Access enabled for explicitly shared output. Select an item to review its available actions.");
+  else if(!selectedItem)StatusText(u,"Select an item to preview it and enable its available actions. Sharing and sends always require your review.");
+  u->hadGrant=grant.session!=0;
 }
 void Preview(Ui *u) {
   RefreshList(u);
@@ -334,7 +347,8 @@ void Preview(Ui *u) {
   SetWindowTextW(u->before, Wide(before).c_str());
   SetWindowTextW(u->after, Wide(after).c_str());
   EnableWindow(GetDlgItem(u->window, Primary),
-               ModeValue(u) != Proposals || u->previewCurrent);
+               (grant.session || ModeValue(u)==Drafts) &&
+               (ModeValue(u) != Proposals || u->previewCurrent));
 }
 void Accept(Ui *u) {
   auto &store = WorkspaceAgentStore();
@@ -499,31 +513,32 @@ void Action(Ui *u, int id) {
   RefreshList(u);
 }
 void Layout(Ui *u, int width, int height) {
-  const int pad = 8, top = 58, columns = width < 720 ? 2 : 4,
-            rows = 4 / columns, bottom = 110 + (rows - 1) * 34;
+  const auto s=[&](int n){return workspace_style::Scale(u->window,n);};
+  const bool narrow=width<s(760);
+  const int pad = s(12), top = s(88), columns = narrow ? 2 : 4,
+            rows = 4 / columns, bottom = s(146) + (rows - 1) * s(38);
   int body = std::max(30, height - top - bottom),
-      left = std::max(100, width / 3),
+      left = std::max(s(120), width / 3),
       right = std::max(50, width - left - 3 * pad);
-  MoveWindow(u->name, pad, pad, std::max(70, width / 3 - 16), 24, TRUE);
-  MoveWindow(u->mode, left + pad, pad, std::max(80, width - left - 2 * pad),
-             240, TRUE);
-  MoveWindow(u->list, pad, 38, left - pad, body + 20, TRUE);
+  MoveWindow(GetDlgItem(u->window,214),pad,pad,left-pad,s(20),TRUE);
+  MoveWindow(GetDlgItem(u->window,215),left+pad,pad,right,s(20),TRUE);
+  MoveWindow(u->name, pad, pad+s(22), std::max(70,left-pad), s(28), TRUE);
+  MoveWindow(u->mode, left + pad, pad+s(22), right, s(240), TRUE);
+  MoveWindow(u->list, pad, top, left - pad, body, TRUE);
   int column = std::max(20, (right - pad) / 2);
-  MoveWindow(GetDlgItem(u->window, 212), left + pad, 36, column, 20, TRUE);
-  MoveWindow(GetDlgItem(u->window, 213), left + 2 * pad + column, 36,
-             std::max(20, right - column - pad), 20, TRUE);
-  MoveWindow(u->before, left + pad, top, column, body, TRUE);
-  MoveWindow(u->after, left + 2 * pad + column, top,
-             std::max(20, right - column - pad), body, TRUE);
+  const int previewWidth=narrow?right:column, previewHeight=narrow?(body-s(28))/2:body;
+  MoveWindow(GetDlgItem(u->window,212),left+pad,top-s(22),previewWidth,s(20),TRUE);
+  MoveWindow(GetDlgItem(u->window,213),narrow?left+pad:left+2*pad+column,narrow?top+previewHeight+s(5):top-s(22),previewWidth,s(20),TRUE);
+  MoveWindow(u->before,left+pad,top,previewWidth,previewHeight,TRUE);
+  MoveWindow(u->after,narrow?left+pad:left+2*pad+column,narrow?top+previewHeight+s(28):top,previewWidth,previewHeight,TRUE);
   int y = top + body + pad;
-  MoveWindow(u->detail, pad, y, std::max(80, width / 3 - pad), 24, TRUE);
+  MoveWindow(u->detail, pad, y, std::max(80, width / 3 - pad), s(28), TRUE);
   int button = std::max(60, (width - (columns + 1) * pad) / columns);
   for (int i = 0; i < 4; ++i)
     MoveWindow(GetDlgItem(u->window, Primary + i),
                pad + (i % columns) * (button + pad),
-               y + 30 + (i / columns) * 34, button, 28, TRUE);
-  MoveWindow(u->status, pad, y + 30 + rows * 34, std::max(20, width - 2 * pad),
-             34, TRUE);
+               y + s(34) + (i / columns) * s(38), button, s(30), TRUE);
+  MoveWindow(u->status, pad, y + s(34) + rows * s(38), std::max(20, width - 2 * pad),s(42),TRUE);
 }
 LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
   auto u = reinterpret_cast<Ui *>(GetWindowLongPtrW(h, GWLP_USERDATA));
@@ -537,14 +552,16 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
   try {
     switch (msg) {
     case WM_CREATE:
+      Control(u,L"STATIC",L"Agent",0,214);
       u->name =
           Control(u, L"EDIT", L"Assistant", ES_AUTOHSCROLL | WS_TABSTOP, Name);
       SendMessageW(u->name, EM_SETLIMITTEXT, 64, 0);
+      Control(u,L"STATIC",L"Review workspace",0,215);
       u->mode =
           Control(u, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, Mode);
-      for (auto title : {L"Editor sharing", L"Shared output / snapshots",
-                         L"Editor proposals / full diff", L"Tasks / heartbeat",
-                         L"Debug captures", L"Unsent drafts"})
+      for (auto title : {L"Share an editor", L"Output & snapshots",
+                         L"Review proposed edits", L"Agent tasks",
+                         L"Saved captures", L"Unsent drafts"})
         SendMessageW(u->mode, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title));
       SendMessageW(u->mode, CB_SETCURSEL, 0, 0);
       u->list = Control(u, L"LISTBOX", L"",
@@ -578,16 +595,25 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
           L"Select explicit existing output grants and individual editor tabs.",
           0, Status);
       SetTimer(h, 1, 500, 0);
+      workflow_ui::Polish(h);
+      workflow_ui::Button(h,Primary,workspace_style::Icon::Agent,true);
+      workflow_ui::Button(h,Secondary,workspace_style::Icon::Close);
+      workflow_ui::Button(h,Snapshot,workspace_style::Icon::Add);
+      workflow_ui::Button(h,Refresh,workspace_style::Icon::Refresh);
       RefreshList(u);
       return 0;
     case WM_GETMINMAXINFO: {
       auto bounds = reinterpret_cast<MINMAXINFO *>(l);
-      bounds->ptMinTrackSize.x = 420;
-      bounds->ptMinTrackSize.y = 360;
+      bounds->ptMinTrackSize.x = workspace_style::Scale(h,440);
+      bounds->ptMinTrackSize.y = workspace_style::Scale(h,480);
       return 0;
     }
     case WM_SIZE:
       Layout(u, LOWORD(l), HIWORD(l));
+      return 0;
+    case WM_DPICHANGED:
+      workflow_ui::DpiChanged(h,l);
+      {RECT r;GetClientRect(h,&r);Layout(u,r.right,r.bottom);}
       return 0;
     case WM_TIMER:
       RefreshList(u);
@@ -646,6 +672,8 @@ HWND OpenAgentReviewPane(HWND parent) {
                          L"Agent review - explicit sharing and local proposals",
                          WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                          1040, 720, parent, 0, cls.hInstance, u);
+  if (Pane)
+    workspace_style::FitToWorkArea(Pane,440,480);
   if (Pane)
     ShowWindow(Pane, SW_SHOW);
   return Pane;

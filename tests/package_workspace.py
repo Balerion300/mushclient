@@ -38,13 +38,20 @@ notices = dest/'licences'
 shutil.copytree(ROOT/'licences',notices)
 shutil.copy2(ROOT/'third_party/scintilla/License.txt',notices/'Scintilla-LICENSE.txt')
 shutil.copy2(ROOT/'third_party/SCINTILLA_NOTICE.md',notices/'SCINTILLA_NOTICE.md')
+# User-authorized Fourteen Flames identity, kept separate from engine licensing.
+icons = dest/'icons'
+icons.mkdir(exist_ok=True)
+for name in ('valyria.ico','valyria.svg','valyria.png','valyria-desktop.ico',
+             'valyria-desktop.svg','valyria-desktop.png','valyria-brand-provenance.json'):
+    shutil.copy2(ROOT/'res'/name,icons/name)
+shutil.copy2(ROOT/'docs/VALYRIA_BRANDING.md',notices/'VALYRIA_BRANDING.md')
 for name in ('LICENSE.MIT','PYTHON-LICENSE.txt','PYINSTALLER-COPYING.txt'):
     shutil.copy2(ROOT/'agent_companion/vendor'/name,notices/('JSON-LICENSE.txt' if name=='LICENSE.MIT' else name))
 shutil.copytree(ROOT/'third_party/pennmush-reference',dest/'pennmush-reference')
 for name in ('WORKSPACE_MODERNIZATION_PLAN.md','WORKSPACE_TESTS.md','PENN_IDE.md',
              'AGENT_WORKSPACE_CONTRACT.md','AGENT_REVIEW_PANE.md','AGENT_INTEGRATION_AUDIT.md','BUILD_WORKSPACE.md','INLINE_IMAGES.md','STABILITY_TESTS.md','PERFORMANCE_TESTS.md'):
     shutil.copy2(ROOT/'docs'/name,dest/name)
-for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md','SCRIPTED_LOGGING.md'):
+for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md','SCRIPTED_LOGGING.md','WORKSPACE_DOCK_LAYOUT.md','MODERN_NATIVE_UI.md','NATIVE_CHROME_STYLE.md','WORKSPACE_SHELL.md','NATIVE_WORKFLOW_UI.md','MODERN_WINDOWS_EXPLORATION.md','SPAWN_DOCKING_UX.md'):
     source=ROOT/'docs'/name
     if not source.is_file():raise SystemExit('Missing workspace guide: '+name)
     shutil.copy2(source,dest/name)

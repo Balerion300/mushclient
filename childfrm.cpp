@@ -22,9 +22,9 @@ static char BASED_CODE THIS_FILE[] = __FILE__;
 /////////////////////////////////////////////////////////////////////////////
 // CChildFrame
 
-IMPLEMENT_DYNCREATE(CChildFrame, CMDIChildWnd)
+IMPLEMENT_DYNCREATE(CChildFrame, CMDIChildWndEx)
 
-BEGIN_MESSAGE_MAP(CChildFrame, CMDIChildWnd)
+BEGIN_MESSAGE_MAP(CChildFrame, CMDIChildWndEx)
 	//{{AFX_MSG_MAP(CChildFrame)
 	ON_WM_CLOSE()
 	ON_WM_SIZE()
@@ -102,12 +102,12 @@ BOOL CChildFrame::OnCreateClient( LPCREATESTRUCT lpcs,
 #ifdef _DEBUG
 void CChildFrame::AssertValid() const
 {
-	CMDIChildWnd::AssertValid();
+	CMDIChildWndEx::AssertValid();
 }
 
 void CChildFrame::Dump(CDumpContext& dc) const
 {
-	CMDIChildWnd::Dump(dc);
+	CMDIChildWndEx::Dump(dc);
 }
 
 #endif //_DEBUG
@@ -127,7 +127,7 @@ BOOL CChildFrame::PreCreateWindow(CREATESTRUCT& cs)
   cs.y = 0;
   cs.cy = rect.bottom;
 
-	return CMDIChildWnd::PreCreateWindow(cs);
+	return CMDIChildWndEx::PreCreateWindow(cs);
 }
 
 
@@ -135,7 +135,7 @@ void CChildFrame::OnClose()
 {
 
   
-	CMDIChildWnd::OnClose();
+	CMDIChildWndEx::OnClose();
 }
 
 
@@ -215,7 +215,7 @@ BOOL CChildFrame::OnToolTipNeedText(UINT id, NMHDR * pNMHDR, LRESULT * pResult)
 
 void CChildFrame::OnSize(UINT nType, int cx, int cy) 
 {
-	CMDIChildWnd::OnSize(nType, cx, cy);
+	CMDIChildWndEx::OnSize(nType, cx, cy);
 	
   if (m_topview)
       FixUpSplitterBar ();
@@ -229,7 +229,7 @@ void CChildFrame::OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, HMENU hM
   if (Frame.IsFullScreen ())
     return;
 
-  CMDIChildWnd::OnUpdateFrameMenu (bActivate, pActivateWnd, hMenuAlt);
+  CMDIChildWndEx::OnUpdateFrameMenu (bActivate, pActivateWnd, hMenuAlt);
   Frame.EnsureWorkspaceMenu();
 
   }
@@ -239,7 +239,7 @@ BOOL CChildFrame::PreTranslateMessage(MSG* pMsg)
 {
 //	CMDIChildWnd* pActiveChild = MDIGetActive();
 	
-	int iResult = CMDIChildWnd::PreTranslateMessage(pMsg);
+	int iResult = CMDIChildWndEx::PreTranslateMessage(pMsg);
 
   if (pMsg->message == WM_KEYDOWN && iResult)
 
@@ -251,3 +251,24 @@ BOOL CChildFrame::PreTranslateMessage(MSG* pMsg)
 }
 
 */
+
+CString CChildFrame::GetFrameText() const
+{if(m_pDoc && !m_pDoc->m_name.IsEmpty())return m_pDoc->m_name;return CMDIChildWndEx::GetFrameText();}
+
+void CChildFrame::OnUpdateFrameTitle(BOOL addToTitle)
+{
+  // Tab groups are created lazily when a world activates, after the main
+  // frame's creation-time resource scope has ended.
+  WorkspaceModernResources resources;
+  CMDIChildWndEx::OnUpdateFrameTitle(addToTitle);
+}
+
+LRESULT CChildFrame::WindowProc(UINT message, WPARAM wp, LPARAM lp)
+{
+  if(message==WM_MDIACTIVATE || message==WM_SETTEXT || message==WM_SIZE)
+  {
+    WorkspaceModernResources resources;
+    return CMDIChildWndEx::WindowProc(message,wp,lp);
+  }
+  return CMDIChildWndEx::WindowProc(message,wp,lp);
+}

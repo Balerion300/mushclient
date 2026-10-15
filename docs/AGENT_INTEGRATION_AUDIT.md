@@ -192,3 +192,24 @@ offline world. No DLL error appeared. Normal Alt+F4 exited the copied client.
 All private-read test clients also exited normally and their grant endpoint was
 removed. The packaged manifest tree was left unchanged by this startup check;
 test preferences and fictional worlds existed only in the temporary copy.
+
+## October 15 workflow follow-up
+
+The completion candidate builds with exact production publication/dispatch
+execution fixtures and the real native editor/scene Store. Owned private-read
+replies, including malformed, duplicate, stale and closed-editor responses, do
+not reach routes, shared output or active captures. Unknown/wrong-runtime nonces
+remain ordinary output. Native scene review tests cover explicit confirmation,
+cancel, changed source, scene expiration and editor destruction during dispatch.
+Callback invalidation no longer leaves a dangling binding iterator or an uncaught
+stale-scene exception. Unconfirmed dispatch retains its check-before-retry warning.
+
+The earlier actual packaged-client DeleteLines check passed: retained rows
+16 to 15, deleted marker absent, surviving anchor present, stale agent cursor
+reset, and capture records retained once without replay. Its executable SHA256
+was `d08f3b83eecf79bbe5a42019c2f9c275476df18654cf916598ed3c2d8152e94b`.
+Another supported desktop attempt could not set the owned editor controls even
+before opening review; no private-read or final scene-send request was made.
+This remains an actual-desktop acceptance gap, not a claimed UI pass. The owned
+fixture exited, with zero outgoing server bytes. See `WORKSPACE_TESTS.md` for
+the combined candidate build and native test evidence.

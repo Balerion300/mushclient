@@ -302,3 +302,43 @@ window movement. At the user's direction, the memory investigation is closed;
 further work should advance feature and real-use acceptance, with responsiveness
 and stability as the criteria. Raw system traces and private analysis artifacts
 remain local only.
+
+## October 15 functional-completion regression
+
+Candidate `b4bf0d61e7a9f9a04fd30afea8cb3d18ca5c352e24ecf92808a286c106928a52`
+completed a clean 120-second actual-client test at 80 offered text lines/second,
+with four configured visible split spawns, opt-in mentions and following-image
+routes. The world input/output font receipt reports Fixedsys. All 1,191 batches
+arrived (8,611 offered lines), with no TCP backpressure or client exit during the
+requested interval. Output receipt p95 was 63.04 ms (maximum 173.03 ms); scripted
+command/echo p95 was 28.90 ms (maximum 62.55 ms). Seventeen images were confirmed
+ready, zero failed, and thirteen left retained history before readiness was
+recorded. Builds and component fixtures were idle during this measurement.
+
+Reproduce with `performance_client.py --seconds 120 --rate 80 --routes 4
+--font Fixedsys --spawn-features --split-spawns --visible`, then run
+`analyze_performance.py` on its reported Temp folder. The new opt-in fixture
+flags seed isolated settings and a balanced WDL3 split forest; they never use
+installed profiles. These conditions differ from the earlier two-pane tests,
+so the numbers do not establish an equal-workload speed regression or gain.
+They measure completed output and scripted Execute/echo, not physical typing
+or display paint latency. This is a short responsiveness gate; daily use and
+mixed-DPI mouse interaction remain separate. No memory investigation was resumed.
+
+## October 15 native UI regression
+
+Release `48573ebca09f3cdd4cdfdb7475bb1d4a3582d730314e7a40da3c4fa877c8b432`
+completed the same 120-second, 80 offered text lines/second workload with four
+configured split spawns, mentions/following-image routes and visible startup.
+The world font receipt remains Fixedsys for input and output. All 1,190 batches
+completed (8,610 offered lines), with no TCP backpressure or client exit during
+the requested interval. Output p95 was 62.97 ms (maximum 177.18 ms); scripted
+command/echo p95 was 9.49 ms (maximum 40.11 ms). GUI timer-gap p95 was 85.18 ms
+and maximum 170.43 ms. Fourteen images were confirmed ready, zero failed, and
+sixteen left retained history before readiness was recorded.
+
+Builds and native fixtures were stopped before measurement. The timing supports
+steady bounded responsiveness after the UI changes; it is not a sustained-use,
+physical typing, foreground paint or statistically established speed-gain claim.
+Reproduce with the preceding command and label `modern-ui`. No memory analysis
+was reopened. Raw evidence remains private Temp data outside the package.

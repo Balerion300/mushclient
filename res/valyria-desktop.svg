@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><title>Fourteen Flames — Black → red</title><rect width="80" height="80" rx="15" fill="#f4f0e8"/><g transform="translate(8 8)"><defs><linearGradient id="ember" x1="0" y1="0" x2="0.74" y2="1">
+<stop offset="0" stop-color="#1b0d11"/><stop offset="0.37" stop-color="#451017"/>
+<stop offset="0.73" stop-color="#a51c27"/><stop offset="1" stop-color="#ec413a"/>
+</linearGradient></defs><path fill="url(#ember)" d="M7 55 L12 27 L17 55Z"/><path fill="url(#ember)" d="M20 55 L25 13 L30 55Z"/><path fill="url(#ember)" d="M34 55 L39 13 L44 55Z"/><path fill="url(#ember)" d="M47 55 L52 27 L57 55Z"/><path fill="url(#ember)" d="M12 18 l-4 5 4 5 4-5Z"/><path fill="url(#ember)" d="M25 3 l-4 5 4 5 4-5Z"/><path fill="url(#ember)" d="M39 3 l-4 5 4 5 4-5Z"/><path fill="url(#ember)" d="M52 18 l-4 5 4 5 4-5Z"/></g></svg>

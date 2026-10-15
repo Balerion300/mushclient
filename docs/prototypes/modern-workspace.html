@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-accent="red">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>Valyria — workspace prototype</title>
+  <link rel="icon" href="../../res/valyria-desktop.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="workspace.css">
+  <script src="workspace-model.js" defer></script>
+  <script src="workspace-logging.js" defer></script>
+  <script src="workspace.js" defer></script>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="appbar">
+    <div class="wordmark"><img src="../../res/valyria-desktop.svg" alt="" width="32" height="32"><strong>Valyria</strong><span class="prototype-tag">WORKSPACE STUDY</span></div>
+    <button class="command-search" id="command-open" aria-keyshortcuts="Control+K"><span>⌕</span> Find a command… <kbd>Ctrl K</kbd></button>
+    <div class="appbar-end"><span class="offline-label"><span class="status-dot"></span> Offline preview</span><button class="icon-button" id="help-open" aria-label="Prototype guide">?</button></div>
+  </header>
+  <nav class="game-rail" aria-label="Games">
+    <button class="game-button" data-game="asterfall" aria-label="Asterfall" aria-pressed="true"><span>AF</span></button>
+    <button class="game-button" data-game="northreach" aria-label="Northreach" aria-pressed="false"><span>NR</span></button>
+    <div class="rail-separator"></div>
+    <button class="rail-action" id="profiles-open" aria-label="Manage fictional profiles" title="Profiles">＋</button>
+    <div class="rail-bottom"><button class="rail-action" id="settings-open" aria-label="Settings" title="Settings">⚙</button><span class="rail-version">STUDY</span></div>
+  </nav>
+  <aside class="navigator" id="navigator" aria-label="Your characters and channels">
+    <div class="nav-title"><div><span class="eyebrow">GAME</span><h1 id="game-title">Asterfall</h1></div><button class="icon-button" id="game-info" aria-label="Game profile details">•••</button><button class="icon-button mobile-close" id="nav-close" aria-label="Close characters and channels">✕</button></div>
+    <div class="nav-scroll"><div class="section-label">YOUR CHARACTERS <span id="profile-count">2</span></div><div id="characters"></div></div>
+    <div class="nav-tools"><button data-tool="editor"><span>⌘</span> Script editor <kbd>Ctrl E</kbd></button><button data-tool="review"><span>◇</span> Agent review <span class="count">3</span></button><button data-tool="logging"><span>▤</span> Logging</button><button data-tool="automation"><span>↳</span> Triggers & aliases</button></div>
+    <div class="profile-footer"><span class="avatar small" id="footer-avatar">M</span><div><strong id="footer-profile">Mira</strong><small>Fictional local profile</small></div><button class="icon-button" id="footer-settings" aria-label="Profile settings">⚙</button></div>
+  </aside>
+  <main class="workspace">
+    <header class="workspace-bar"><button class="icon-button nav-toggle" id="nav-toggle" aria-label="Show characters and channels" aria-expanded="false">☰</button><div class="breadcrumbs"><span id="breadcrumb-game">Asterfall</span><span class="slash">/</span><strong id="breadcrumb-profile">Mira</strong><span class="profile-id" id="profile-id">AF · 01</span></div><div class="workspace-actions"><button id="find-open">⌕ <span>Find</span></button><button id="arrange-open" aria-keyshortcuts="Control+Shift+M">⊞ <span>Arrange</span></button><button id="workspace-tools">••• <span>Tools</span></button></div></header>
+    <div class="workspace-body">
+      <div class="workspace-heading"><div><h2 id="workspace-name">The Lantern Court</h2><p id="workspace-subtitle">Asterfall · Mira’s workspace</p></div><button class="quiet-button" id="layout-reset">↺ Reset layout</button></div>
+      <div class="dock-area" id="dock-area" aria-label="Dockable transcript workspace"><div id="dock-root" class="dock-root"></div><div id="floating-layer" class="floating-layer"></div></div>
+      <section class="composer" aria-label="Command composer"><div class="compose-routing"><span class="route-arrow">↳</span><span>Preview destination</span><strong id="send-destination"></strong><span class="draft-status" id="draft-status">Draft saved locally</span></div><div class="compose-input"><textarea id="draft" rows="2" aria-label="Command draft" placeholder="Write a command or a pose…" spellcheck="false"></textarea><button class="primary" id="preview-send">Preview send <span>↵</span></button></div><div class="compose-meta"><span id="route-detail"></span><span><kbd>Ctrl Enter</kbd> preview · nothing is sent</span></div></section>
+      <footer class="workspace-status"><span><span class="status-dot"></span> Fictional profiles · no live connections</span><span id="layout-status">Layout saved locally</span><button id="shortcuts-open">Keyboard shortcuts</button></footer>
+    </div>
+  </main>
+</div>
+<dialog id="tool-dialog" class="tool-dialog" aria-labelledby="tool-title"><div class="dialog-top"><div><div class="eyebrow" id="tool-kicker">WORKSPACE TOOLS</div><h2 id="tool-title"></h2></div><button class="icon-button" id="tool-close" aria-label="Close dialog">✕</button></div><div id="tool-body" class="tool-body"></div></dialog>
+<dialog id="placement-dialog" class="placement-dialog" aria-labelledby="placement-title"><div class="dialog-top"><div><div class="eyebrow">ARRANGE WORKSPACE</div><h2 id="placement-title">Move a tab</h2></div><button class="icon-button" id="placement-close" aria-label="Close placement menu">✕</button></div><div class="placement-body"><label>Tab to move<select id="move-tab"></select></label><label>Destination group<select id="move-target"></select></label><div class="placement-grid"><button data-place="above">↑<span>Place above</span></button><button data-place="left">←<span>Place left</span></button><button data-place="join" class="join-choice">▣<span>Join tabs</span></button><button data-place="right">→<span>Place right</span></button><button data-place="below">↓<span>Place below</span></button></div><div class="placement-extra"><button id="detach-tab">↗ Detach in preview</button><button id="rejoin-tab">↙ Rejoin workspace</button></div><p class="subtle">Drag tabs to reorder or to any pane’s center or edge. Detached panes stay inside this browser preview.</p></div></dialog>
+<dialog id="command-dialog" class="command-dialog" aria-label="Command palette"><div class="command-input"><span>⌕</span><input id="command-query" placeholder="Search tools, channels, or actions…" aria-label="Search commands" autocomplete="off"><button class="key-button" id="command-close">Esc</button></div><div id="command-results" class="command-results"></div><div class="command-footer"><span>↑ ↓ navigate</span><span>Enter open</span><span>Esc close</span></div></dialog>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

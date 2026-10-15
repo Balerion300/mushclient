@@ -1,0 +1,14 @@
+{
+  "source_package": "Fourteen-Flames-Production-Identity-Package",
+  "source_file": "fourteen-flames-responsive-micro-full-colour.svg",
+  "source_sha256": "53910982f597fdab2cbc74478ba0134580c56be8b2886d0e84753e7aa0e82e6a",
+  "selected_on": "2026-10-11",
+  "geometry": "Original eight paths: four spires and four detached flame diamonds; unchanged.",
+  "treatment": "User-selected black-to-red ember gradient; transparent application mark and ivory desktop tile.",
+  "gradient_stops": [
+    "#1b0d11",
+    "#451017",
+    "#a51c27",
+    "#ec413a"
+  ]
+}
