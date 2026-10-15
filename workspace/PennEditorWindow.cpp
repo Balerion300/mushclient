@@ -2,6 +2,7 @@
 #include "PennEditorWindow.h"
 #include "../third_party/scintilla/include/Scintilla.h"
 #include "PennLanguage.h"
+#include "WorkflowUi.h"
 #include <algorithm>
 #include <bcrypt.h>
 #include <cctype>
@@ -113,6 +114,7 @@ struct Document {
 struct Editor {
   HWND window = 0, text = 0, tabs = 0, status = 0, object = 0, attribute = 0,
        search = 0, replacement = 0;
+  HWND fieldLabels[4] = {};
   std::vector<Document> docs;
   size_t active = 0;
   bool loading = false, dark = true;
@@ -1180,6 +1182,11 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     return DefWindowProcW(h, msg, w, l);
   switch (msg) {
   case WM_CREATE: {
+    const wchar_t* actions[] = {L"New draft", L"Save source", L"Read attribute", L"Review && send"};
+    const int actionIds[] = {New, Save, ReadAttribute, SendCommands};
+    for (int i=0;i<4;++i)
+      CreateWindowW(L"BUTTON", actions[i], WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+                    0,0,1,1,h,reinterpret_cast<HMENU>(actionIds[i]),0,0);
     e->tabs = CreateWindowW(WC_TABCONTROLW, L"", WS_CHILD | WS_VISIBLE, 0, 0, 0,
                             0, h, 0, 0, 0);
     e->text = CreateWindowExW(0, L"Scintilla", L"",
@@ -1191,18 +1198,22 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     SetWindowSubclass(e->text, EditorKeys, 1, reinterpret_cast<DWORD_PTR>(e));
     e->status = CreateWindowW(L"STATIC", L"Unsent draft", WS_CHILD | WS_VISIBLE,
                               0, 0, 0, 0, h, 0, 0, 0);
+    e->fieldLabels[0] = CreateWindowW(L"STATIC",L"&Object",WS_CHILD|WS_VISIBLE,0,0,1,1,h,0,0,0);
     e->object =
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0,
                         0, 0, 0, h, 0, 0, 0);
+    e->fieldLabels[1] = CreateWindowW(L"STATIC",L"&Attribute",WS_CHILD|WS_VISIBLE,0,0,1,1,h,0,0,0);
     e->attribute =
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0,
                         0, 0, 0, h, 0, 0, 0);
+    e->fieldLabels[2] = CreateWindowW(L"STATIC",L"Fi&nd",WS_CHILD|WS_VISIBLE,0,0,1,1,h,0,0,0);
     e->search =
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0,
                         0, 0, 0, h, 0, 0, 0);
+    e->fieldLabels[3] = CreateWindowW(L"STATIC",L"&Replace with",WS_CHILD|WS_VISIBLE,0,0,1,1,h,0,0,0);
     e->replacement =
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 0,
@@ -1227,21 +1238,42 @@ LRESULT CALLBACK Proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     Sci(e, SCI_INDICSETSTYLE, 0, INDIC_SQUIGGLE);
     Sci(e, SCI_INDICSETFORE, 0, RGB(230, 120, 70));
     Colors(e);
+    workflow_ui::Polish(h);
+    using workspace_style::Icon;
+    workflow_ui::Button(h,New,Icon::Add);
+    workflow_ui::Button(h,Save,Icon::Save);
+    workflow_ui::Button(h,ReadAttribute,Icon::Refresh,false,L"Requests one attribute after you review the original destination.");
+    workflow_ui::Button(h,SendCommands,Icon::Send,true,L"Review exact commands and destination before sending once.");
     SetTimer(h, 2, 30000, 0);
     return 0;
   }
   case WM_SIZE: {
-    int width = LOWORD(l), height = HIWORD(l);
-    MoveWindow(e->tabs, 0, 0, width, 28, TRUE);
-    MoveWindow(e->object, 4, 30, 100, 24, TRUE);
-    MoveWindow(e->attribute, 108, 30, 160, 24, TRUE);
-    MoveWindow(e->search, 280, 30, 150, 24, TRUE);
-    MoveWindow(e->replacement, 440, 30, 150, 24, TRUE);
-    MoveWindow(e->text, 0, 58, width, std::max(1, height - 104), TRUE);
-    MoveWindow(e->status, 4, std::max(58, height - 42), std::max(1, width - 8),
-               40, TRUE);
+    const auto s=[&](int value){return workspace_style::Scale(h,value);};
+    int width = LOWORD(l), height = HIWORD(l), pad=s(12), gap=s(8);
+    const bool narrow=width<s(760);
+    const int columns=narrow?2:4, button=(width-2*pad-(columns-1)*gap)/columns;
+    const int ids[]={New,Save,ReadAttribute,SendCommands};
+    for(int i=0;i<4;++i)MoveWindow(GetDlgItem(h,ids[i]),pad+(i%columns)*(button+gap),pad+(i/columns)*s(38),std::max(1,button),s(30),TRUE);
+    const int tabsY=pad+(narrow?s(76):s(38));
+    MoveWindow(e->tabs,pad,tabsY,std::max(1,width-2*pad),s(30),TRUE);
+    HWND inputs[]={e->object,e->attribute,e->search,e->replacement};
+    const int field=(width-2*pad-(columns-1)*gap)/columns;
+    const int fieldsY=tabsY+s(40);
+    for(int i=0;i<4;++i){const int x=pad+(i%columns)*(field+gap),y=fieldsY+(i/columns)*s(58);
+      MoveWindow(e->fieldLabels[i],x,y,std::max(1,field),s(20),TRUE);
+      MoveWindow(inputs[i],x,y+s(22),std::max(1,field),s(28),TRUE);}
+    const int sourceY=fieldsY+(narrow?s(116):s(58));
+    MoveWindow(e->text,pad,sourceY,std::max(1,width-2*pad),std::max(1,height-sourceY-s(58)),TRUE);
+    MoveWindow(e->status,pad,std::max(sourceY,height-s(50)),std::max(1,width-2*pad),s(42),TRUE);
     return 0;
   }
+  case WM_DPICHANGED:
+    workflow_ui::DpiChanged(h,l);
+    {RECT r;GetClientRect(h,&r);SendMessageW(h,WM_SIZE,0,MAKELPARAM(r.right,r.bottom));}
+    return 0;
+  case WM_GETMINMAXINFO:
+    reinterpret_cast<MINMAXINFO*>(l)->ptMinTrackSize={workspace_style::Scale(h,400),workspace_style::Scale(h,420)};
+    return 0;
   case WM_COMMAND:
     if (HIWORD(w) == EN_CHANGE &&
         (reinterpret_cast<HWND>(l) == e->object ||
@@ -1475,9 +1507,12 @@ HWND OpenPennEditor(HWND owner, const std::string &endpoint,
     EnableWindow(e->object, FALSE);
     EnableWindow(e->attribute, FALSE);
     EnableWindow(e->replacement, FALSE);
+    for(int id:{New,ReadAttribute,SendCommands})EnableWindow(GetDlgItem(h,id),FALSE);
   }
+  if(e->endpoint.empty() || e->endpoint=="local:unsent")EnableWindow(GetDlgItem(h,ReadAttribute),FALSE);
   Windows.push_back(h);
   Caption(e);
+  workspace_style::FitToWorkArea(h,400,420);
   ShowWindow(h, SW_SHOW);
   return h;
 }
@@ -1614,6 +1649,8 @@ void PennEditorInvalidateEndpoint(const std::string &endpoint) {
         ++d.draft.revision;
       }
       Caption(e);
+      EnableWindow(GetDlgItem(h,ReadAttribute),FALSE);
+      EnableWindow(GetDlgItem(h,SendCommands),FALSE);
       SetWindowTextW(e->status, L"Destination disconnected. Drafts remain "
                                 L"unsent; game requests are disabled.");
     }

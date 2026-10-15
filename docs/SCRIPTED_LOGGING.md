@@ -208,3 +208,9 @@ This verifies live reply compatibility through the actual receive/logging path;
 the isolated client used replayed traffic and no personal profile or credentials.
 Raw live output and generated logs remain in private Temp evidence outside Git
 and distribution packages.
+
+The same private live reply was also replayed successfully on the final native
+UI Release candidate
+`48573ebca09f3cdd4cdfdb7475bb1d4a3582d730314e7a40da3c4fa877c8b432`.
+The filename, header/tail exactly once and non-overwriting collision behavior
+passed again. This replay did not make another live game request.
