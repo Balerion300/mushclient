@@ -190,3 +190,21 @@ executable name such as `lognames-ui-probe.exe`. Run it with a fresh Temp folder
 It checks form capture, data round-trip and Cancel, and writes an own-window
 `names-ui.bmp` for layout inspection. It never creates a client world or sends
 traffic.
+
+### Live format acceptance, October 15, 2026
+
+A read-only `+loginfo` request returned the game's current ANSI-decorated
+header, IC/RL dates and closing delimiter. The captured reply was replayed
+through an isolated actual Release client and the bundled Blood of Dragons
+preset, changing only the local output directory. It derived
+`178-04-29 - 2026-10-14.txt` from the server dates, kept the complete decoded
+header and following text exactly once, and created the `-002` collision file
+without altering the first log. The server's RL date was used rather than the
+test machine's date.
+
+The tested executable SHA256 was
+`d08f3b83eecf79bbe5a42019c2f9c275476df18654cf916598ed3c2d8152e94b`.
+This verifies live reply compatibility through the actual receive/logging path;
+the isolated client used replayed traffic and no personal profile or credentials.
+Raw live output and generated logs remain in private Temp evidence outside Git
+and distribution packages.

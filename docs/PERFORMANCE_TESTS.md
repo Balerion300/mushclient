@@ -302,3 +302,25 @@ window movement. At the user's direction, the memory investigation is closed;
 further work should advance feature and real-use acceptance, with responsiveness
 and stability as the criteria. Raw system traces and private analysis artifacts
 remain local only.
+
+## October 15 functional-completion regression
+
+Candidate `b4bf0d61e7a9f9a04fd30afea8cb3d18ca5c352e24ecf92808a286c106928a52`
+completed a clean 120-second actual-client test at 80 offered text lines/second,
+with four configured visible split spawns, opt-in mentions and following-image
+routes. The world input/output font receipt reports Fixedsys. All 1,191 batches
+arrived (8,611 offered lines), with no TCP backpressure or client exit during the
+requested interval. Output receipt p95 was 63.04 ms (maximum 173.03 ms); scripted
+command/echo p95 was 28.90 ms (maximum 62.55 ms). Seventeen images were confirmed
+ready, zero failed, and thirteen left retained history before readiness was
+recorded. Builds and component fixtures were idle during this measurement.
+
+Reproduce with `performance_client.py --seconds 120 --rate 80 --routes 4
+--font Fixedsys --spawn-features --split-spawns --visible`, then run
+`analyze_performance.py` on its reported Temp folder. The new opt-in fixture
+flags seed isolated settings and a balanced WDL3 split forest; they never use
+installed profiles. These conditions differ from the earlier two-pane tests,
+so the numbers do not establish an equal-workload speed regression or gain.
+They measure completed output and scripted Execute/echo, not physical typing
+or display paint latency. This is a short responsiveness gate; daily use and
+mixed-DPI mouse interaction remain separate. No memory investigation was resumed.

@@ -880,8 +880,9 @@ void Command(Editor *e, int id) {
                   L"Prepared commands", MB_ICONWARNING);
       break;
     }
-    if (!SendPrepared(endpoint, documentID, revision, commands))
-      MessageBoxW(e->window,
+    if (!SendPrepared(endpoint, documentID, revision, commands) &&
+        State(owner) == e)
+      MessageBoxW(owner,
                   L"The host did not confirm dispatch. Check the world "
                   L"transcript before retrying.",
                   L"Prepared commands", MB_ICONWARNING);

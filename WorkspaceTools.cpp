@@ -513,6 +513,7 @@ void ShutdownWorkspaceTools() {
 }
 
 BOOL WorkspaceTranslateMessage(MSG *message) {
+  if(App.m_pMainWnd && Frame.GetSafeHwnd() && Frame.HandleWorkspaceShortcut(message))return TRUE;
   if (message->message < WM_KEYFIRST || message->message > WM_KEYLAST)
     return FALSE;
   HWND owner = NULL;

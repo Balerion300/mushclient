@@ -362,3 +362,57 @@ Debug SHA256
 `a582f7c79226c49fbdbd7c95e3bfcb149acd628a39407c14e0e267e8373b8b27`
 also passes isolated actual-client plugin-hook and configured-reload startup
 cases without resource assertions.
+
+## Spawn usability checks, October 15
+
+`tests/workspace/run_spawn_features_probe.ps1` builds a fresh Temp-only hidden
+native fixture against extracted production routing, preference and shortcut
+methods plus the real transcript pane. It covers passive Unicode mention badges,
+priority traversal and wrap, saved settings reload/rejection, native key-message
+dispatch, reserved and conflicting chords, AltGr/Windows/IME refusal, deduplicated
+multi-route image delivery, runtime world isolation, four-image/two-second limits,
+sequence gaps, explicit clear, private editor replies and omitted/plugin-cancelled
+records. The transport, clock, native accelerator-conflict and IME-state inputs
+are fictional fixture adapters. It uses no personal worlds or server connection.
+Physical keyboard layouts, screen readers and mixed-DPI interaction require
+separate acceptance; this fixture does not establish those results.
+
+## Combined completion candidate, October 15
+
+Release SHA256
+`b4bf0d61e7a9f9a04fd30afea8cb3d18ca5c352e24ecf92808a286c106928a52`
+and Debug SHA256
+`54d423bda9c40a8bfc499fb93569b47d61c0dd00dfccefb4373115945437809f`
+pass integrated Win32 builds. Release passes all 13 actual-client logging cases,
+all seven Pueblo first-login Telnet/TLS/fallback cases, and replay of the actual
+live `+loginfo` reply through the bundled preset. Debug passes isolated plugin
+hook and configuration-reload startup cases.
+
+The orchestrator independently reran 74 native spawn checks, 30 native dock-tree
+checks, exact production private-publication and scene-send/read fixtures, and
+the existing native transcript and 24-transition docking/image-reflow probes.
+The latter retained 1,800 styled records and eight decoded images; its timing
+was collected during the Debug build and is not a clean speed comparison.
+See `WORKSPACE_DOCK_LAYOUT.md` for portable layout bounds and fallback behavior.
+
+Scene-send callbacks may remove a binding, change or disconnect the original
+world, expire the scene, or destroy the editor. The native tests retain the real
+scene Store and editor review controls with mocked transport. Approved dispatch
+occurs once; cancellation, changed source and stale scenes cannot bypass review.
+Late owned private replies remain absent from routes, shared output and active
+captures. Actual packaged-client DeleteLines acceptance retains its earlier
+candidate identity in `AGENT_INTEGRATION_AUDIT.md`. Desktop private-read and
+final scene-send acceptance remain unverified: supported automation cannot
+reliably address controls in the separately owned editor window. No unsupported
+desktop input was substituted for that missing acceptance.
+
+A clean 120-second actual-client responsiveness run configured four split
+spawns at 80 offered text lines/second, enabled mentions/following-image routes,
+and used visible startup and Fixedsys world input/output fonts. All 1,191 batches
+completed (8,611 offered lines), with no TCP backpressure or client exit. Output
+p95 was 63.04 ms and maximum 173.03 ms; scripted command/echo p95 was 28.90 ms and
+maximum 62.55 ms. Seventeen images were confirmed ready, none failed, and
+thirteen left retained history before readiness was recorded. No builds ran
+during this measurement. This is a bounded synthetic regression, not physical
+key-to-pixel latency, daily-use acceptance, or an equal-workload comparison to
+the earlier two-pane runs. The memory investigation remains closed.
