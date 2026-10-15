@@ -290,3 +290,14 @@ LRESULT CChildFrame::WindowProc(UINT message, WPARAM wp, LPARAM lp)
   }
   return CMDIChildWndEx::WindowProc(message,wp,lp);
 }
+
+BOOL CChildFrame::OnCmdMsg(UINT id,int code,void* extra,AFX_CMDHANDLERINFO* info)
+{
+  const bool commonEdit=id==ID_EDIT_COPY || id==ID_EDIT_CUT || id==ID_EDIT_PASTE || id==ID_EDIT_CLEAR || id==ID_EDIT_UNDO || id==ID_EDIT_SELECT_ALL;
+  const HWND focus=::GetFocus();
+  const bool inputContext=focus==m_wndSplitter.CurrentInput() || focus==::GetDlgItem(m_wndSplitter.GetSafeHwnd(),0x7b20);
+  wchar_t controlClass[64]={};if(focus)::GetClassNameW(focus,controlClass,64);
+  const bool nativeEdit=!_wcsicmp(controlClass,L"EDIT") || !_wcsnicmp(controlClass,L"RichEdit",8);
+  if((!commonEdit || inputContext || nativeEdit) && m_wndSplitter.RouteEditCommand(id,code,extra,info,commonEdit && nativeEdit?focus:NULL))return TRUE;
+  return CMDIChildWndEx::OnCmdMsg(id,code,extra,info);
+}

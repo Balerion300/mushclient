@@ -123,3 +123,38 @@ Background-only build verification (2026-10-15): full Debug Win32 and Release
 Win32 production builds pass with the native-control lifetime patch. Runtime
 close/reopen confirmation remains pending; no client, debugger, or GUI fixture
 was launched while the user was using the computer.
+
+
+### Shared input for Main and channels (2026-10-15)
+
+Click a channel transcript without selecting text, or choose its tab/sidebar row,
+to use the single input area below the original Main transcript. The destination
+shows the character, game and channel, plus the exact sending prefix. Clicking
+Main restores its original input. Each channel retains its own draft and history;
+Up/Down and Alt+Up/Down recall channel commands without including the automatic
+prefix. Main retains its existing history settings and original command engine.
+Selecting text, clicking links, searching and dragging panes retain their normal
+behavior. Per-pane input boxes are hidden; tool/editor panes are unchanged.
+
+The selected channel's existing Unicode EDIT is temporarily hosted in the Main
+splitter, preserving its draft and native Unicode procedure. It returns to its
+own pane before the host or channel closes or moves. Submit/history callbacks
+capture and revalidate the original channel and connection across plugin focus
+callbacks. Common input Edit commands follow the displayed editor. Legacy
+Main-only completion and text-transformation commands are disabled while a
+channel is selected so they cannot change Main's hidden draft. Explicit scripted
+Main submission retains its original meaning. Failed submissions preserve the
+draft and show feedback in the channel's status row.
+
+Background verification: Release and Debug composer probes run with `-Hidden`,
+covering exact Unicode/prefixes, original Main preservation, shared Send/history,
+menu editing, teardown and geometry. The hidden real-pane fixture runs with
+`tests/workspace/run_native_probe.ps1 -Source shared_pane_probe.cpp`; it verifies
+prefix application, separate drafts/history, rejection feedback and callback
+closure using the actual native channel controls. Input-policy and encoding tests
+pass. The Debug native-control lifetime fixture also passes its 64 close/reopen
+cycles. These fixtures never show a top-level window or take input focus.
+
+Actual-client clicking/caret acceptance, docking while typing, real IME input and
+mixed-DPI testing remain pending. The full client is built in both configurations;
+background fixtures do not replace those desktop acceptance checks.

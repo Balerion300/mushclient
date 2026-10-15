@@ -1,4 +1,4 @@
-param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,[int]$TimeoutSeconds=60,[ValidateSet("Release","Debug")][string]$Configuration="Release")
+param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,[int]$TimeoutSeconds=60,[ValidateSet("Release","Debug")][string]$Configuration="Release",[switch]$Hidden)
 $ErrorActionPreference='Stop'
 $taskVswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $taskVsRoot=& $taskVswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -16,5 +16,8 @@ $taskCmd=Join-Path $taskTemporary 'build.cmd';Set-Content -LiteralPath $taskCmd 
 & cmd.exe /d /c $taskCmd
 if($LASTEXITCODE -ne 0){throw ('Composer fixture compilation failed; '+$taskTemporary)}
 Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $taskTemporary 'composer-probe.exe'),(Join-Path $RepoRoot 'workspace\WorkspaceComposerSplitter.h'),(Join-Path $RepoRoot 'WorkspaceStyle.cpp') | Format-List | Out-File -LiteralPath (Join-Path $taskTemporary 'identity.txt')
-$taskProcess=Start-Process -FilePath (Join-Path $taskTemporary 'composer-probe.exe') -WorkingDirectory $taskTemporary -WindowStyle Hidden -PassThru
+$taskArguments=if($Hidden){@('--hidden')}else{@()}
+$taskStart=@{FilePath=(Join-Path $taskTemporary 'composer-probe.exe');WorkingDirectory=$taskTemporary;WindowStyle='Hidden';PassThru=$true}
+if($taskArguments.Count){$taskStart.ArgumentList=$taskArguments}
+$taskProcess=Start-Process @taskStart
 try {if(-not $taskProcess.WaitForExit($TimeoutSeconds*1000)){throw ('Composer fixture timed out; '+$taskTemporary)};Get-Content -LiteralPath (Join-Path $taskTemporary 'composer-results.txt');Write-Output ('Evidence: '+$taskTemporary);if($taskProcess.ExitCode -ne 0){throw ('Composer fixture failed: '+$taskProcess.ExitCode)}}finally{if(-not $taskProcess.HasExited){Stop-Process -Id $taskProcess.Id -Force}}

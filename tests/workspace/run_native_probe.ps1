@@ -1,4 +1,4 @@
-param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path, [ValidateSet('native_probe.cpp','native_soak.cpp')][string]$Source='native_probe.cpp', [int]$TimeoutSeconds=60)
+param([string]$RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path, [ValidateSet('native_probe.cpp','native_soak.cpp','shared_pane_probe.cpp')][string]$Source='native_probe.cpp', [int]$TimeoutSeconds=60)
 $ErrorActionPreference='Stop'
 $taskVswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $taskVsRoot=& $taskVswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -25,7 +25,7 @@ try {
 tests\workspace\native_probe.cpp WorkspacePane.cpp WorkspaceStyle.cpp InlineImage.cpp workspace\WorkspaceInputPolicy.cpp
 /link /SUBSYSTEM:WINDOWS /LTCG Shlwapi.lib
 '@
-  $taskName=if($Source -eq 'native_soak.cpp'){'workspace-native-soak'}else{'workspace-native-probe'}
+  $taskName=if($Source -eq 'native_soak.cpp'){'workspace-native-soak'}elseif($Source -eq 'shared_pane_probe.cpp'){'workspace-shared-pane-probe'}else{'workspace-native-probe'}
   $taskResponse=$taskResponse.Replace('tests\workspace\native_probe.cpp','tests\workspace\'+$Source).Replace('workspace-native-probe',$taskName).Replace('Shlwapi.lib','Shlwapi.lib Psapi.lib')
   $taskResponse += "`n"+ (($taskPcreObjects | ForEach-Object { '"'+$_.FullName+'"' }) -join ' ')
   Set-Content -LiteralPath 'WinRel\workspace-probe-objects\build.rsp' -Value $taskResponse

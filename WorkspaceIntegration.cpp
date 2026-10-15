@@ -2,6 +2,8 @@
 #include "MUSHclient.h"
 #include "doc.h"
 #include "mainfrm.h"
+#include "childfrm.h"
+#include "sendvw.h"
 #include "WorkspaceIntegration.h"
 #include "workspace/PennEditorWindow.h"
 #include "workspace/WorkspaceInputEncoding.h"
@@ -325,6 +327,37 @@ std::wstring WorkspaceHumanInputError(const CString& connectionId)
   auto error=humanInputErrors.find(connectionId);
   return error==humanInputErrors.end()?L"Not submitted; draft preserved.":error->second;
 }
+bool WorkspaceSelectSharedInput(CWorkspacePane& pane,bool focus)
+{
+  CString id,name;if(!pane.SharedInputIdentity(id,name))return false;
+  CMUSHclientDoc* doc=liveDocument(id);if(!doc || doc->m_bWorldClosing)return false;
+  const HWND input=pane.SharedInputWindow(),owner=pane.GetSafeHwnd();
+  if(!focus && !workspace_composer::BorrowedEditors().count(input))return false;
+  CChildFrame* child=NULL;
+  for(POSITION pos=doc->GetFirstViewPosition();pos && !child;){CView* view=doc->GetNextView(pos);child=DYNAMIC_DOWNCAST(CChildFrame,view->GetParentFrame());}
+  if(!child)return false;const HWND frame=child->GetSafeHwnd();
+  if(focus)child->MDIActivate();
+  if(liveDocument(id)!=doc || !::IsWindow(frame) || CWnd::FromHandlePermanent(frame)!=child ||
+     !::IsWindow(owner) || CWnd::FromHandlePermanent(owner)!=&pane || !::IsWindow(input))return false;
+  CString currentId,currentName;
+  if(!pane.SharedInputIdentity(currentId,currentName) || currentId!=id || currentName!=name || pane.SharedInputWindow()!=input)return false;
+  if(name=="Output"){
+    child->m_wndSplitter.ReleaseChannelEditor();
+    if(focus)::SetFocus(child->m_wndSplitter.CurrentInput());return true;
+  }
+  const bool borrowed=child->m_wndSplitter.UseChannelEditor(input,owner,pane.SharedInputDestination(),pane.InputPrefix(id,name),
+    [owner,input,id,name](){
+      auto* current=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(owner));CString activeId,activeName;
+      if(current && current->SharedInputWindow()==input && current->SharedInputIdentity(activeId,activeName) && activeId==id && activeName==name)current->SubmitSharedInput();},
+    [owner,input,id,name](MSG* message)->BOOL{
+      auto* current=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(owner));CString activeId,activeName;
+      return current && current->SharedInputWindow()==input && current->SharedInputIdentity(activeId,activeName) && activeId==id && activeName==name?current->PreTranslateMessage(message):FALSE;});
+  if(!borrowed)return false;
+  pane.Invalidate(FALSE);
+  if(focus)::SetFocus(input);
+  return true;
+}
+
 bool WorkspaceSendHumanInput(const CString& connectionId,const std::wstring& command)
 {
   // This callback is installed only on human-operated transcript input controls.

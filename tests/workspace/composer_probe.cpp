@@ -24,7 +24,8 @@ class ComposerApp:public CWinApp{
   auto check=[&](const char* label,bool value){out<<(value?"PASS ":"FAIL ")<<label<<"\n";ok=value&&ok;};
   auto* a=new ComposerFrame;auto* b=new ComposerFrame;
   check("two original native splitter frames create",a->Create(NULL,"Fictional Alpha",WS_OVERLAPPEDWINDOW,CRect(80,80,1000,800))&&b->Create(NULL,"Fictional Beta",WS_OVERLAPPEDWINDOW,CRect(100,100,1020,820)));
-  m_pMainWnd=a;a->ShowWindow(SW_SHOWNOACTIVATE);b->ShowWindow(SW_SHOWNOACTIVATE);a->RecalcLayout();b->RecalcLayout();
+  const bool hidden=strstr(m_lpCmdLine,"--hidden")!=NULL;
+  m_pMainWnd=a;if(!hidden){a->ShowWindow(SW_SHOWNOACTIVATE);b->ShowWindow(SW_SHOWNOACTIVATE);}a->RecalcLayout();b->RecalcLayout();
   HWND original=a->input->m_hWnd;HWND other=b->input->m_hWnd;
   const HFONT custom=CreateFontW(-23,0,0,0,FW_NORMAL,0,0,0,ANSI_CHARSET,0,0,0,FIXED_PITCH,L"Consolas");
   ::SendMessage(original,WM_SETFONT,(WPARAM)custom,0);::SetWindowText(original,"Alpha retained draft");::SendMessage(original,EM_SETSEL,2,8);
@@ -64,6 +65,43 @@ class ComposerApp:public CWinApp{
   }
   check("theme resize and independent characters retain drafts selections custom font and original HWND",retained);
   check("native destination and Send remain above original input at narrow and expanded widths",inside);
+  CWnd channelHome;check("hidden channel owner creates",channelHome.CreateEx(0,AfxRegisterWndClass(0),"Fictional channel owner",WS_CHILD,0,0,200,200,a->m_hWnd,NULL)!=FALSE);
+  HWND channel=::CreateWindowExW(0,L"EDIT",L"Unicode \x03bb \xd83d\xdc09 draft",WS_CHILD|ES_AUTOHSCROLL,0,0,1,1,channelHome.m_hWnd,(HMENU)2,AfxGetInstanceHandle(),NULL);
+  ::SendMessageW(channel,EM_SETSEL,2,5);const LRESULT channelSelection=::SendMessageW(channel,EM_GETSEL,0,0);
+  int channelSent=0,channelKeys=0;
+  const auto submitChannel=[&](){++channelSent;};
+  const auto keys=[&](MSG* message)->BOOL{if(message->wParam==VK_UP){++channelKeys;return TRUE;}return FALSE;};
+  check("channel Unicode editor borrows shared Main slot",a->splitter.UseChannelEditor(channel,channelHome.m_hWnd,L"Input target: Alpha / Public",L"+pub ",submitChannel,keys) && ::GetParent(channel)==a->splitter.m_hWnd && a->splitter.CurrentInput()==channel);
+  wchar_t channelText[100]={},prefix[100]={};::GetWindowTextW(channel,channelText,100);::GetWindowTextW(::GetDlgItem(a->splitter.m_hWnd,0x7b22),prefix,100);
+  check("borrow retains Unicode draft selection and exact trailing-space prefix",::IsWindowUnicode(channel) && wcscmp(channelText,L"Unicode \x03bb \xd83d\xdc09 draft")==0 && ::SendMessageW(channel,EM_GETSEL,0,0)==channelSelection && wcscmp(prefix,L"Prefix: \x201c+pub \x201d")==0);
+  const int mainBefore=a->sent;::SendMessage(::GetDlgItem(a->splitter.m_hWnd,0x7b20),BM_CLICK,0,0);
+  check("shared Send dispatches channel only, never Main or another character",channelSent==1 && a->sent==mainBefore && b->sent==0);
+  MSG key={};key.hwnd=channel;key.message=WM_SYSKEYDOWN;key.wParam=VK_UP;
+  check("shared input dispatches Alt history keys to owning channel",workspace_composer::PreTranslateInput(&key) && channelKeys==1);
+  a->splitter.RouteEditCommand(ID_EDIT_SELECT_ALL,CN_COMMAND,NULL,NULL);
+  DWORD editFirst=0,editLast=0;::SendMessageW(channel,EM_GETSEL,(WPARAM)&editFirst,(LPARAM)&editLast);
+  check("Edit Select All targets shared Unicode input instead of hidden Main",editFirst==0 && editLast==(DWORD)::GetWindowTextLengthW(channel) && ::SendMessage(original,EM_GETSEL,0,0)==selection);
+  a->splitter.RouteEditCommand(ID_EDIT_CLEAR,CN_COMMAND,NULL,NULL);
+  char untouchedMain[100]={};::GetWindowText(original,untouchedMain,100);
+  check("Edit Delete changes only selected channel draft",::GetWindowTextLengthW(channel)==0 && strcmp(untouchedMain,"Alpha retained draft")==0);
+  ::SetWindowTextW(channel,L"independent channel draft");
+  HWND search=::CreateWindowExW(0,L"EDIT",L"search query",WS_CHILD,0,0,30,20,channelHome.m_hWnd,NULL,AfxGetInstanceHandle(),NULL);
+  a->splitter.RouteEditCommand(ID_EDIT_SELECT_ALL,CN_COMMAND,NULL,NULL,search);
+  a->splitter.RouteEditCommand(ID_EDIT_CLEAR,CN_COMMAND,NULL,NULL,search);
+  check("contextual Edit command preserves shared draft while editing search",!::GetWindowTextLengthW(search) && ::GetWindowTextLengthW(channel)==25 && strcmp(untouchedMain,"Alpha retained draft")==0);
+  const int historyBefore=channelKeys;
+  check("legacy history accelerator routes to channel",a->splitter.RouteEditCommand(ID_ALT_UPARROW,CN_COMMAND,NULL,NULL) && channelKeys==historyBefore+1);
+  check("unsupported Main completion accelerator is consumed",a->splitter.RouteEditCommand(ID_KEYS_TAB,CN_COMMAND,NULL,NULL));
+  ::SetWindowTextW(channel,L"retained channel draft");
+  CRect collapseBounds;a->splitter.GetClientRect(collapseBounds);
+  a->splitter.SetRowInfo(0,collapseBounds.Height(),0);a->splitter.SetRowInfo(1,0,0);a->splitter.RecalcLayout();
+  check("collapsed input cannot leave borrowed editor over transcript",!(::GetWindowLong(channel,GWL_STYLE)&WS_VISIBLE));
+  a->splitter.SetRowInfo(0,collapseBounds.Height()-11-a->splitter.RowHeightForInput(64),0);a->splitter.SetRowInfo(1,a->splitter.RowHeightForInput(64),0);a->splitter.RecalcLayout();
+  check("expanded input restores channel editor",(::GetWindowLong(channel,GWL_STYLE)&WS_VISIBLE)!=0);
+  workspace_composer::ReleaseEditor(channel);
+  char retainedMain[100]={};::GetWindowText(original,retainedMain,100);
+  check("Main restoration returns borrowed editor home and retains original draft selection and font",::GetParent(channel)==channelHome.m_hWnd && a->splitter.CurrentInput()==original && strcmp(retainedMain,"Alpha retained draft")==0 && ::SendMessage(original,EM_GETSEL,0,0)==selection && ::SendMessage(original,WM_GETFONT,0,0)==(LRESULT)custom);
+  check("released channel keys cannot address stale destination",!workspace_composer::PreTranslateInput(&key));
   WorkspaceViewLease live(a->input);check("lease accepts current original view",live.IsLive());
   // Two views can share a document; submission ownership is wider than an HWND.
   const CDocument* fictionalOwner=reinterpret_cast<const CDocument*>(a);
@@ -72,7 +110,10 @@ class ComposerApp:public CWinApp{
    check("document-wide nested submission rejects second view but permits different owner",first.Acquired()&&!nested.Acquired()&&otherOwner.Acquired());}
   check("submission scope releases without dereferencing a possibly closed document",!WorkspaceMainSubmission::IsActive(fictionalOwner));
   ::SetPropW(original,L"Valyria.OriginalViewLifetime",(HANDLE)0x12345678);check("lease rejects changed native lifetime",!live.IsLive());
-  WorkspaceViewLease closed(b->input);b->DestroyWindow();check("lease rejects closed original view without dereferencing it",!closed.IsLive());
+  WorkspaceViewLease closed(b->input);
+  check("second host can borrow same editor after explicit release",b->splitter.UseChannelEditor(channel,channelHome.m_hWnd,L"Input target: Beta / Test",L"page Mira=",submitChannel,keys));
+  b->DestroyWindow();check("lease rejects closed original view without dereferencing it",!closed.IsLive());
+  check("closing host returns live channel editor before destroying original views",::IsWindow(channel) && ::GetParent(channel)==channelHome.m_hWnd && !workspace_composer::BorrowedEditors().count(channel));
   a->DestroyWindow();DeleteObject(custom);out<<(ok?"PASS":"FAIL")<<" composer geometry and original-view lifetime; native API fixture, no transport or physical IME claim\n";result_=ok?0:1;return FALSE;
  }
  int ExitInstance()override{CWinApp::ExitInstance();return result_;}

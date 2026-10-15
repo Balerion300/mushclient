@@ -597,6 +597,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
   m_workspacePane.EnableDocking(CBRS_ALIGN_ANY);
   m_workspacePane.SetActionHandler(ActivateWorkspaceAction);
   m_workspacePane.SetInputHandler(WorkspaceSendHumanInput);
+  m_workspacePane.SetSharedInputHandler(WorkspaceSelectSharedInput);
   m_workspacePane.SetPruneHandler(WorkspacePanePruned);
   m_workspacePane.SetConnectionHandler(WorkspaceIsConnectionLive);m_workspacePane.SetInputErrorHandler(WorkspaceHumanInputError);
   DockControlBar(&m_workspacePane, AFX_IDW_DOCKBAR_RIGHT);
@@ -1162,6 +1163,8 @@ void CMainFrame::FixUpTitleBar (void)
 
 BOOL CMainFrame::PreTranslateMessage(MSG* pMsg) 
 {
+  if(workspace_composer::BorrowedEditors().count(pMsg->hwnd) && workspace_composer::CompositionActive(pMsg->hwnd))return FALSE;
+  if(workspace_composer::PreTranslateInput(pMsg))return TRUE;
   if(HandleWorkspaceShortcut(pMsg))return TRUE;
   if(m_workspaceShell && m_workspaceShell->PreTranslate(pMsg))return TRUE;
   if(pMsg->message==WM_KEYDOWN && pMsg->wParam>=VK_F1 && pMsg->wParam<=VK_F9 &&
@@ -2702,14 +2705,14 @@ void CMainFrame::UpdateWorkspaceShell()
   snapshot.world=(LPCSTR)m_workspaceShellWorld;snapshot.name=(LPCSTR)m_workspaceShellName;
   HWND focus=::GetFocus();const bool retain=m_workspaceShell->OwnsFocus();std::map<CString,std::vector<workspace_shell::Row>> channels;
   bool paneFocused=false;auto inspect=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);for(const auto& layout:layouts){workspace_shell::Row row;row.world=(LPCSTR)layout.connectionId;row.name=(LPCSTR)layout.name;row.label=layout.name=="Output"?L"Main transcript":WorkspaceShellWide(layout.name,true);row.channel=true;row.priority=WorkspaceTranscriptPreferences(layout.connectionId,layout.name).priority;row.unread=pane->UnreadCount(layout.connectionId,layout.name);row.mentions=pane->MentionCount(layout.connectionId,layout.name);channels[layout.connectionId].push_back(row);
-    if(!retain && (focus==pane->GetSafeHwnd() || ::IsChild(pane->GetSafeHwnd(),focus))){snapshot.world=row.world;snapshot.name=row.name;paneFocused=true;}}};
+    if(!retain && (focus==pane->GetSafeHwnd() || ::IsChild(pane->GetSafeHwnd(),focus) || (workspace_composer::BorrowedEditors().count(pane->SharedInputWindow()) && focus==pane->SharedInputWindow()))){snapshot.world=row.world;snapshot.name=row.name;paneFocused=true;}}};
   inspect(&m_workspacePane);for(auto* pane:m_workspaceSplits)inspect(pane);
   for(auto& group:channels)std::stable_sort(group.second.begin(),group.second.end(),[](const workspace_shell::Row& a,const workspace_shell::Row& b){if(a.priority!=b.priority)return a.priority>b.priority;if(a.label!=b.label)return a.label<b.label;return a.name<b.name;});
   if(!retain && !paneFocused){auto* child=MDIGetActive();auto* doc=child?DYNAMIC_DOWNCAST(CMUSHclientDoc,child->GetActiveDocument()):NULL;if(doc){snapshot.world=(LPCSTR)WorkspaceConnectionId(doc);snapshot.name.clear();}}
   bool found=false;
   for(POSITION pos=App.m_pWorldDocTemplate->GetFirstDocPosition();pos;){auto* doc=(CMUSHclientDoc*)App.m_pWorldDocTemplate->GetNextDoc(pos);workspace_shell::Row row;const CString identity=WorkspaceConnectionId(doc);row.world=(LPCSTR)identity;row.label=WorkspaceShellWide(doc->m_mush_name);if(row.label.empty())row.label=L"Untitled world";row.connected=doc->m_iConnectPhase==eConnectConnectedToMud;row.disconnecting=doc->m_iConnectPhase==eConnectDisconnecting;row.connecting=doc->m_iConnectPhase!=eConnectNotConnected && !row.connected && !row.disconnecting;row.logging=doc->m_logfile!=NULL;row.unread=(unsigned)max(0L,(long)doc->m_new_lines);
     WorkspaceCharacterIdentity(*this,*doc,row);
-    workspace_composer::ForEachOriginalFrame(*doc,[&](CFrameWnd& frame){auto* child=DYNAMIC_DOWNCAST(CChildFrame,&frame);if(child)child->m_wndSplitter.SetComposerDestination(row.gameLabel,row.characterLabel,row.connected);});
+    workspace_composer::ForEachOriginalFrame(*doc,[&](CFrameWnd& frame){auto* child=DYNAMIC_DOWNCAST(CChildFrame,&frame);if(child)child->m_wndSplitter.SetComposerDestination(row.gameLabel,row.characterLabel,row.connected,doc->m_bEnableAutoSay?L"AutoSay (when applicable): \""+WorkspaceShellWide(doc->m_strAutoSayString,doc->m_bUTF_8)+L"\"":L"None (full command)");});
     auto present=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layout;pane->GetLayouts(layout,false);if(!layout.empty() && layout[0].connectionId==identity)pane->SetPresentationIdentity(row.gameLabel,row.characterLabel);};
     present(&m_workspacePane);for(auto* pane:m_workspaceSplits)present(pane);
     if(row.world==snapshot.world)found=true;for(const auto& channel:channels[identity])row.mentions+=channel.mentions;snapshot.rows.push_back(row);for(const auto& channel:channels[identity])snapshot.rows.push_back(channel);}
@@ -2749,6 +2752,7 @@ void CMainFrame::WorkspaceShellAction(int action,const std::string& world,const 
   auto* doc=WorkspaceShellDocument(world);if(!doc)return;
   m_workspaceShellWorld=world.c_str();m_workspaceShellName=name.c_str();
   CWorkspacePane* selected=NULL;size_t selectedIndex=0;auto locate=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);for(size_t i=0;i<layouts.size();++i)if(world==(LPCSTR)layouts[i].connectionId && name==(LPCSTR)layouts[i].name){selected=pane;selectedIndex=i;}};locate(&m_workspacePane);for(auto* pane:m_workspaceSplits)locate(pane);
+  if(action==Select && !selected){auto* child=DYNAMIC_DOWNCAST(CChildFrame,MDIGetActive());if(child){child->m_wndSplitter.ReleaseChannelEditor();::SetFocus(child->m_wndSplitter.CurrentInput());}}
   if(action==Select && selected){ShowControlBar(selected,TRUE,FALSE);selected->FocusTranscript(selectedIndex);}
   else if(action==Arrange && selected){ShowControlBar(selected,TRUE,FALSE);selected->ShowPlacementMenu();}
   else if(action==Arrange){SetStatusMessage("Choose a channel in the navigator to arrange its native pane.");}
@@ -2857,7 +2861,7 @@ bool CMainFrame::OpenWorkspaceTranscript(const CString& connectionId, const CStr
     if(target==&m_workspacePane && m_workspaceSplits.size()<128)
       { CWorkspacePane* extra=new CWorkspacePane;
         if(extra->Create(this,(UINT)(0xE900+m_workspaceSplits.size())))
-          {extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceSendHumanInput);extra->SetPruneHandler(WorkspacePanePruned);extra->SetConnectionHandler(WorkspaceIsConnectionLive);extra->SetInputErrorHandler(WorkspaceHumanInputError);
+          {extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceSendHumanInput);extra->SetSharedInputHandler(WorkspaceSelectSharedInput);extra->SetPruneHandler(WorkspacePanePruned);extra->SetConnectionHandler(WorkspaceIsConnectionLive);extra->SetInputErrorHandler(WorkspaceHumanInputError);
             m_workspaceSplits.push_back(extra);target=extra; }
         else delete extra; }
     }
@@ -3052,6 +3056,10 @@ void CMainFrame::OnWorkspaceFloatTranscript()
   CWnd* focus=GetFocus();
   for(CWnd* parent=focus;parent;parent=parent->GetParent())
     if((selected=DYNAMIC_DOWNCAST(CWorkspacePane,parent))!=NULL)break;
+  if(!selected && focus){
+    auto owns=[&](CWorkspacePane* pane){if(workspace_composer::BorrowedEditors().count(pane->SharedInputWindow()) && pane->SharedInputWindow()==focus->GetSafeHwnd())selected=pane;};
+    owns(&m_workspacePane);for(auto* pane:m_workspaceSplits)owns(pane);
+  }
   if(!selected && !m_workspacePane.IsEmpty())selected=&m_workspacePane;
   if(!selected)return;
   CRect bounds;GetWindowRect(bounds);FloatWorkspacePane(*selected,CRect(bounds.TopLeft()+CPoint(80,120),CSize(500,350)));
@@ -3453,7 +3461,7 @@ bool CMainFrame::FocusRelativeWorkspaceTranscript(int direction)
 {
   auto entries=WorkspaceNavigation(*this);if(entries.empty())return false;
   HWND focus=::GetFocus();size_t current=0;bool found=false;
-  for(size_t i=0;i<entries.size();++i)if(focus==entries[i].pane->GetSafeHwnd() || ::IsChild(entries[i].pane->GetSafeHwnd(),focus)){current=i;found=true;break;}
+  for(size_t i=0;i<entries.size();++i)if(focus==entries[i].pane->GetSafeHwnd() || ::IsChild(entries[i].pane->GetSafeHwnd(),focus) || (workspace_composer::BorrowedEditors().count(entries[i].pane->SharedInputWindow()) && focus==entries[i].pane->SharedInputWindow())){current=i;found=true;break;}
   const size_t next=!found?(direction<0?entries.size()-1:0):(current+entries.size()+(direction<0?-1:1))%entries.size();return FocusWorkspaceTranscript(next);
 }
 bool CMainFrame::HandleWorkspaceShortcut(MSG* message)

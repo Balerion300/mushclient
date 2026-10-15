@@ -117,6 +117,13 @@ public:
   typedef std::function<void(const CString&,const CString&,const std::deque<WorkspaceRecord>&)> PruneHandler;
   void SetPruneHandler(const PruneHandler& handler) { m_pruneHandler=handler; }
   void SetInputHandler(const InputHandler& handler) { m_inputHandler=handler; }
+  typedef std::function<bool(CWorkspacePane&,bool)> SharedInputHandler;
+  void SetSharedInputHandler(const SharedInputHandler& handler) { m_sharedInputHandler=handler;if(GetSafeHwnd())LayoutChildren(); }
+  bool SharedInputIdentity(CString& connectionId,CString& name) const;
+  HWND SharedInputWindow() const { return m_input.GetSafeHwnd(); }
+  std::wstring SharedInputDestination() const;
+  bool SelectSharedInput(bool focus=true);
+  void SubmitSharedInput() { OnReviewInput(); }
   bool SetInputPrefix(const CString& connectionId, const CString& name, const std::wstring& prefix);
   virtual BOOL PreTranslateMessage(MSG* message);
   void SetActionHandler(const ActionHandler& handler) { m_actionHandler=handler; }
@@ -162,6 +169,10 @@ protected:
   CString m_toolTitle;
   ActionHandler m_actionHandler;
   InputHandler m_inputHandler;
+  SharedInputHandler m_sharedInputHandler;
+  CPoint m_inputPointerStart;
+  bool m_inputPointerCancelled=true;
+  static LRESULT CALLBACK TranscriptInputProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR data);
   ConnectionHandler m_connectionHandler;
   InputErrorHandler m_inputErrorHandler;
   CStatic m_inputStatus;
@@ -204,6 +215,7 @@ protected:
   afx_msg void OnSize(UINT type, int cx, int cy);
   afx_msg void OnPaint();
   afx_msg void OnSetFocus(CWnd* oldWindow);
+  afx_msg void OnLButtonUp(UINT flags,CPoint point);
   afx_msg void OnReviewInput();
   afx_msg void OnFindNext();
   afx_msg void OnPause();

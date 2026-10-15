@@ -2776,6 +2776,9 @@ int line,
   ReleaseCapture();   // Release the mouse capture established at
                     // the beginning of the mouse drag.
 
+  if(!(nFlags&(MK_CONTROL|MK_SHIFT)) && m_selstart_line==m_selend_line && m_selstart_col==m_selend_col)
+    OnKeysActivatecommandview();
+
   return;
   
 //  CView::OnLButtonUp(nFlags, point);
@@ -3464,7 +3467,13 @@ BOOL CMUSHView::OnEraseBkgnd(CDC* pDC)
 
 void CMUSHView::OnKeysActivatecommandview() 
 {
-  m_owner_frame->SetActiveView((CView*) m_bottomview);
+  CChildFrame* frame=m_owner_frame;CSendView* view=m_bottomview;
+  const HWND owner=frame->GetSafeHwnd(),input=view->GetSafeHwnd();
+  frame->m_wndSplitter.ReleaseChannelEditor();
+  if(!::IsWindow(owner) || CWnd::FromHandlePermanent(owner)!=frame)return;
+  frame->SetActiveView((CView*)view);
+  // Activation scripts can close the original document synchronously.
+  if(::IsWindow(input) && CWnd::FromHandlePermanent(input)==view)::SetFocus(input);
 }
 
 
