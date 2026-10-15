@@ -3228,6 +3228,10 @@ bool CMainFrame::RestoreWorkspaceDockState(CWorkspacePane& pane,const CString& w
   if(!m_workspaceDockSession->Contains(key))return false;
   // An unavailable sibling is projected away. A manually rearranged component
   // opts out of later joins, so opening another world never moves that reader.
+  // An empty reusable pane may still belong to the surviving character's tab
+  // group. Detach it before docking; docking a tab child directly leaves its
+  // old group registration behind and MFC asserts on the later tab rebuild.
+  if(!workspace_dock::Detach(&pane))return false;
   DockPane(&pane,AFX_IDW_DOCKBAR_RIGHT);pane.ShowPane(TRUE,FALSE,FALSE);
   const auto result=m_workspaceDockSession->ArriveResult(*this,key,WorkspaceDockEntries());
   // Manual opt-out is handled as a visible standalone pane. Native restoration

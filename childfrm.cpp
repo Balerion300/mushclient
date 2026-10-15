@@ -186,7 +186,8 @@ void CChildFrame::FixUpSplitterBar (void)
 
    // Read persisted/default body height once. MDI activation/fullscreen can
    // resize this original frame without a user splitter change.
-   cyCurBottom=m_wndSplitter.RestoreInputHeight(cyCurBottom,m_pDoc && m_pDoc->m_InputFontHeight>0);
+   cyCurBottom=m_wndSplitter.RestoreInputHeight(cyCurBottom,
+     m_pDoc && m_pDoc->m_bLoaded && !m_pDoc->m_mush_name.IsEmpty() && m_pDoc->m_InputFontHeight>0);
 
 //  TRACE1 ("Bottom height (loaded) = %i\n", cyCurBottom);
 

@@ -17,8 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser()
 p.add_argument('--exe', type=Path, default=ROOT/'WinRel/MUSHclient.exe')
 p.add_argument('--tabbed-worlds', action='store_true')
+p.add_argument('--isolated-desktop', action='store_true', help='Run the candidate on a private desktop without showing or focusing the user desktop')
 a = p.parse_args()
-child = subprocess.Popen([sys.executable, str(Path(__file__).with_name('modern_client_fixture.py')), '--exe', str(a.exe), '--main-composer-test', '--duration', '150']+(['--tabbed-worlds'] if a.tabbed_worlds else []), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+child = subprocess.Popen([sys.executable, str(Path(__file__).with_name('modern_client_fixture.py')), '--exe', str(a.exe), '--main-composer-test', '--duration', '150']+(['--tabbed-worlds'] if a.tabbed_worlds else [])+(['--isolated-desktop'] if a.isolated_desktop else []), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 parts=[]
 while True:
     line=child.stdout.readline()

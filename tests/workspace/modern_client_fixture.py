@@ -6,6 +6,7 @@ The CLI prints the exact candidate PID/path; use normal UI close during acceptan
 Writing 'stop' to fixture.control stops only this fixture and its candidate process.
 """
 import argparse
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -13,9 +14,11 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+import uuid
 from xml.sax.saxutils import quoteattr
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +30,7 @@ p.add_argument('--duration', type=int, default=1800)
 p.add_argument('--focus-trace', action='store_true', help='Bounded own-client focus diagnostics; logs no input text')
 p.add_argument('--main-composer-test', action='store_true', help='Enable the fictional Main-composer regression driver')
 p.add_argument('--tabbed-worlds', action='store_true', help='Start fictional acceptance in optional character document tab mode')
+p.add_argument('--isolated-desktop', action='store_true', help='Confine all candidate windows to a private non-input Windows desktop; never switch desktops')
 a = p.parse_args()
 dest = a.destination or Path(tempfile.mkdtemp(prefix='mush-modern-acceptance-'))
 dest.mkdir(exist_ok=True)
@@ -89,7 +93,7 @@ def serve(listener, label):
         try:
             conn.sendall((label+':: fictional welcome \u03bb\U0001f409\r\n').encode())
             conn.sendall((label+':: \x1b[1z<send href="look fixture">Synthetic command link</send>\r\n').encode())
-            if label == 'Alpha':
+            if label == 'Alpha' and not a.isolated_desktop:
                 conn.sendall(b'\x1b[1z<image url="https://raw.githubusercontent.com/Balerion300/mushclient/codex/inline-static-images/tests/fixture-scene.png">\r\n')
             while not stop.is_set():
                 command_file = dest/(label.lower()+'.control')
@@ -156,10 +160,47 @@ db.close()
 startup = subprocess.STARTUPINFO()
 startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 startup.wShowWindow = 0
+desktop_handle = None
+desktop_name = None
+desktop_api = None
+if a.isolated_desktop:
+    # STARTF_USESHOWWINDOW alone is insufficient: MFC and fixture actions can
+    # subsequently show or activate windows. A separate desktop confines all
+    # those windows and focus changes, including dialogs and reopened worlds.
+    from ctypes import wintypes
+    desktop_api = ctypes.WinDLL('user32', use_last_error=True)
+    desktop_api.CreateDesktopW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+    desktop_api.CreateDesktopW.restype = wintypes.HANDLE
+    desktop_api.CloseDesktop.argtypes = [wintypes.HANDLE]
+    desktop_api.CloseDesktop.restype = wintypes.BOOL
+    desktop_name = 'ValyriaQA-' + uuid.uuid4().hex
+    # No DESKTOP_SWITCHDESKTOP right, and no SwitchDesktop call anywhere.
+    desktop_handle = desktop_api.CreateDesktopW(desktop_name, None, None, 0, 0x00ff, None)
+    if not desktop_handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    from private_desktop_process import PrivateDesktopProcess
+    proof_file = dest/'desktop-preflight.json'
+    proof = PrivateDesktopProcess([sys.executable,str(Path(__file__).with_name('inspect_fixture_desktop.py')),'0',str(proof_file)], desktop_name, dest, os.environ.copy())
+    try:
+        proof.wait(timeout=8)
+        assert proof.returncode == 0 and json.loads(proof_file.read_text())['desktop'] == desktop_name, 'Private desktop preflight failed; candidate will not launch'
+    except BaseException:
+        desktop_api.CloseDesktop(desktop_handle)
+        raise
+    finally:
+        if proof.poll() is None: proof.terminate();proof.wait(timeout=3)
+        proof.close()
 environment = os.environ.copy()
 if a.focus_trace or a.main_composer_test: environment['VALYRIA_FOCUS_TRACE'] = '1'
-client = subprocess.Popen([str(dest/'MUSHclient.exe'), '/noregister'], cwd=dest, startupinfo=startup, env=environment)
-print(json.dumps({'fixture':str(dest), 'candidate_pid':client.pid, 'candidate_exe':str(dest/'MUSHclient.exe')}, indent=2), flush=True)
+try:
+    if desktop_handle:
+        client = PrivateDesktopProcess([str(dest/'MUSHclient.exe'), '/noregister'], desktop_name, dest, environment)
+    else:
+        client = subprocess.Popen([str(dest/'MUSHclient.exe'), '/noregister'], cwd=dest, startupinfo=startup, env=environment)
+except BaseException:
+    if desktop_handle: desktop_api.CloseDesktop(desktop_handle)
+    raise
+print(json.dumps({'fixture':str(dest), 'candidate_pid':client.pid, 'candidate_exe':str(dest/'MUSHclient.exe'), 'isolated_desktop':desktop_name}, indent=2), flush=True)
 started = time.monotonic()
 try:
     while time.monotonic()-started < a.duration and not stop.is_set():
@@ -171,7 +212,24 @@ finally:
     stop.set()
     for listener in listeners:
         listener.close()
+    if desktop_handle:
+        # Diagnostics are optional evidence, never a reason to skip cleanup.
+        try:
+            inspected = PrivateDesktopProcess([sys.executable, str(Path(__file__).with_name('inspect_fixture_desktop.py')), str(client.pid),str(dest/'isolated-desktop-inspection.json')], desktop_name, dest, os.environ.copy())
+            try: inspected.wait(timeout=8)
+            finally:
+                if inspected.poll() is None: inspected.terminate();inspected.wait(timeout=3)
+                inspected.close()
+        except BaseException as error:
+            (dest/'desktop-diagnostic-error.txt').write_text(str(error), encoding='utf-8')
     if client.poll() is None:
         client.terminate()
         client.wait(timeout=10)
+        terminated_by_fixture = True
+    else:
+        terminated_by_fixture = False
+    (dest/'candidate-exit.json').write_text(json.dumps({'exit_code':client.returncode, 'terminated_by_fixture':terminated_by_fixture}), encoding='utf-8')
+    if desktop_handle:
+        client.close()
+        desktop_api.CloseDesktop(desktop_handle)
     print('Isolated fixture stopped; evidence retained at '+str(dest), flush=True)

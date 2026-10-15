@@ -158,3 +158,26 @@ cycles. These fixtures never show a top-level window or take input focus.
 Actual-client clicking/caret acceptance, docking while typing, real IME input and
 mixed-DPI testing remain pending. The full client is built in both configurations;
 background fixtures do not replace those desktop acceptance checks.
+
+### October 16 background acceptance update
+
+This update supersedes the earlier close/reopen blocker and runtime-pending
+entries above. Current Debug and Release clients each pass all 13 full-client
+Main-composer checks in both tree and tabbed-world modes (52 checks). Final runs
+use native CreateProcessW on a private Windows desktop, independently verified
+before candidate launch; the desktop is never displayed or switched to.
+
+The investigation fixed two additional defects: early initialization cached a
+default input height before the named world finished loading, and restoring a
+reused channel pane docked it without detaching its surviving tab-group ownership.
+Reopening now preserves the requested input height and avoids duplicate MFC
+docking registration. The original native-control teardown assertion did not
+recur. Existing native dock-layout checks also pass on a verified private desktop.
+
+Separately, 100 hidden native shared-input checks and both console policy/encoding
+suites pass. These cover drafts/history, Unicode/prefixes, owner-specific dispatch,
+rejection feedback, editor borrowing, themes/geometry and lifetime invalidation.
+See `CLOSE_REOPEN_ACCEPTANCE_2026-10-16.md` and
+`SHARED_INPUT_ACCEPTANCE_2026-10-16.md` for candidate identities, evidence and limits.
+Physical click/caret, IME, dragging and mixed-DPI acceptance remain open. No
+personal installation or world profile was replaced by these tests.

@@ -46,7 +46,8 @@ class QaApp : public CWinApp {
       frame->Create(NULL, "QA Main", WS_OVERLAPPEDWINDOW, CRect(50, 50, 700, 550)) &&
       frame->input && frame->splitter.GetPane(1, 0) == frame->input);
     m_pMainWnd = frame;
-    frame->ShowWindow(SW_SHOWNOACTIVATE);
+    if (strstr(m_lpCmdLine, "--hidden") == NULL)
+      frame->ShowWindow(SW_SHOWNOACTIVATE);
     HWND editor = frame->input->m_hWnd;
     HWND label = ::GetDlgItem(frame->splitter.m_hWnd, 0x7b21);
     HWND send = ::GetDlgItem(frame->splitter.m_hWnd, 0x7b20);
