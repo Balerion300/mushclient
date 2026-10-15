@@ -2709,6 +2709,7 @@ void CMainFrame::UpdateWorkspaceShell()
   bool found=false;
   for(POSITION pos=App.m_pWorldDocTemplate->GetFirstDocPosition();pos;){auto* doc=(CMUSHclientDoc*)App.m_pWorldDocTemplate->GetNextDoc(pos);workspace_shell::Row row;const CString identity=WorkspaceConnectionId(doc);row.world=(LPCSTR)identity;row.label=WorkspaceShellWide(doc->m_mush_name);if(row.label.empty())row.label=L"Untitled world";row.connected=doc->m_iConnectPhase==eConnectConnectedToMud;row.disconnecting=doc->m_iConnectPhase==eConnectDisconnecting;row.connecting=doc->m_iConnectPhase!=eConnectNotConnected && !row.connected && !row.disconnecting;row.logging=doc->m_logfile!=NULL;row.unread=(unsigned)max(0L,(long)doc->m_new_lines);
     WorkspaceCharacterIdentity(*this,*doc,row);
+    workspace_composer::ForEachOriginalFrame(*doc,[&](CFrameWnd& frame){auto* child=DYNAMIC_DOWNCAST(CChildFrame,&frame);if(child)child->m_wndSplitter.SetComposerDestination(row.gameLabel,row.characterLabel,row.connected);});
     auto present=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layout;pane->GetLayouts(layout,false);if(!layout.empty() && layout[0].connectionId==identity)pane->SetPresentationIdentity(row.gameLabel,row.characterLabel);};
     present(&m_workspacePane);for(auto* pane:m_workspaceSplits)present(pane);
     if(row.world==snapshot.world)found=true;for(const auto& channel:channels[identity])row.mentions+=channel.mentions;snapshot.rows.push_back(row);for(const auto& channel:channels[identity])snapshot.rows.push_back(channel);}

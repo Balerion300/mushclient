@@ -1479,6 +1479,8 @@
     <ClInclude Include="workspace\WorkspaceShell.h" />
     <ClInclude Include="workspace\WorkspaceNativeTabs.h" />
     <ClInclude Include="workspace\WorkspaceFocus.h" />
+    <ClInclude Include="workspace\WorkspaceComposerSplitter.h" />
+    <ClInclude Include="workspace\WorkspaceViewLease.h" />
     <ClInclude Include="workspace\WorkspaceDockActions.h" />
     <ClInclude Include="workspace\WorkflowUi.h" />
     <ClInclude Include="workspace\LogStartSetup.h" />

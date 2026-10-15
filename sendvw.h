@@ -57,6 +57,8 @@ public:
 // Operations
 public:
 
+  void SubmitMainInput();
+  bool m_mainSubmitting=false;
   void SetCommand (LPCTSTR str);
   void SendCommand (const CString strCommand, 
                     const BOOL bSavePrevious, 

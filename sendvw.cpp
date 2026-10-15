@@ -18,6 +18,9 @@
 #include "sendvw.h"
 #include "mainfrm.h"
 #include "childfrm.h"
+#include "workspace/WorkspaceViewLease.h"
+#include <imm.h>
+#pragma comment(lib,"imm32.lib")
 #include "dialogs\GlobalChangeDlg.h"
 #include "dialogs\GeneratedNameDlg.h"
 #include "ActivityView.h"
@@ -45,6 +48,8 @@ static CString RandomString();
 IMPLEMENT_DYNCREATE(CSendView, CEditView)
 
 BEGIN_MESSAGE_MAP(CSendView, CEditView)
+  ON_COMMAND(ID_WORKSPACE_SUBMIT_MAIN, SubmitMainInput)
+  ON_UPDATE_COMMAND_UI(ID_WORKSPACE_SUBMIT_MAIN, OnUpdateSessionOpen)
 	ON_WM_CONTEXTMENU()
 	//{{AFX_MSG_MAP(CSendView)
 	ON_WM_CHAR()
@@ -312,15 +317,25 @@ BOOL CSendView::PreCreateWindow(CREATESTRUCT& cs)
 	return ret;
 }
 
-void CSendView::OnChar(UINT nChar, UINT nRepCnt, UINT nFlags) 
+void CSendView::OnChar(UINT nChar, UINT nRepCnt, UINT nFlags)
 {
-CMUSHclientDoc* pDoc = GetDocument();
-ASSERT_VALID(pDoc);
+  if(nChar==VK_RETURN){SubmitMainInput();return;}
+  CEditView::OnChar(nChar,nRepCnt,nFlags);
+}
 
-	if (nChar == VK_RETURN)
-  	{
-
-    pDoc->m_iCurrentActionSource = eUserTyping;
+// Enter and the native Main Send button share this original human-input path.
+void CSendView::SubmitMainInput()
+{
+  CMUSHclientDoc* pDoc=GetDocument();ASSERT_VALID(pDoc);
+    if(m_mainSubmitting || pDoc->m_bWorldClosing)return;
+    HIMC composition=ImmGetContext(m_hWnd);bool composing=false;
+    if(composition){composing=ImmGetCompositionStringW(composition,GCS_COMPSTR,NULL,0)>0;ImmReleaseContext(m_hWnd,composition);}
+    if(composing)return; // Let the original IME finish its composition first.
+    WorkspaceViewLease lease(this);if(!lease.IsLive())return;
+    WorkspaceMainSubmission submission(pDoc);if(!submission.Acquired())return;
+    WorkspaceDocumentLease documentLease(pDoc);
+    const auto previous=pDoc->m_iCurrentActionSource;m_mainSubmitting=true;pDoc->m_iCurrentActionSource=eUserTyping;
+    struct Finish {std::function<void()> action;~Finish(){action();}} finish{[this,pDoc,previous,&lease,&documentLease](){if(lease.IsLive())m_mainSubmitting=false;if(documentLease.IsLive())pDoc->m_iCurrentActionSource=previous;}};
 
 		CString strText;
 		GetEditCtrl().GetWindowText(strText);
@@ -338,6 +353,7 @@ ASSERT_VALID(pDoc);
         {
         Frame.SetStatusMessageNow (Translate ("Spell check ..."));
         bool bOK = App.SpellCheck (this, &GetEditCtrl());
+        if(!lease.IsLive())return;
         pDoc->ShowStatusLine ();
         if (!bOK)
           return;   // spell check was cancelled
@@ -350,6 +366,7 @@ ASSERT_VALID(pDoc);
     // tell each plugin what we have received
     // the plugin callback OnPluginCommandEntered gets a chance to attack the entire command
     pDoc->SendToAllPluginCallbacksRtn (ON_PLUGIN_COMMAND_ENTERED, strText);
+    if(!lease.IsLive() || pDoc->m_bWorldClosing)return;
 
     // special string to indicate command should be discarded
     if (strText == "\t")
@@ -364,17 +381,13 @@ ASSERT_VALID(pDoc);
       return;
 
     SendCommand (strText, FALSE);
+    if(!lease.IsLive())return;
 
 // cancel any previous message on the status line
     pDoc->ShowStatusLine ();
 
-    pDoc->m_iCurrentActionSource = eUnknownActionSource;
+
     return;
-
-  	} // end of return key
-
-	
-  CEditView::OnChar(nChar, nRepCnt, nFlags);
 
 }
 
@@ -579,13 +592,15 @@ void CSendView::OnTestLineup()
 
 void CSendView::SetCommand (LPCTSTR str)
   {
+  WorkspaceViewLease lease(this);
 
 //  TRACE1 ("SetCommand = %s\n", str);
 	GetEditCtrl().SetWindowText (str);
+  if(!lease.IsLive())return;
   int len = GetWindowTextLength ();
   GetEditCtrl().SetSel (len, len);
   OnChange ();
-  m_bChanged = FALSE;
+  if(lease.IsLive())m_bChanged = FALSE;
 
 
   }
@@ -595,6 +610,7 @@ void CSendView::SendCommand (const CString strOriginalCommand,
                              const BOOL bKeepInHistory)
   {
 
+  WorkspaceViewLease lease(this);
   CString strFullCommand = strOriginalCommand;
 
 	CMUSHclientDoc* pDoc = GetDocument();
@@ -650,14 +666,18 @@ void CSendView::SendCommand (const CString strOriginalCommand,
 
     if (!pDoc->m_bReEvaluateAutoSay && pDoc->CheckConnected ())
       return;
+    if(!lease.IsLive())return;
 
     // break up auto-say string into a list, terminated by newlines
     CStringList strList;
     StringToList (strFullCommand, ENDLINE, strList);
+    WorkspaceDocumentLease autoSayDocument(pDoc);
+    const BOOL savedAutoSay=pDoc->m_bEnableAutoSay;
+    const unsigned short savedStack=pDoc->m_enable_command_stack;
+    struct RestoreAutoSay {std::function<void()> action;~RestoreAutoSay(){action();}} restoreAutoSay{[pDoc,savedAutoSay,savedStack,&autoSayDocument](){if(autoSayDocument.IsLive()){pDoc->m_bEnableAutoSay=savedAutoSay;pDoc->m_enable_command_stack=savedStack;}}};
     pDoc->m_bEnableAutoSay = false; // disable to prevent loop
 
     // disable command stacking
-    unsigned short bSaveCommandStack = pDoc->m_enable_command_stack;
     pDoc->m_enable_command_stack = false;
 
     for (POSITION command_pos = strList.GetHeadPosition (); command_pos; )
@@ -679,6 +699,7 @@ void CSendView::SendCommand (const CString strOriginalCommand,
                   ::FixupEscapeSequences (str) : str
             ) != eOK)
           break;    // some obscure error? give up
+        if(!lease.IsLive())return;
 
         }
       else
@@ -686,12 +707,12 @@ void CSendView::SendCommand (const CString strOriginalCommand,
         pDoc->SendMsg (pDoc->m_strAutoSayString + str, 
                       pDoc->m_display_my_input, 
                       false,          // don't queue
-                      pDoc->LoggingInput ()); 
+                      pDoc->LoggingInput ());
+        if(!lease.IsLive())return;
         }
       }
 
-    pDoc->m_bEnableAutoSay = true; // re-enable it
-    pDoc->m_enable_command_stack = bSaveCommandStack; // re-enable it
+    if(!lease.IsLive())return;
 
     } // end of auto say
   else
@@ -710,6 +731,8 @@ void CSendView::SendCommand (const CString strOriginalCommand,
       return;
     }  // end not auto-say
 
+  if(!lease.IsLive())return;
+
   // put original command in command history (we might have stripped auto-say prefix)
   if (bKeepInHistory && !pDoc->m_bOmitFromCommandHistory)
     AddToCommandHistory (strOriginalCommand);
@@ -725,11 +748,14 @@ void CSendView::SendCommand (const CString strOriginalCommand,
     if (pDoc->m_bAutoRepeat && !pDoc->m_bNoEcho)    // auto repeat re-enters the last command
       {
       SetCommand (strOriginalCommand);
+      if(!lease.IsLive())return;
       GetEditCtrl().SetSel (0, -1);   // select all
       m_bChanged = FALSE;   // no change yet
       }
     else
       SetCommand ("");
+
+  if(!lease.IsLive())return;
 
   // unpause the output window if wanted
   if (pDoc->m_bUnpauseOnSend && m_topview->m_freeze)
@@ -1174,12 +1200,13 @@ else
 
 void CSendView::OnChange() 
 {
+  WorkspaceViewLease lease(this);
 
 	m_bChanged = true;
   AdjustCommandWindowSize ();
 
   NotifyPluginCommandChanged ();
-
+  if(!lease.IsLive())return;
   UpdateWrap();
 }   // end of CSendView::OnChange
 
@@ -1577,6 +1604,8 @@ void CSendView::OnDestroy()
   App.db_write_int ("worlds", (LPCTSTR) CFormat ("%s:%s", (LPCTSTR) pDoc->m_mush_name, "Top Height"), cyCur);
 
   m_owner_frame->m_wndSplitter.GetRowInfo (COMMAND_PANE, cyCur, cyMin);
+  cyCur=m_owner_frame->m_wndSplitter.InputHeightFromRow(cyCur);
+  cyCur=m_owner_frame->m_wndSplitter.RestoreInputHeight(cyCur);
   App.db_write_int ("worlds", (LPCTSTR) CFormat ("%s:%s", (LPCTSTR) pDoc->m_mush_name, "Bottom Height"), cyCur);
 //  TRACE1 ("Bottom height (saved) = %i\n", cyCur);
 

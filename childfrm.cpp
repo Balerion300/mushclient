@@ -80,6 +80,10 @@ BOOL CChildFrame::OnCreateClient( LPCREATESTRUCT lpcs,
     bottomview->m_topview = topview;
     topview->m_owner_frame = this;
     topview->m_bottomview = bottomview;
+    const HWND originalInput=bottomview->GetSafeHwnd();
+    if(!m_wndSplitter.AttachComposer(COMMAND_PANE,originalInput,[originalInput,bottomview](){
+      if(::IsWindow(originalInput) && CWnd::FromHandlePermanent(originalInput)==bottomview)bottomview->SubmitMainInput();
+    }))return FALSE;
     bottomview->m_owner_frame = this;
 		SetActiveView((CView*) bottomview);
 
@@ -160,7 +164,7 @@ void CChildFrame::FixUpSplitterBar (void)
    int iDefaultHeight = (15 * 2) + 9;
 
    if (m_pDoc)
-     iDefaultHeight = (m_pDoc->m_InputFontHeight * 2) + 9;   // 2 lines plus 7 pixels for add, below
+     iDefaultHeight = ((m_pDoc->m_InputFontHeight>0?m_pDoc->m_InputFontHeight:15) * 2) + 9;   // Font metrics may not exist during construction.
 
    int iMinimumHeight = 15 + 9;
 
@@ -180,6 +184,10 @@ void CChildFrame::FixUpSplitterBar (void)
      // otherwise, allow for a 2-line command area
     cyCurBottom = iDefaultHeight;
 
+   // Read persisted/default body height once. MDI activation/fullscreen can
+   // resize this original frame without a user splitter change.
+   cyCurBottom=m_wndSplitter.RestoreInputHeight(cyCurBottom,m_pDoc && m_pDoc->m_InputFontHeight>0);
+
 //  TRACE1 ("Bottom height (loaded) = %i\n", cyCurBottom);
 
    // if height from registry is smaller, make the input font height
@@ -193,7 +201,8 @@ void CChildFrame::FixUpSplitterBar (void)
    // you are going to type. Thus I work out how much the maxmimum top view
    // can be.
 
-   int iRoom = rectInside.bottom - rectInside.top - cyCurBottom 
+   const int totalBottom=m_wndSplitter.RowHeightForInput(cyCurBottom);
+   int iRoom = rectInside.bottom - rectInside.top - totalBottom
         + 7;    // 7 pixels for the splitter bar
 
    cyCurTop = iRoom;
@@ -206,7 +215,7 @@ void CChildFrame::FixUpSplitterBar (void)
    m_wndSplitter.SetRowInfo (OUTPUT_PANE, cyCurTop, 20);
 
    // set the info for the bottom view
-   m_wndSplitter.SetRowInfo (COMMAND_PANE, cyCurBottom, 9);
+   m_wndSplitter.SetRowInfo (COMMAND_PANE, totalBottom, cyCurBottom>0?m_wndSplitter.ComposerOverhead()+9:0);
 
    // recalculate it all
    m_wndSplitter.RecalcLayout ();

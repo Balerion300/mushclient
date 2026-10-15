@@ -1558,6 +1558,8 @@
 #define ID_EDIT_CONVERTCLIPBOARDFORUMCODES 33052
 #define ID_POPUP_HELP                   33053
 
+#define ID_WORKSPACE_SUBMIT_MAIN        59039
+
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED

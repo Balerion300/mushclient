@@ -15,7 +15,7 @@ The hardcoded MFC character-document tab factory is not patched or cast to an un
 - A native game rail and expandable game / own character / channel tree. Character/channel actions retain the exact original runtime connection identity. Selecting a game activates its first original character and scrolls to that game in the complete tree; filtering to one game is still pending.
 - Persistent System/Light/Dark base appearance, neutral surfaces, red default accent and a blue alternative. High contrast defers to Windows colors. Approved original Valyria icon resources remain unchanged.
 - Larger real channel tabs, pane captions, toolbar controls and status bar. The status bar retains original native parts and owner-drawn MORE feedback.
-- Each channel composer shows its character, game and stream destination. Find expands only when needed; Arrange is directly visible and also available with Ctrl+Shift+M.
+- Original Main composers now add a native owning-character destination strip and Send button while retaining their original edit HWND, fonts and command path. Each channel composer shows its character, game and stream destination. Find expands only when needed; Arrange is directly visible and also available with Ctrl+Shift+M.
 - Arrange offers native detach, tab reorder, join and four edge placements. It moves original pane/input/RichEdit windows through MFC docking operations, preserving drafts, transcript text and selection. Existing split-tree persistence and labeled drag destinations remain in use.
 - Script editor and Agent review are directly reachable in the navigator. Logging, routing, preferences, plugins and existing tools keep their original command paths and permissions.
 
@@ -24,9 +24,9 @@ A channel means a filtered output stream, including Main and Pages, rather than 
 ## Verification
 
 - Native appearance fixture: 34 checks, including the actual derived tab class, enlarged tab geometry/hit rectangles, red default, blue accent with unchanged neutral surfaces, retained native window behavior and original transcript font/selection.
-- Native shell fixture: 31 checks, including separate own-character identities, nested channel ownership, native selection/focus retention, reentrant activation rejection, light/dark appearance and narrow toolbar wrapping.
+- Native shell fixture: 32 checks, including separate own-character identities, nested channel ownership, native selection/focus retention, reentrant activation rejection, light/dark appearance and narrow toolbar wrapping.
 - Native docking fixture: existing nested forest/late arrival/persistence checks plus direct Arrange joins and all four edges. Original transcript HWND, text, selection, composer HWND and unsent draft survive every operation. Same-pane placement is rejected.
-- Root integration completed a production Release build before the final tree-first and status owner-draw adjustments. The final source must be rebuilt and exercised in the isolated actual client before release.
+- The prior native checkpoint completed both production Release and Debug builds and isolated actual-client logging/detach acceptance. The current Main-composer slice has separate verification below; prior builds do not validate a later source change.
 
 These are automated native API fixtures, not physical mixed-DPI, screen-reader or long-running live-game acceptance. The browser study is a design contract, not evidence that the Windows implementation has reached complete visual parity.
 
@@ -34,7 +34,7 @@ For actual-client acceptance, `tests/workspace/modern_client_fixture.py` prepare
 
 ## Remaining Windows work
 
-The original Main world transcript and command editor remain the original views and preserve their user font/color choices. Their composer has not yet gained the new channel composer's local destination header and surrounding layout. Main channels can already be routed into native workspace panes, but that does not replace the original world view by default. The standard menu and optional compact MDI document tabs retain Windows/MFC geometry. Rail game filtering, full Unicode MBCS tab captions, per-monitor device acceptance, keyboard splitter movement and complete prototype composition parity remain release work. Replacing these controls must retain original focus, selection, draft, plugin and routing behavior.
+The original Main world transcript and command editor remain the original views and preserve their user font/color choices. Their Main composer now has a native destination strip and Send button around the original editor; details and acceptance limits are below. Main channels can already be routed into native workspace panes, but that does not replace the original world view by default. The standard menu and optional compact MDI document tabs retain Windows/MFC geometry. Rail game filtering, full Unicode MBCS tab captions, per-monitor device acceptance, keyboard splitter movement and complete prototype composition parity remain release work. Replacing these controls must retain original focus, selection, draft, plugin and routing behavior.
 
 ## Native acceptance cycle 2
 
@@ -44,13 +44,13 @@ The original focus-reacquisition failure was reproduced by the independent nativ
 
 The game rail now dispatches the exact first original character of the selected game. It does not change the title while keeping old-game actions selected. Native status painting retains owner-drawn MORE feedback and renders its size grip; the bottom-right native resize hit test passes. Main-frame large/small icons are loaded explicitly from the executable so a locale DLL cannot substitute historical MUSHclient artwork.
 
-## Next Main-composer vertical slice
+## Main-composer implementation contract
 
 Keep each original `CSendView` HWND, its document, history, selection, IME behavior, hooks and font/color preferences. Add a native destination label as a sibling inside `CMySplitterWnd`, above the original input view. A splitter layout override can reserve its measured height while leaving `GetPane(COMMAND_PANE, 0)` bound to the original view. This avoids a replacement text buffer or a command-forwarding proxy.
 
 The implementation must separate the presentation strip height from the existing saved command-view height, including automatic input growth, manual splitter drags and close/reopen persistence. The label must use the owning document's character/game metadata, never whichever world happens to be globally active. Any added Send button must dispatch through the original guarded human-input path and survive reentrant activation/closure checks before any command is sent. Acceptance should cover two characters, distinct unsent drafts, input hooks, aliases, IME/edit selection, auto-height, fullscreen, tabbed/tree modes and detach/rejoin of adjacent channels.
 
-This follow-on is prepared, not implemented in this checkpoint. Complete shell parity also needs game filtering and intentional menu geometry while preserving native Window/Notepad access and accelerator behavior.
+This contract is implemented in the next slice below; complete shell parity also needs game filtering and intentional menu geometry while preserving native Window/Notepad access and accelerator behavior.
 
 ## Native acceptance cycle 3: direct frame focus
 
@@ -87,3 +87,23 @@ Both Debug and Release shell fixtures pass all 32 checks. Root rebuilt the produ
 ## Integration performance checkpoint
 
 The native long-transcript docking API fixture retained 1,800 records and eight images across 24 operations: median 124 ms, 95th percentile 424 ms, maximum 435 ms on this test machine. Selection, links, image objects and viewport anchors passed. These are native API operations, not a claim about physical dragging on every device. The separate output component fixture passed plain, styled, image and batch cases; image-update 95th percentile was approximately 3.8 ms. Real-device sustained-use, mixed-DPI, screen-reader and complete prototype composition acceptance remain open.
+
+
+## Main composer: original editor, native surrounding controls
+
+`CWorkspaceComposerSplitter` adds a native destination label and Send button as siblings of the original `CSendView`. The view is still the direct splitter pane with the same HWND, parent and pane ID. Its native edit buffer, user-selected font/colors, selection, history, command hooks, wrapping, IME and original world connection remain in place. The label identifies the owning game, own character and Main stream; it shows Offline and disables the button when disconnected. Original Enter behavior, including local aliases/scripts, remains available. Every original child frame is updated, including multiple New Window views of one document.
+
+The presentation strip currently reserves 48 logical pixels, with an 84-by-32 logical pixel Send affordance. The splitter paints a flat neutral surface and thin separator using the shared semantic palette. Its stored command height, script-facing `SetCommandWindowHeight` argument, manual splitter save/restore and automatic editor growth all describe the original input body, excluding that strip. Each original frame initializes its requested input-body height once from saved/default preferences, then keeps the requested value in memory across native restore/maximize/fullscreen. Scripted height changes, automatic growth and manual splitter drags update that value; normal close saves it in the existing units. This fixes an actual-client regression in which MDI resizing reloaded the old default (41 pixels in the fixture) before a newly requested 120-pixel body could be persisted. It adds no schema and no SQLite writes per layout or keystroke. No user input font preference is replaced by the shell font.
+
+Enter and the button call `CSendView::SubmitMainInput`, extracted from the original Return handler. It retains spell checking, `OnPluginCommandEntered` transformation/decline/clear behavior, aliases, autosay, command history and the original execute/send path. It does not use the channel composer's single-line sender. Active IME composition is allowed to complete before submission. A document-wide scope rejects recursive submissions even if a callback activates another New Window view. View lifetime tokens reject a destroyed/reused HWND or changed document after callbacks. A snapshot of original document views permits restoring action-source/autosay/command-stack state when one view closes while the same document survives in another view.
+
+`DoCommand("SubmitMainInput")` is the explicit scripting/accelerator name for submitting the owning document's original Main draft. This new command resolves that document synchronously and rejects reentrant submissions; it does not use the old general menu dispatcher's asynchronous active-window targeting. Existing command names retain their previous behavior. Plugins already have command execution capability; the agent bridge gains no raw-send tool or permission bypass.
+
+### Verification and remaining acceptance
+
+- `tests/workspace/run_composer_probe.ps1 -Configuration Debug` and `-Configuration Release`: 16 passing native API checks, covering original GetPane/HWND identity, two-character drafts/selections, custom font retention, System/Light/Dark resizing, 24–240 pixel body-height roundtrips, owner-specific button dispatch, offline disablement, destroyed/replaced view rejection, document-wide recursion ownership and requested body-height retention across resizing. Debug assertions fail the fixture rather than being suppressed.
+- Independent `tests/qa-cycle2/run_main_composer_qa.ps1`: 12 passing Debug checks, including narrow geometry, synchronous owner closure from Send, unique refresh of two Main frames sharing a document, document-wide recursion and document/view lifetime disposal.
+- Six changed native translation units compiled successfully as isolated Debug objects. This is a source integration check, not a production executable test.
+- `tests/workspace/main_composer_fixture.py --exe WinDebug/MUSHclient.exe` (or `WinRel/MUSHclient.exe`) prepares fresh fictional loopback worlds and exercises the actual original Main command path. The suite covers distinct drafts, callback activation redirection, recursion, decline/clear sentinels, aliases, input hooks/history, scripted heights, fullscreen, multiline autoheight, closing another character and body-height persistence. Add `--tabbed-worlds` for the optional document-tab mode. Its JSON receipt records exact candidate hash, fixture path and per-check results. At this source handoff the suite is prepared for the root's rebuilt executable; results must be recorded after running it.
+
+Physical manual dragging, real IME composition, mixed-DPI transitions, screen-reader announcements and neighboring channel detach/rejoin with the new Main strip still require actual-client acceptance. Existing native channel docking checks remain relevant but do not prove those combined interactions. The original transcript, standard menu, compact optional MDI document tabs and several legacy dialogs retain their older presentation. This slice implements a real original-editor Main composer; it does not claim complete prototype parity or a release-ready client.

@@ -25,6 +25,8 @@ p.add_argument('--runtime', type=Path, default=ROOT/'.distribution-source/extrac
 p.add_argument('--destination', type=Path)
 p.add_argument('--duration', type=int, default=1800)
 p.add_argument('--focus-trace', action='store_true', help='Bounded own-client focus diagnostics; logs no input text')
+p.add_argument('--main-composer-test', action='store_true', help='Enable the fictional Main-composer regression driver')
+p.add_argument('--tabbed-worlds', action='store_true', help='Start fictional acceptance in optional character document tab mode')
 a = p.parse_args()
 dest = a.destination or Path(tempfile.mkdtemp(prefix='mush-modern-acceptance-'))
 dest.mkdir(exist_ok=True)
@@ -58,6 +60,9 @@ function OnPluginCommandEntered(text)
 end
 function OnPluginCommand(text) if enabled then record('COMMAND '..text) end return true end
 ]]></script></muclient>''', encoding='utf-8')
+if a.main_composer_test:
+    driver = (Path(__file__).with_name('main_composer_driver.lua')).read_text(encoding='utf-8')
+    plugin.write_text(plugin.read_text(encoding='utf-8').replace(']]></script>', driver+'\n]]></script>'), encoding='utf-8')
 
 stop = threading.Event()
 listeners = []
@@ -143,12 +148,16 @@ for key, value in {'database_version':1, 'First time':0, 'Version':507, 'Tip_Sta
 for key, value in {'WorldList':'*'.join(worlds), 'EnableSpellCheck':'0', 'AutoConnectWorlds':'1', 'OpenWorldsMaximised':'1', 'ConfirmBeforeClosingMushclient':'0', 'ConfirmBeforeClosingWorld':'0'}.items():
     db.execute('INSERT INTO prefs VALUES(?,?)', (key,value))
 db.commit()
+if a.tabbed_worlds:
+    db.execute('CREATE TABLE workspace_window_mode_v1(slot INTEGER PRIMARY KEY,tabbed INTEGER NOT NULL)')
+    db.execute('INSERT INTO workspace_window_mode_v1 VALUES(1,1)')
+    db.commit()
 db.close()
 startup = subprocess.STARTUPINFO()
 startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 startup.wShowWindow = 0
 environment = os.environ.copy()
-if a.focus_trace: environment['VALYRIA_FOCUS_TRACE'] = '1'
+if a.focus_trace or a.main_composer_test: environment['VALYRIA_FOCUS_TRACE'] = '1'
 client = subprocess.Popen([str(dest/'MUSHclient.exe'), '/noregister'], cwd=dest, startupinfo=startup, env=environment)
 print(json.dumps({'fixture':str(dest), 'candidate_pid':client.pid, 'candidate_exe':str(dest/'MUSHclient.exe')}, indent=2), flush=True)
 started = time.monotonic()

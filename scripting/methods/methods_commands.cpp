@@ -8,6 +8,7 @@
 #include "..\..\mainfrm.h"
 #include "..\..\sendvw.h"
 #include "..\..\childfrm.h"
+#include "..\..\workspace\WorkspaceViewLease.h"
 #include "..\errors.h"
 
 // Implements:
@@ -407,6 +408,20 @@ int nID = StringToCommandID (Command);
   if (nID == 0)
     return eNoSuchCommand;
 
+  // This new command submits this document's original Main draft. Unlike old
+  // global menu commands it must not queue against a later active character.
+  if(nID==ID_WORKSPACE_SUBMIT_MAIN){
+    if(m_bWorldClosing)return eWorldClosed;
+    if(WorkspaceMainSubmission::IsActive(this))return eBadParameter;
+    CSendView* input=m_pActiveCommandView;
+    if(!input){for(POSITION pos=GetFirstViewPosition();pos;){
+      CView* view=GetNextView(pos);if(view->IsKindOf(RUNTIME_CLASS(CSendView))){input=static_cast<CSendView*>(view);break;}
+    }}
+    if(!input || input->GetDocument()!=this || !::IsWindow(input->GetSafeHwnd()))return eWorldClosed;
+    if(input->m_mainSubmitting)return eBadParameter;
+    input->SubmitMainInput();return eOK;
+  }
+
   // DoCommand posts asynchronously: rejecting recursion here prevents the
   // queued toggle from closing the file after the start function returns.
   if(nID==ID_FILE_LOGSESSION && m_bLogStartExecuting)
@@ -526,7 +541,8 @@ long CMUSHclientDoc::SetCommandWindowHeight(short Height)
   // you are going to type. Thus I work out how much the maxmimum top view
   // can be.
 
-  int iRoom = rectInside.bottom - rectInside.top - Height 
+  const int totalHeight=pFrame->m_wndSplitter.RowHeightForInput(Height);
+  int iRoom = rectInside.bottom - rectInside.top - totalHeight
       + 7;    // 7 pixels for the splitter bar
 
   int cyCurTop = iRoom;
@@ -534,11 +550,13 @@ long CMUSHclientDoc::SetCommandWindowHeight(short Height)
   if (cyCurTop < 20)
     return eBadParameter;  // too small, want to see a line at least
 
+  pFrame->m_wndSplitter.RememberInputHeight(Height);
+
   // set the info for the top view
   pFrame->m_wndSplitter.SetRowInfo (OUTPUT_PANE, cyCurTop, 20);
 
   // set the info for the bottom view
-  pFrame->m_wndSplitter.SetRowInfo (COMMAND_PANE, Height, 9);
+  pFrame->m_wndSplitter.SetRowInfo (COMMAND_PANE, totalHeight, Height>0?pFrame->m_wndSplitter.ComposerOverhead()+9:0);
 
   // recalculate it all
   pFrame->m_wndSplitter.RecalcLayout ();
