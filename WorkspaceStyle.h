@@ -16,6 +16,10 @@ enum class Icon {
   Send, Refresh, Pause
 };
 void SetTheme(Theme theme);
+// Optional native-frame integration. Standalone style users need no MFC link.
+// NULL denotes a palette change; a window denotes a newly enrolled surface.
+typedef void (*AppearanceChangedHandler)(HWND);
+void SetAppearanceChangedHandler(AppearanceChangedHandler handler);
 Theme GetTheme();
 Palette Colors(HWND window = NULL);
 UINT Dpi(HWND window);

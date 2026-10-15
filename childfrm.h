@@ -3,8 +3,12 @@
 /////////////////////////////////////////////////////////////////////////////
 
 #include "MySplitterWnd.h"
+#pragma push_macro("Translate")
+#undef Translate
+#include <afxmdichildwndex.h>
+#pragma pop_macro("Translate")
 
-class CChildFrame : public CMDIChildWnd
+class CChildFrame : public CMDIChildWndEx
 {
 	DECLARE_DYNCREATE(CChildFrame)
 public:
@@ -27,6 +31,8 @@ public:
   void FixUpSplitterBar (void);
 
   virtual void OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, HMENU hMenuAlt);
+  virtual CString GetFrameText() const override;
+  virtual void OnUpdateFrameTitle(BOOL addToTitle) override;
 
 // Overrides
 	// ClassWizard generated virtual function overrides
@@ -35,6 +41,7 @@ public:
 	virtual BOOL OnCreateClient(LPCREATESTRUCT lpcs, CCreateContext* pContext);
 	protected:
 	virtual BOOL PreCreateWindow(CREATESTRUCT& cs);
+  virtual LRESULT WindowProc(UINT message, WPARAM wp, LPARAM lp) override;
 	//}}AFX_VIRTUAL
 
 // Implementation

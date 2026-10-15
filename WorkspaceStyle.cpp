@@ -12,6 +12,7 @@
 namespace workspace_style {
 namespace {
 Theme selectedTheme = Theme::System;
+AppearanceChangedHandler appearanceChanged = NULL;
 bool paletteValid = false;
 Palette cachedPalette;
 struct Chrome {
@@ -150,6 +151,7 @@ LRESULT CALLBACK ChromeProc(HWND window, UINT message, WPARAM wp, LPARAM lp,
     paletteValid = false;
     if (message == WM_SETTINGCHANGE) RefreshFontSettings();
     SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(UiFont(window)), FALSE);
+    if (appearanceChanged) appearanceChanged(window);
     InvalidateRect(window, NULL, TRUE); break;
   case WM_NCDESTROY: {
     HWND tooltip = state->tooltip;
@@ -184,7 +186,9 @@ void SetTheme(Theme theme) {
   paletteValid = false;
   std::vector<HWND> windows; for (const auto& entry : chrome) windows.push_back(entry.first);
   for (HWND window : windows) if (IsWindow(window)) {NativeTheme(window); SendMessageW(window, WM_THEMECHANGED, 0, 0);}
+  if (appearanceChanged) appearanceChanged(NULL);
 }
+void SetAppearanceChangedHandler(AppearanceChangedHandler handler) {appearanceChanged = handler;}
 Theme GetTheme() {return selectedTheme;}
 Palette Colors(HWND) {
   if (paletteValid) return cachedPalette;
@@ -218,7 +222,7 @@ HFONT UiFont(HWND window) {
   if (font) fonts[dpi] = font; return font ? font : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 }
 bool ReducedMotion() {BOOL enabled = TRUE; return !SystemParametersInfo(SPI_GETCLIENTAREAANIMATION,0,&enabled,0) || !enabled;}
-void ApplySurface(HWND window) {Chrome* state = Enroll(window); if (!state) return; state->surface = true; NativeTheme(window); InvalidateRect(window,NULL,TRUE);}
+void ApplySurface(HWND window) {Chrome* state = Enroll(window); if (!state) return; state->surface = true; NativeTheme(window); if (appearanceChanged) appearanceChanged(window); InvalidateRect(window,NULL,TRUE);}
 void StyleControl(HWND window) {if (!Enroll(window)) return; SendMessageW(window,WM_SETFONT,reinterpret_cast<WPARAM>(UiFont(window)),TRUE); NativeTheme(window);}
 void StyleButton(HWND window, Icon icon, bool primary, const wchar_t* tooltip) {
   StyleControl(window); Chrome* state = Enroll(window); if (!state || !PushButton(window)) return;

@@ -250,6 +250,11 @@
     <ClCompile Include="WorkspaceTools.cpp" />
     <ClCompile Include="WorkspaceRouteManager.cpp" />
     <ClCompile Include="WorkspaceStyle.cpp" />
+    <ClCompile Include="WorkspaceAppearance.cpp" />
+    <ClCompile Include="workspace\CharacterLabelsDialog.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+    </ClCompile>
     <ClCompile Include="workspace\WorkspaceShell.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp14</LanguageStandard>
@@ -1467,6 +1472,8 @@
   <ItemGroup>
     <ClInclude Include="WorkspaceFrame.h" />
     <ClInclude Include="WorkspaceStyle.h" />
+    <ClInclude Include="WorkspaceAppearance.h" />
+    <ClInclude Include="workspace\CharacterLabelsDialog.h" />
     <ClInclude Include="workspace\WorkspaceShell.h" />
     <ClInclude Include="workspace\WorkflowUi.h" />
     <ClInclude Include="workspace\LogStartSetup.h" />

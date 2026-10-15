@@ -16,9 +16,9 @@ static char BASED_CODE THIS_FILE[] = __FILE__;
 /////////////////////////////////////////////////////////////////////////////
 // CActivityChildFrame
 
-IMPLEMENT_DYNCREATE(CActivityChildFrame, CMDIChildWnd)
+IMPLEMENT_DYNCREATE(CActivityChildFrame, CMDIChildWndEx)
 
-BEGIN_MESSAGE_MAP(CActivityChildFrame, CMDIChildWnd)
+BEGIN_MESSAGE_MAP(CActivityChildFrame, CMDIChildWndEx)
 	//{{AFX_MSG_MAP(CActivityChildFrame)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
@@ -42,12 +42,12 @@ CActivityChildFrame::~CActivityChildFrame()
 #ifdef _DEBUG
 void CActivityChildFrame::AssertValid() const
 {
-	CMDIChildWnd::AssertValid();
+	CMDIChildWndEx::AssertValid();
 }
 
 void CActivityChildFrame::Dump(CDumpContext& dc) const
 {
-	CMDIChildWnd::Dump(dc);
+	CMDIChildWndEx::Dump(dc);
 }
 
 #endif //_DEBUG
@@ -61,7 +61,7 @@ BOOL CActivityChildFrame::PreCreateWindow(CREATESTRUCT& cs)
 	
 	cs.style &= ~FWS_ADDTOTITLE;  // do not add document name to window title
 		
-	return CMDIChildWnd::PreCreateWindow(cs);
+	return CMDIChildWndEx::PreCreateWindow(cs);
 }
 
 
@@ -73,7 +73,23 @@ void CActivityChildFrame::OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, 
   if (Frame.IsFullScreen ())
     return;
 
-  CMDIChildWnd::OnUpdateFrameMenu (bActivate, pActivateWnd, hMenuAlt);
+  CMDIChildWndEx::OnUpdateFrameMenu (bActivate, pActivateWnd, hMenuAlt);
 
   }
 
+
+void CActivityChildFrame::OnUpdateFrameTitle(BOOL addToTitle)
+{
+  WorkspaceModernResources resources;
+  CMDIChildWndEx::OnUpdateFrameTitle(addToTitle);
+}
+
+LRESULT CActivityChildFrame::WindowProc(UINT message, WPARAM wp, LPARAM lp)
+{
+  if(message==WM_MDIACTIVATE || message==WM_SETTEXT || message==WM_SIZE)
+  {
+    WorkspaceModernResources resources;
+    return CMDIChildWndEx::WindowProc(message,wp,lp);
+  }
+  return CMDIChildWndEx::WindowProc(message,wp,lp);
+}
