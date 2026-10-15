@@ -21,9 +21,19 @@ The intended MUSHclient interaction is:
 - Cancel with Escape, retain drafts and reading position, and save the result.
 - Provide the same actions from an accessible menu for keyboard use.
 
-MFC's small smart-docking arrows remain the current interaction. Enlarged,
-labeled targets and direct pane-region drops remain design/implementation work;
-the fixes below do not claim parity with the reference interaction.
+The prototype now extends MFC's public guide interfaces with large pane-relative
+hit regions. The nearest outer quarter selects an edge split; the remaining
+center selects a tab join. A shaded half-pane or whole-pane preview and five
+plain action labels show the proposed operation. MFC still performs the actual
+move, including its allowed-alignment and tab-acceptance checks. The overlay
+does not take focus or mouse input and is removed when native docking stops.
+It repaints on target, enabled-operation or selected-region changes, without
+replaying transcript history.
+
+High contrast, very small targets and overlay-creation failure use the native
+guides. Outer-window docking arrows remain distinct native targets. Keyboard
+placement menus and physical acceptance remain outstanding; this is a prototype,
+not a claim of complete interaction parity.
 
 ## Correctness fixes
 
@@ -47,8 +57,9 @@ world, endpoint, credentials, output or screenshot is included here.
 
 Release and Debug builds and actual-client startup/plugin/logging smoke checks
 passed. The native docking fixture covers the floating-target mouse-docking
-decision, resource-aware tab/float host creation, nested split restoration,
-tab identity, reading position and preservation across close/reopen.
+decision, resource-aware tab/float host creation, all five enlarged drop regions,
+disabled operations, preview rendering and cancellation. It also retains nested
+split restoration, tab identity, reading position and close/reopen checks.
 
 An isolated loopback run of the actual Release client reopened all five fictional
 spawns, exited normally, and saved the exact expected topology: a right docked

@@ -2,9 +2,14 @@
 #include "WorkspacePane.h"
 #include "ModernFixture.h"
 #include "workspace/WorkspaceDockLayout.h"
+#include "WorkspaceDockGuides.h"
+#include "WorkspaceStyle.h"
 #include <fstream>
 
 namespace wd=workspace_dock;
+class GuideFrame:public WorkspaceTestFrame {
+public:CDockingManager& Manager(){return *GetDockingManager();}
+};
 class DockPane:public CWorkspacePane {
 public:
   CBasePane* dropTarget=NULL;
@@ -16,6 +21,16 @@ public:
   long End(size_t index){return m_transcripts[0]->renderedEnds[index];}
 };
 bool Check(std::ofstream& log,const char* label,bool ok){log<<(ok?"PASS ":"FAIL ")<<label<<"\n";return ok;}
+BOOL CALLBACK FindDropPreview(HWND window,LPARAM result){wchar_t title[80]={};GetWindowTextW(window,title,80);if(!wcscmp(title,L"Workspace drop preview")){*(HWND*)result=window;return FALSE;}return TRUE;}
+bool CaptureDropPreview(int sampleX=-1,COLORREF* sample=NULL){
+ HWND window=NULL;EnumThreadWindows(GetCurrentThreadId(),FindDropPreview,(LPARAM)&window);if(!window)return false;
+ RECT r;GetClientRect(window,&r);HDC screen=GetDC(window),dc=CreateCompatibleDC(screen);BITMAPINFO info={};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=r.right;info.bmiHeader.biHeight=-r.bottom;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;void* pixels=NULL;
+ HBITMAP bitmap=CreateDIBSection(screen,&info,DIB_RGB_COLORS,&pixels,NULL,0);HGDIOBJ old=SelectObject(dc,bitmap);SendMessage(window,WM_PRINTCLIENT,(WPARAM)dc,PRF_CLIENT);GdiFlush();
+ if(sample)*sample=GetPixel(dc,sampleX,20);
+ const DWORD* values=(DWORD*)pixels;bool nonblank=false;for(int i=1;i<r.right*r.bottom;++i)if((values[i]&0xffffff)!=(values[0]&0xffffff)){nonblank=true;break;}
+ BITMAPFILEHEADER header={};header.bfType=0x4d42;header.bfOffBits=sizeof(header)+sizeof(info.bmiHeader);header.bfSize=header.bfOffBits+r.right*r.bottom*4;std::ofstream image("drop-preview-native.bmp",std::ios::binary);image.write((const char*)&header,sizeof(header));image.write((const char*)&info.bmiHeader,sizeof(info.bmiHeader));image.write((const char*)pixels,r.right*r.bottom*4);
+ SelectObject(dc,old);DeleteObject(bitmap);DeleteDC(dc);ReleaseDC(window,screen);return nonblank && image.good();
+}
 int Leaf(wd::Forest& f,const std::vector<wd::Key>& tabs,int active=0){wd::Node n;n.tabs=tabs;n.active=active;f.nodes.push_back(n);return (int)f.nodes.size()-1;}
 int Split(wd::Forest& f,int a,int b,bool horizontal,int ratio=500){wd::Node n;n.left=a;n.right=b;n.horizontal=horizontal;n.ratio=ratio;f.nodes.push_back(n);return (int)f.nodes.size()-1;}
 std::string ShapeNode(const wd::Forest& f,int i){const auto& n=f.nodes[i];if(n.tabs.empty())return std::string(n.horizontal?"H(":"V(")+ShapeNode(f,n.left)+","+ShapeNode(f,n.right)+")";
@@ -33,7 +48,7 @@ class DockApp:public CWinApp {
  int result_=1;
  BOOL InitInstance(){
   AfxOleInit();AfxInitRichEdit2();std::ofstream log("dock-layout-results.txt");log.setf(std::ios::unitbuf);bool ok=true;
-  WorkspaceTestFrame* frame=new WorkspaceTestFrame;std::vector<DockPane*> panes;std::vector<wd::Entry> entries;
+  GuideFrame* frame=new GuideFrame;std::vector<DockPane*> panes;std::vector<wd::Entry> entries;
   ok=frame->Create(NULL,"Fictional split-tree layout fixture",WS_OVERLAPPEDWINDOW,CRect(40,40,1840,1240))!=FALSE;
   m_pMainWnd=frame;frame->EnableWorkspaceDocking();frame->ShowWindow(SW_SHOWNOACTIVATE);
   for(int i=0;i<9;++i){DockPane* pane=new DockPane;panes.push_back(pane);CString world;world.Format("fictional-%d",i);CString name;name.Format("Transcript-%d",i);
@@ -57,6 +72,24 @@ class DockApp:public CWinApp {
   panes[6]->dropTarget=panes[5];BOOL dropped=FALSE;
   CPane* accepted=panes[6]->DockPaneStandard(dropped);panes[6]->dropTarget=NULL;
   ok=Check(log,"native mouse-docking path accepts a floating split target instead of rejecting it",accepted==panes[6])&&ok;
+  InstallWorkspaceDockGuides(*frame,frame->Manager());
+  auto* guides=frame->Manager().GetSmartDockingManager();
+  CRect host(500,200,1500,1000);guides->Start(panes[6]);
+  guides->MoveCentralGroup(host,1);guides->ShowCentralGroup(TRUE);
+  typedef CSmartDockingStandaloneGuide Marker;
+  const CPoint points[]={CPoint(515,600),CPoint(1485,600),CPoint(1000,215),CPoint(1000,985),CPoint(1070,635)};
+  bool regions=true;for(int i=0;i<5;++i){guides->OnMouseMove(points[i]);regions=regions && guides->GetHighlightedGuideNo()==Marker::sdCLEFT+i;}
+  ok=Check(log,"whole pane edge regions and offset center select all five native drop operations",regions)&&ok;
+  guides->MoveCentralGroup(host,0);guides->OnMouseMove(points[4]);
+  ok=Check(log,"center join is unavailable when the native target cannot accept tabs",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
+  guides->MoveCentralGroup(host,0,CBRS_ALIGN_LEFT|CBRS_ALIGN_TOP|CBRS_ALIGN_BOTTOM);guides->OnMouseMove(points[1]);
+  ok=Check(log,"native disabled alignment also disables the enlarged region",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
+  guides->MoveCentralGroup(host,1);guides->OnMouseMove(points[0]);guides->ShowPlaceAt(CRect(500,200,1100,1000));COLORREF sample=0;
+  ok=Check(log,"preview follows native projected split width rather than assuming half",CaptureDropPreview(550,&sample) && sample==workspace_style::Colors().hover)&&ok;guides->HidePlace();
+  guides->MoveCentralGroup(host,1);guides->OnMouseMove(points[2]);
+  ok=Check(log,"labeled native destination preview renders a nonblank surface",CaptureDropPreview())&&ok;
+  guides->Stop();
+  ok=Check(log,"stopping or canceling docking ends the preview interaction",!guides->IsStarted())&&ok;
 
   wd::Forest model;const int ab=Leaf(model,{entries[0].key,entries[1].key},1),c=Leaf(model,{entries[2].key}),d=Leaf(model,{entries[3].key}),e=Leaf(model,{entries[4].key});
   const int top=Split(model,ab,c,false,600),bottom=Split(model,d,e,false,400),main=Split(model,top,bottom,true,550);

@@ -19,6 +19,8 @@ $taskResponse=@(
   ('"'+$RepoRoot+'\WorkspacePane.cpp"'),
   ('"'+$RepoRoot+'\InlineImage.cpp"'),
   ('"'+$RepoRoot+'\workspace\WorkspaceInputPolicy.cpp"'),
+  ('"'+$RepoRoot+'\WorkspaceDockGuides.cpp"'),
+  ('"'+$RepoRoot+'\WorkspaceStyle.cpp"'),
   ('"'+$taskTemporary+'\framework.res"'),
   '/link /SUBSYSTEM:WINDOWS /LTCG Shlwapi.lib Psapi.lib'
 )

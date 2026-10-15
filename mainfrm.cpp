@@ -14,6 +14,7 @@
 #include "workspace/CharacterLabelsDialog.h"
 #include "WorkspaceStyle.h"
 #include "WorkspaceAppearance.h"
+#include "WorkspaceDockGuides.h"
 #include "workspace/LogStartSetup.h"
 #include "scripting/errors.h"
 #include "MUSHview.h"
@@ -578,7 +579,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 
   EnableWorkspaceDocking();
   // Create the native drop guides before a mouse drag enters its modal loop.
-  {WorkspaceModernResources resources;GetDockingManager()->GetSmartDockingManager();}
+  InstallWorkspaceDockGuides(*this,*GetDockingManager());
   
 	DockControlBar(&m_wndToolBar);
 	DockControlBar(&m_wndGameToolBar);
