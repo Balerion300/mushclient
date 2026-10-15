@@ -155,6 +155,25 @@ class DockApp:public CWinApp {
   const auto hiddenCapture=wd::Capture(entries);bool explicitHidden=false,explicitAutoHide=false;
   for(const auto& r:hiddenCapture.roots){const auto keys=wd::Keys(hiddenCapture,r.node);if(keys.count(entries[5].key))explicitHidden=!r.visible && !r.autoHide;if(keys.count(entries[7].key))explicitAutoHide=r.autoHide && panes[7]->IsAutoHideMode() && panes[8]->IsAutoHideMode();}
   ok=Check(log,"hidden floating roots and native auto-hide buttons retain distinct semantics",explicitHidden && explicitAutoHide)&&ok;
+  for(auto* pane:panes){wd::Detach(pane);frame->DockPane(pane);pane->ShowPane(TRUE,FALSE,FALSE);}
+  const HWND composer=panes[0]->GetDlgItem(2)->GetSafeHwnd();
+  ::SetWindowTextW(composer,L"unsent fictional draft \u03bb");
+  const Surface placementSurface=Save(*panes[0]);
+  bool placement=true;
+  for(const auto edge:{CWorkspacePane::Placement::Left,CWorkspacePane::Placement::Right,CWorkspacePane::Placement::Above,CWorkspacePane::Placement::Below,CWorkspacePane::Placement::Join}){
+    placement=panes[0]->ArrangeBeside(*panes[1],edge)&&placement;
+    wchar_t draft[128]={};::GetWindowTextW(composer,draft,128);
+    placement=Same(*panes[0],placementSurface) && composer==panes[0]->GetDlgItem(2)->GetSafeHwnd() && !wcscmp(draft,L"unsent fictional draft \u03bb") && placement;
+  }
+  ok=Check(log,"accessible placement joins and all four splits preserve original output HWND/text/selection and unsent composer",placement)&&ok;
+  ok=Check(log,"placement rejects the same physical pane",!panes[0]->ArrangeBeside(*panes[0],CWorkspacePane::Placement::Join))&&ok;
+  const bool commandDetached=panes[0]->DetachToWindow();auto* detachedHost=panes[0]->GetParentMiniFrame();
+  ok=Check(log,"Arrange Detach command shows both original pane and native floating host",commandDetached && detachedHost && detachedHost->IsWindowVisible() && panes[0]->IsWindowVisible())&&ok;
+  if(detachedHost){CRect shown;detachedHost->GetWindowRect(shown);MONITORINFO monitor={sizeof(monitor)};GetMonitorInfo(MonitorFromRect(shown,MONITOR_DEFAULTTONEAREST),&monitor);
+    ok=Check(log,"Arrange Detach host lies inside its current monitor work area",shown.Width()>0 && shown.Height()>0 && shown.left>=monitor.rcWork.left && shown.top>=monitor.rcWork.top && shown.right<=monitor.rcWork.right && shown.bottom<=monitor.rcWork.bottom)&&ok;}
+  wchar_t detachedDraft[128]={};::GetWindowTextW(composer,detachedDraft,128);
+  ok=Check(log,"Arrange Detach retains original output and unsent draft",Same(*panes[0],placementSurface) && !wcscmp(detachedDraft,L"unsent fictional draft \u03bb"))&&ok;
+  ok=Check(log,"Arrange Join returns visible detached pane to original tab target",panes[0]->ArrangeBeside(*panes[1],CWorkspacePane::Placement::Join) && panes[0]->IsWindowVisible() && panes[0]->GetParentTabbedPane()==panes[1]->GetParentTabbedPane() && Same(*panes[0],placementSurface))&&ok;
   log<<(ok?"PASS":"FAIL")<<" fictional native dock layout regression; native API simulation, not physical mixed-DPI mouse acceptance\n";
   frame->DestroyWindow();for(auto* pane:panes)delete pane;result_=ok?0:1;return FALSE;
  }

@@ -31,6 +31,7 @@ public:
   void FixUpSplitterBar (void);
 
   virtual void OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, HMENU hMenuAlt);
+  virtual void ActivateFrame(int show = -1) override;
   virtual CString GetFrameText() const override;
   virtual void OnUpdateFrameTitle(BOOL addToTitle) override;
 

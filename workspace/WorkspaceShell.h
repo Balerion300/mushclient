@@ -6,7 +6,7 @@
 
 class CMDIFrameWndEx;
 namespace workspace_shell {
-enum Action {ToggleWorlds,Connect,Disconnect,Find,Logging,Channels,Tools,Select,OpenWorld,Legacy,ThemeSystem,ThemeLight,ThemeDark,OrganizeCharacter,ToggleWorldTabs};
+enum Action {ToggleWorlds,Connect,Disconnect,Find,Logging,Channels,Tools,Select,OpenWorld,Legacy,ThemeSystem,ThemeLight,ThemeDark,OrganizeCharacter,ToggleWorldTabs,AccentRed,AccentBlue,Arrange,Editor,Review};
 struct Row {
   std::string world,name;
   std::wstring label;

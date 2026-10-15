@@ -12,6 +12,7 @@
 namespace workspace_style {
 namespace {
 Theme selectedTheme = Theme::System;
+Accent selectedAccent = Accent::Red;
 AppearanceChangedHandler appearanceChanged = NULL;
 bool paletteValid = false;
 Palette cachedPalette;
@@ -190,6 +191,8 @@ void SetTheme(Theme theme) {
 }
 void SetAppearanceChangedHandler(AppearanceChangedHandler handler) {appearanceChanged = handler;}
 Theme GetTheme() {return selectedTheme;}
+void SetAccent(Accent accent) {selectedAccent=accent==Accent::Blue?Accent::Blue:Accent::Red;SetTheme(selectedTheme);}
+Accent GetAccent() {return selectedAccent;}
 Palette Colors(HWND) {
   if (paletteValid) return cachedPalette;
   paletteValid = true;
@@ -198,8 +201,9 @@ Palette Colors(HWND) {
     GetSysColor(COLOR_HIGHLIGHT), GetSysColor(COLOR_HIGHLIGHTTEXT), GetSysColor(COLOR_WINDOW),
     GetSysColor(COLOR_HIGHLIGHT), GetSysColor(COLOR_GRAYTEXT), true};
   const bool dark = selectedTheme == Theme::Dark || (selectedTheme == Theme::System && SystemDark());
-  if (dark) return cachedPalette = {RGB(27,29,33),RGB(35,38,43),RGB(237,239,242),RGB(176,183,193),RGB(83,91,103),RGB(114,180,255),RGB(15,25,38),RGB(47,53,62),RGB(65,76,91),RGB(145,153,165),false};
-  return cachedPalette = {RGB(245,246,248),RGB(255,255,255),RGB(29,35,44),RGB(86,96,110),RGB(163,173,187),RGB(20,93,178),RGB(255,255,255),RGB(231,238,247),RGB(207,222,243),RGB(113,123,137),false};
+  const bool blue=selectedAccent==Accent::Blue;
+  if (dark) return cachedPalette = {RGB(25,25,29),RGB(37,37,41),RGB(231,231,235),RGB(176,175,185),RGB(65,65,72),blue?RGB(142,175,231):RGB(214,117,128),blue?RGB(23,36,60):RGB(39,20,24),RGB(51,51,57),blue?RGB(43,53,72):RGB(58,44,50),RGB(145,144,155),false};
+  return cachedPalette = {RGB(246,246,245),RGB(255,255,255),RGB(40,40,44),RGB(102,102,107),RGB(210,210,207),blue?RGB(49,94,175):RGB(165,50,63),RGB(255,255,255),RGB(231,231,228),blue?RGB(230,237,248):RGB(243,230,231),RGB(121,121,127),false};
 }
 UINT Dpi(HWND window) {
   typedef UINT (WINAPI *GetDpiFn)(HWND);

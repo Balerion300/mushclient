@@ -10,12 +10,15 @@
 #include <vector>
 #pragma pop_macro("Translate")
 #include "WorkspaceResources.h"
+#include "workspace/WorkspaceFocus.h"
+#include "workspace/WorkspaceDockActions.h"
 
 // The enhanced docking manager owns workspace panes. Classic MUSHclient bars
 // still use their original docking contexts and reserve their measured area.
 class CWorkspaceFrame : public CMDIFrameWndEx
 {
   bool m_workspaceLayout;
+  WorkspaceFocusState m_workspaceFocus;
   std::function<int(CWnd*)> m_workspaceClose;
   static BOOL CALLBACK CollectWorkspaceChildren(HWND child,LPARAM data)
   {((std::vector<HWND>*)data)->push_back(child);return TRUE;}
@@ -46,7 +49,10 @@ protected:
   virtual LRESULT WindowProc(UINT message,WPARAM wp,LPARAM lp)
   {
     if(message==AFX_WM_ON_PRESS_CLOSE_BUTTON && m_workspaceClose && m_workspaceClose((CWnd*)lp)!=0)return 1;
-    return CMDIFrameWndEx::WindowProc(message,wp,lp);
+    m_workspaceFocus.Before(m_hWnd,message,wp);
+    const LRESULT result=CMDIFrameWndEx::WindowProc(message,wp,lp);
+    m_workspaceFocus.After(message,wp);
+    return result;
   }
   void ReserveLegacyBars()
   {
@@ -77,10 +83,6 @@ public:
   // the original transcript HWND remain intact for caption double-click.
   BOOL FloatWorkspacePane(CDockablePane& pane,const CRect& bounds)
   {
-    WorkspaceModernResources resources;
-    if(pane.IsAutoHideMode())pane.SetAutoHideMode(FALSE,CBRS_ALIGN_ANY);
-    CBaseTabbedPane* group=pane.GetParentTabbedPane();
-    if(group && !group->DetachPane(&pane,TRUE))return FALSE;
-    return pane.FloatPane(bounds,DM_SHOW);
+    return FloatWorkspacePaneVisible(pane,bounds);
   }
 };

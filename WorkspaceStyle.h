@@ -5,6 +5,7 @@
 // own fonts and palettes. Returned fonts/brushes remain owned by this module.
 namespace workspace_style {
 enum class Theme { System, Light, Dark };
+enum class Accent { Red, Blue };
 struct Palette {
   COLORREF background, surface, text, muted, border, accent, accentText;
   COLORREF hover, pressed, disabled;
@@ -16,6 +17,8 @@ enum class Icon {
   Send, Refresh, Pause
 };
 void SetTheme(Theme theme);
+void SetAccent(Accent accent);
+Accent GetAccent();
 // Optional native-frame integration. Standalone style users need no MFC link.
 // NULL denotes a palette change; a window denotes a newly enrolled surface.
 typedef void (*AppearanceChangedHandler)(HWND);

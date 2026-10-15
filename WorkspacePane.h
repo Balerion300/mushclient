@@ -89,7 +89,13 @@ public:
   bool RetainedSourceAfter(const CString& id,const CString& name,unsigned __int64 boundary) const;
   size_t TranscriptCount() const { return m_transcripts.size(); }
   bool FocusTranscript(size_t index);
-  bool FocusSearch(){if(!m_search.GetSafeHwnd())return false;m_search.SetFocus();return true;}
+  bool FocusSearch(){if(!m_search.GetSafeHwnd())return false;m_searchVisible=true;LayoutChildren();m_search.SetFocus();return true;}
+  // Display metadata never replaces the transcript's immutable connection ID.
+  void SetPresentationIdentity(const std::wstring& game,const std::wstring& character);
+  enum class Placement {Join,Left,Right,Above,Below};
+  bool ArrangeBeside(CWorkspacePane& target,Placement placement);
+  void ShowPlacementMenu();
+  bool DetachToWindow();
   unsigned int UnreadCount(const CString& id,const CString& name) const;
   unsigned int MentionCount(const CString& id,const CString& name) const;
   bool SetPreferences(const CString& id,const CString& name,const workspace_spawn::Preferences& preferences);
@@ -159,6 +165,10 @@ protected:
   ConnectionHandler m_connectionHandler;
   InputErrorHandler m_inputErrorHandler;
   CStatic m_inputStatus;
+  CStatic m_destination;
+  CButton m_arrange,m_findToggle;
+  bool m_searchVisible=false;
+  std::wstring m_gameLabel,m_characterLabel;
   PruneHandler m_pruneHandler;
   CEdit m_input;
   CButton m_reviewInput;
@@ -197,6 +207,8 @@ protected:
   afx_msg void OnReviewInput();
   afx_msg void OnFindNext();
   afx_msg void OnPause();
+  afx_msg void OnArrange(){ShowPlacementMenu();}
+  afx_msg void OnFindToggle(){m_searchVisible=!m_searchVisible;LayoutChildren();if(m_searchVisible)m_search.SetFocus();}
   afx_msg void OnTimer(UINT_PTR timer);
   afx_msg void OnLink(UINT id, NMHDR* hdr, LRESULT* result);
   afx_msg void OnTabChanged(NMHDR* hdr, LRESULT* result);

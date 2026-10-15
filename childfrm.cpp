@@ -131,6 +131,15 @@ BOOL CChildFrame::PreCreateWindow(CREATESTRUCT& cs)
 }
 
 
+// Tree-first navigation uses the original maximized document view. No client
+// replacement, transcript replay, synthetic close controls or input proxy.
+void CChildFrame::ActivateFrame(int show)
+{
+  if(!Frame.m_workspaceTabbedWorlds && show!=SW_HIDE && show!=SW_MINIMIZE && show!=SW_SHOWMINIMIZED)
+    show=SW_SHOWMAXIMIZED;
+  CMDIChildWndEx::ActivateFrame(show);
+}
+
 void CChildFrame::OnClose() 
 {
 

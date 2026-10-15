@@ -22,7 +22,7 @@ try {
   $taskResponse=@'
 /nologo /MT /EHsc /D_WIN32_WINNT=0x0601 /DNO_HTMLHELP /DNDEBUG /DWIN32 /D_WINDOWS /DZLIB_DLL /DLUA51 /D_CRT_SECURE_NO_WARNINGS /D_CRT_NON_CONFORMING_SWPRINTFS /DNO_WARN_MBCS_MFC_DEPRECATION /I. /Iluacom /Iopenssl\include
 /FeWinRel\workspace-native-probe.exe /FoWinRel\workspace-probe-objects\
-tests\workspace\native_probe.cpp WorkspacePane.cpp InlineImage.cpp workspace\WorkspaceInputPolicy.cpp
+tests\workspace\native_probe.cpp WorkspacePane.cpp WorkspaceStyle.cpp InlineImage.cpp workspace\WorkspaceInputPolicy.cpp
 /link /SUBSYSTEM:WINDOWS /LTCG Shlwapi.lib
 '@
   $taskName='workspace-performance'

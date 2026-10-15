@@ -2,11 +2,18 @@
 #include "WorkspacePane.h"
 #include "pcre/pcre.h"
 #include "WorkspaceResources.h"
+#include "WorkspaceStyle.h"
+#include "workspace/WorkspaceFocus.h"
+#include "workspace/WorkspaceDockActions.h"
+#include <set>
+#include <atlconv.h>
 #include <afxmultipaneframewnd.h>
 #include <richole.h>
 #include <afxpanedivider.h>
 #include <afxpanecontainermanager.h>
 #include <afxpanecontainer.h>
+
+namespace {std::set<HWND> valyriaChannelWindows;}
 
 // RichEdit requests independent structured storage for each imported picture.
 class WorkspaceOleCallback : public IRichEditOleCallback
@@ -41,9 +48,12 @@ public:
 class WorkspaceNativeFloat : public CMultiPaneFrameWnd
 {
  DECLARE_DYNCREATE(WorkspaceNativeFloat)
+ WorkspaceFocusState focus_;
 protected:
  virtual LRESULT WindowProc(UINT message,WPARAM wp,LPARAM lp)
- {if(WorkspaceFrameworkResourceMessage(message,lp)){WorkspaceModernResources resources;return CMultiPaneFrameWnd::WindowProc(message,wp,lp);}return CMultiPaneFrameWnd::WindowProc(message,wp,lp);}
+ {focus_.Before(m_hWnd,message,wp);LRESULT result;
+  if(WorkspaceFrameworkResourceMessage(message,lp)){WorkspaceModernResources resources;result=CMultiPaneFrameWnd::WindowProc(message,wp,lp);}else result=CMultiPaneFrameWnd::WindowProc(message,wp,lp);
+  focus_.After(message,wp);return result;}
 };
 IMPLEMENT_DYNCREATE(WorkspaceNativeFloat,CMultiPaneFrameWnd)
 class WorkspaceNativeTabs : public CTabbedPane
@@ -66,6 +76,8 @@ BEGIN_MESSAGE_MAP(CWorkspacePane, CDockablePane)
   ON_BN_CLICKED(3, OnReviewInput)
   ON_BN_CLICKED(5, OnFindNext)
   ON_BN_CLICKED(6, OnPause)
+  ON_BN_CLICKED(10, OnArrange)
+  ON_BN_CLICKED(11, OnFindToggle)
   ON_NOTIFY_RANGE(EN_LINK, 100, 131, OnLink)
   ON_WM_SIZE()
   ON_WM_PAINT()
@@ -78,6 +90,7 @@ CWorkspacePane::CWorkspacePane() : m_floatSize(500,350), m_dockWidth(360),
   m_dockHeight(250), m_resizing(false), m_resizeOriginal(0), m_toolWindow(NULL), m_selectedInput(-1), m_labelDirty(false), m_renderBatchDepth(0) {}
 CWorkspacePane::~CWorkspacePane()
 {
+  valyriaChannelWindows.erase(m_hWnd);
   for (size_t i=0; i<m_transcripts.size(); ++i) delete m_transcripts[i];
 }
 BOOL CWorkspacePane::Create(CFrameWnd* frame,UINT barId)
@@ -88,7 +101,7 @@ BOOL CWorkspacePane::Create(CFrameWnd* frame,UINT barId)
   const BOOL created=CDockablePane::Create("Transcripts",frame,CRect(0,0,360,350),TRUE,barId,WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|CBRS_RIGHT|CBRS_FLOAT_MULTI);
   // CreateEx selects its default classes. Install our resource-aware hosts
   // afterwards so tab detachment and later floating keep using them.
-  if(created){SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));}
+  if(created){SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));valyriaChannelWindows.insert(m_hWnd);}
   return created;
 }
 CDockablePane* CWorkspacePane::AttachToTabWnd(CDockablePane* target,AFX_DOCK_METHOD method,BOOL active,CDockablePane** group)
@@ -97,6 +110,9 @@ BOOL CWorkspacePane::FloatPane(CRect bounds,AFX_DOCK_METHOD method,bool show)
 {return CDockablePane::FloatPane(bounds,method,show);}
 LRESULT CWorkspacePane::WindowProc(UINT message,WPARAM wp,LPARAM lp)
 {
+  if(message==WM_COMMAND && LOWORD(wp)==2 && (HIWORD(wp)==EN_SETFOCUS || HIWORD(wp)==EN_KILLFOCUS))WorkspaceFocusState::Trace("channel-input",m_hWnd,message,wp);
+  if(message==WM_NCDESTROY)valyriaChannelWindows.erase(m_hWnd);
+  if(message==WM_THEMECHANGED && m_tabs.GetSafeHwnd())LayoutChildren();
   if(WorkspaceFrameworkResourceMessage(message,lp))
     {WorkspaceModernResources resources;return CDockablePane::WindowProc(message,wp,lp);}
   return CDockablePane::WindowProc(message,wp,lp);
@@ -122,6 +138,17 @@ int CWorkspacePane::OnCreate(LPCREATESTRUCT cs)
   m_findNext.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   m_pause.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   m_inputStatus.Create("",WS_CHILD|WS_VISIBLE,CRect(0,0,1,1),this,8);
+  m_destination.Create("Destination",WS_CHILD|WS_VISIBLE|SS_NOPREFIX,CRect(0,0,1,1),this,9);
+  if(!m_arrange.Create("Arrange",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,10) ||
+     !m_findToggle.Create("Find",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,11))return -1;
+  workspace_style::ApplySurface(m_hWnd);
+  for(HWND control:{m_input.m_hWnd,m_search.m_hWnd,m_inputStatus.m_hWnd,m_destination.m_hWnd,m_pause.m_hWnd})workspace_style::StyleControl(control);
+  workspace_style::StyleButton(m_reviewInput.m_hWnd,workspace_style::Icon::Send,true,L"Send to this channel's original character connection");
+  workspace_style::StyleButton(m_arrange.m_hWnd,workspace_style::Icon::Channels,false,L"Join, split, detach or reorder this channel (Ctrl+Shift+M)");
+  workspace_style::StyleButton(m_findToggle.m_hWnd,workspace_style::Icon::Find,false,L"Find in this channel (Ctrl+F)");
+  workspace_style::StyleButton(m_findNext.m_hWnd,workspace_style::Icon::Find);
+  workspace_style::StyleControl(m_tabs.m_hWnd);
+  m_tabs.SetItemSize(CSize(workspace_style::Scale(m_hWnd,110),workspace_style::Scale(m_hWnd,40)));
   SetTimer(1,500,NULL);
   return 0;
 }
@@ -377,17 +404,26 @@ void CWorkspacePane::LayoutChildren()
   if (m_toolWindow && ::IsWindow(m_toolWindow))
     { CRect bounds; GetClientRect(bounds); bounds.DeflateRect(6,6,6,6);
       ::MoveWindow(m_toolWindow,bounds.left,bounds.top,max(1,bounds.Width()),max(1,bounds.Height()),TRUE); return; }
-  CRect rect; GetClientRect(rect); rect.DeflateRect(6,6,6,6);
-  CRect inputRect=rect; inputRect.top=max(inputRect.top,inputRect.bottom-25);
-  m_reviewInput.MoveWindow(max(inputRect.left,inputRect.right-115),inputRect.top,115,25);
-  m_input.MoveWindow(inputRect.left,inputRect.top,max(1,inputRect.Width()-120),25);
-  m_inputStatus.MoveWindow(rect.left,max(rect.top,inputRect.top-20),max(1,rect.Width()),18);
-  rect.bottom=max(rect.top,rect.bottom-51);
-  CRect searchRect=rect;searchRect.bottom=searchRect.top+24;
-  m_search.MoveWindow(searchRect.left,searchRect.top,max(1,searchRect.Width()-155),24);
-  m_findNext.MoveWindow(max(searchRect.left,searchRect.right-150),searchRect.top,85,24);
-  m_pause.MoveWindow(max(searchRect.left,searchRect.right-60),searchRect.top,60,24);
-  rect.top=min(rect.bottom,rect.top+28);
+  const auto S=[&](int value){return workspace_style::Scale(m_hWnd,value);};
+  CRect rect; GetClientRect(rect); rect.DeflateRect(S(10),S(8),S(10),S(8));
+  const int inputHeight=S(34),sendWidth=S(84),gap=S(6);
+  CRect inputRect=rect;inputRect.top=max(inputRect.top,inputRect.bottom-inputHeight);
+  m_reviewInput.MoveWindow(max(inputRect.left,inputRect.right-sendWidth),inputRect.top,sendWidth,inputHeight);
+  m_input.MoveWindow(inputRect.left,inputRect.top,max(1,inputRect.Width()-sendWidth-gap),inputHeight);
+  m_destination.MoveWindow(rect.left,max(rect.top,inputRect.top-S(23)),max(1,rect.Width()),S(20));
+  // Submission feedback has a separate accessible label; only reserves a row
+  // when it contains a status. The stable destination is always visible.
+  const bool hasStatus=m_inputStatus.GetWindowTextLength()>0;
+  m_inputStatus.ShowWindow(hasStatus?SW_SHOW:SW_HIDE);
+  if(hasStatus)m_inputStatus.MoveWindow(rect.left,max(rect.top,inputRect.top-S(43)),max(1,rect.Width()),S(18));
+  rect.bottom=max(rect.top,inputRect.top-S(hasStatus?49:29));
+  const bool compact=rect.Width()<S(244);
+  m_findToggle.MoveWindow(rect.left,rect.top,S(72),S(30));
+  m_arrange.MoveWindow(rect.left+S(78),rect.top,max(S(72),min(S(96),rect.Width()-S(78))),S(30));
+  m_pause.MoveWindow(compact?rect.left:rect.right-S(64),rect.top+(compact?S(36):0),S(64),S(30));
+  rect.top=min(rect.bottom,rect.top+S(compact?72:36));
+  m_search.ShowWindow(m_searchVisible?SW_SHOW:SW_HIDE);m_findNext.ShowWindow(m_searchVisible?SW_SHOW:SW_HIDE);
+  if(m_searchVisible){m_search.MoveWindow(rect.left,rect.top,max(1,rect.Width()-S(100)),S(30));m_findNext.MoveWindow(max(rect.left,rect.right-S(94)),rect.top,S(94),S(30));rect.top=min(rect.bottom,rect.top+S(36));}
   const int selected=m_tabs.GetCurSel();
   m_pause.SetCheck(selected>=0 && selected<(int)m_transcripts.size() && m_transcripts[selected]->paused?BST_CHECKED:BST_UNCHECKED);
   m_pause.EnableWindow(selected>=0);m_findNext.EnableWindow(selected>=0);
@@ -396,6 +432,13 @@ void CWorkspacePane::LayoutChildren()
       const wchar_t* draft=selected>=0 && selected<(int)m_transcripts.size()?m_transcripts[selected]->inputDraft.c_str():L"";
       ::SetWindowTextW(m_input.m_hWnd,draft); }
   m_input.EnableWindow(selected>=0);m_reviewInput.EnableWindow(selected>=0);
+  if(selected>=0 && selected<(int)m_transcripts.size()){
+    const auto& transcript=*m_transcripts[selected];
+    const std::wstring channel=transcript.name=="Output"?L"Main":std::wstring(CA2W(transcript.name,CP_UTF8));
+    const std::wstring owner=m_characterLabel.empty()?std::wstring(CA2W(transcript.connectionId,CP_UTF8)):m_characterLabel;
+    const std::wstring destination=L"To "+owner+(m_gameLabel.empty()?L"":L" / "+m_gameLabel)+L" / "+channel;
+    wchar_t old[1024]={};::GetWindowTextW(m_destination.m_hWnd,old,1024);if(destination!=old)::SetWindowTextW(m_destination.m_hWnd,destination.c_str());
+  }
   m_tabs.MoveWindow(rect);
   CRect body=rect; if(m_transcripts.size()>1)m_tabs.AdjustRect(FALSE,body);
   m_tabs.ShowWindow(m_transcripts.size()>1?SW_SHOW:SW_HIDE);
@@ -416,7 +459,7 @@ void CWorkspacePane::OnSize(UINT type,int cx,int cy)
 void CWorkspacePane::OnPaint()
 {
   CPaintDC dc(this); CRect rect; GetClientRect(rect);
-  dc.FillSolidRect(rect,GetSysColor(COLOR_BTNFACE));
+  dc.FillSolidRect(rect,workspace_style::Colors(m_hWnd).surface);
 
 }
 void CWorkspacePane::OnSetFocus(CWnd* oldWindow)
@@ -622,7 +665,7 @@ void CWorkspacePane::OnTimer(UINT_PTR timer)
   for (size_t i=0;i<m_transcripts.size();++i)
     {
     Transcript& transcript=*m_transcripts[i];
-    if(m_connectionHandler){const bool live=m_connectionHandler(transcript.connectionId);m_reviewInput.EnableWindow(live);if(transcript.connectionState!=(live?1:0)){m_inputStatus.SetWindowText(live?"Ready":"Disconnected - draft retained");transcript.connectionState=live?1:0;}}
+    if(m_connectionHandler){const bool live=m_connectionHandler(transcript.connectionId);m_reviewInput.EnableWindow(live);if(transcript.connectionState!=(live?1:0)){m_inputStatus.SetWindowText(live?"Ready":"Disconnected - draft retained");transcript.connectionState=live?1:0;LayoutChildren();m_reviewInput.EnableWindow(live);}}
     if(transcript.paused || transcript.deferred || m_renderBatchDepth)continue;
     CRect viewport;transcript.text.GetClientRect(viewport);
     if(viewport.Width()!=transcript.renderedWidth)ReflowImages(transcript,SaveView(transcript.text));
@@ -710,7 +753,7 @@ bool CWorkspacePane::HostTool(HWND toolWindow,const CString& title)
   ::SetWindowPos(toolWindow,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED);
   const CSize minimum=MinimumSize();m_floatSize.cx=max(minimum.cx,m_floatSize.cx);m_floatSize.cy=max(minimum.cy,m_floatSize.cy);
   m_dockWidth=max(minimum.cx,m_dockWidth);m_dockHeight=max(minimum.cy,m_dockHeight);
-  m_tabs.ShowWindow(SW_HIDE);m_input.ShowWindow(SW_HIDE);m_reviewInput.ShowWindow(SW_HIDE);m_search.ShowWindow(SW_HIDE);m_findNext.ShowWindow(SW_HIDE);m_pause.ShowWindow(SW_HIDE);m_inputStatus.ShowWindow(SW_HIDE); LayoutChildren(); Invalidate(); return true;
+  m_tabs.ShowWindow(SW_HIDE);m_input.ShowWindow(SW_HIDE);m_reviewInput.ShowWindow(SW_HIDE);m_search.ShowWindow(SW_HIDE);m_findNext.ShowWindow(SW_HIDE);m_pause.ShowWindow(SW_HIDE);m_inputStatus.ShowWindow(SW_HIDE);m_destination.ShowWindow(SW_HIDE);m_arrange.ShowWindow(SW_HIDE);m_findToggle.ShowWindow(SW_HIDE); LayoutChildren(); Invalidate(); return true;
 }
 
 namespace {
@@ -769,8 +812,12 @@ bool CWorkspacePane::SetInputPrefix(const CString& id,const CString& name,const 
 }
 BOOL CWorkspacePane::PreTranslateMessage(MSG* message)
 {
+  if(message->message==WM_KEYDOWN && message->wParam=='M' && (GetKeyState(VK_CONTROL)&0x8000) && (GetKeyState(VK_SHIFT)&0x8000))
+    {ShowPlacementMenu();return TRUE;}
   if(message->message==WM_KEYDOWN && message->wParam=='F' && (GetKeyState(VK_CONTROL)&0x8000))
-    { m_search.SetFocus();return TRUE; }
+    { FocusSearch();return TRUE; }
+  if(message->message==WM_KEYDOWN && message->wParam==VK_ESCAPE && m_searchVisible)
+    {m_searchVisible=false;LayoutChildren();m_input.SetFocus();return TRUE;}
   if(message->hwnd==m_search.m_hWnd && message->message==WM_KEYDOWN && message->wParam==VK_RETURN)
     { OnFindNext();return TRUE; }
   if(message->hwnd==m_input.m_hWnd && message->message==WM_KEYDOWN && (message->wParam==VK_UP || message->wParam==VK_DOWN))
@@ -809,6 +856,7 @@ void CWorkspacePane::OnReviewInput()
   std::wstring status=submitted?L"Submitted":L"Not submitted";
   if(!submitted && m_inputErrorHandler){const std::wstring error=m_inputErrorHandler(identity);if(!error.empty())status+=L": "+error;}
   ::SetWindowTextW(m_inputStatus.m_hWnd,status.c_str());
+  LayoutChildren();
   if(submitted && current->inputDraft==draft)
     {current->inputDraft.clear();::SetWindowTextW(m_input.m_hWnd,L"");}
 
@@ -914,6 +962,7 @@ void CWorkspacePane::UpdateTabLabel(size_t index)
   if(index>=m_transcripts.size())return;
   const Transcript& transcript=*m_transcripts[index];
   CString label=transcript.name+" ["+transcript.connectionId.Left(8)+"]";
+  if(!m_characterLabel.empty()){label=(transcript.name=="Output"?CString("Main"):transcript.name);label+=" - ";label+=CW2A(m_characterLabel.c_str(),CP_UTF8);}
   if(transcript.unread) {CString count;count.Format(" (%u)",transcript.unread);label+=count;}
   if(transcript.mentions){CString count;count.Format(" [mentions: %u]",transcript.mentions);label+=count;}
   TCITEM item;memset(&item,0,sizeof(item));item.mask=TCIF_TEXT;item.pszText=const_cast<char*>((LPCTSTR)label);
@@ -926,6 +975,69 @@ bool CWorkspacePane::FocusTranscript(size_t index)
   Transcript& transcript=*m_transcripts[index];
   if(!transcript.paused){transcript.unread=0;transcript.mentions=0;UpdateTabLabel(index);}
   LayoutChildren();transcript.text.SetFocus();return true;
+}
+void CWorkspacePane::SetPresentationIdentity(const std::wstring& game,const std::wstring& character)
+{
+  if(m_gameLabel==game && m_characterLabel==character)return;
+  m_gameLabel=game;m_characterLabel=character;
+  for(size_t i=0;i<m_transcripts.size();++i)UpdateTabLabel(i);
+  LayoutChildren();
+}
+bool CWorkspacePane::ArrangeBeside(CWorkspacePane& target,Placement placement)
+{
+  if(&target==this || !::IsWindow(target.m_hWnd) || !::IsWindow(m_hWnd))return false;
+  const HWND sourceWindow=m_hWnd,targetWindow=target.m_hWnd;
+  SaveInputDraft();
+  WorkspaceModernResources resources;
+  if(placement==Placement::Join && GetParentTabbedPane() && GetParentTabbedPane()==target.GetParentTabbedPane())return true;
+  // Native detach owns recent-dock metadata and preserves the pane, input and
+  // RichEdit HWNDs. Never copy/replay transcript records during arrangement.
+  if(IsAutoHideMode())SetAutoHideMode(FALSE,CBRS_ALIGN_ANY);
+  if(auto* group=GetParentTabbedPane())if(!group->DetachPane(this,TRUE))return false;
+  if(!::IsWindow(sourceWindow) || CWnd::FromHandlePermanent(sourceWindow)!=this || !::IsWindow(targetWindow) || CWnd::FromHandlePermanent(targetWindow)!=&target)return false;
+  BOOL moved=FALSE;
+  if(placement==Placement::Join)moved=AttachToTabWnd(&target,DM_SHOW,TRUE)!=NULL;
+  else {
+    CDockablePane* anchor=target.GetParentTabbedPane()?static_cast<CDockablePane*>(target.GetParentTabbedPane()):&target;
+    const DWORD align=placement==Placement::Left?CBRS_ALIGN_LEFT:placement==Placement::Right?CBRS_ALIGN_RIGHT:placement==Placement::Above?CBRS_ALIGN_TOP:CBRS_ALIGN_BOTTOM;
+    CRect desired;anchor->GetWindowRect(desired);if(align==CBRS_ALIGN_LEFT)desired.right=desired.CenterPoint().x;else if(align==CBRS_ALIGN_RIGHT)desired.left=desired.CenterPoint().x;else if(align==CBRS_ALIGN_TOP)desired.bottom=desired.CenterPoint().y;else desired.top=desired.CenterPoint().y;
+    moved=DockToWindow(anchor,align,desired);
+  }
+  if(moved){ShowPane(TRUE,FALSE,TRUE);if(auto* frame=DYNAMIC_DOWNCAST(CFrameWnd,GetDockSiteFrameWnd()))frame->RecalcLayout();}
+  return moved!=FALSE;
+}
+bool CWorkspacePane::DetachToWindow()
+{
+  SaveInputDraft();
+  CRect floating;GetWindowRect(floating);floating.right=floating.left+max(workspace_style::Scale(m_hWnd,440),floating.Width());floating.bottom=floating.top+max(workspace_style::Scale(m_hWnd,320),floating.Height());
+  return FloatWorkspacePaneVisible(*this,floating)!=FALSE;
+}
+void CWorkspacePane::ShowPlacementMenu()
+{
+  const HWND original=m_hWnd;CString identity,name;if(!m_transcripts.empty()){identity=m_transcripts[0]->connectionId;name=m_transcripts[0]->name;}
+  struct Move {HWND target;Placement placement;};std::vector<Move> choices;
+  CMenu menu;menu.CreatePopupMenu();
+  menu.AppendMenu(MF_STRING,1,"Detach into native window");
+  if(auto* group=GetParentTabbedPane()){
+    const auto* tabs=group->GetUnderlyingWindow();const int index=tabs->GetTabFromHwnd(m_hWnd);
+    menu.AppendMenu(MF_STRING|(index>0?0:MF_GRAYED),2,"Move tab left");
+    menu.AppendMenu(MF_STRING|(index>=0 && index<tabs->GetTabsNum()-1?0:MF_GRAYED),3,"Move tab right");
+  }
+  menu.AppendMenu(MF_SEPARATOR);
+  for(HWND window:valyriaChannelWindows){auto* target=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(window));if(!target || target==this || !::IsWindow(window) || target->IsEmpty())continue;
+    CString title;target->GetWindowText(title);CMenu child;child.CreatePopupMenu();
+    const Placement placements[]={Placement::Join,Placement::Left,Placement::Right,Placement::Above,Placement::Below};
+    const char* labels[]={"Join tabs","Place left","Place right","Place above","Place below"};
+    for(int i=0;i<5;++i){choices.push_back({window,placements[i]});child.AppendMenu(MF_STRING,(UINT)(100+choices.size()-1),labels[i]);}
+    menu.AppendMenu(MF_POPUP,(UINT_PTR)child.Detach(),title);
+  }
+  CRect bounds;m_arrange.GetWindowRect(bounds);if(bounds.IsRectEmpty())GetWindowRect(bounds);
+  const UINT command=menu.TrackPopupMenu(TPM_RETURNCMD|TPM_NONOTIFY|TPM_LEFTALIGN,bounds.left,bounds.bottom,this);
+  if(!command || !::IsWindow(original) || CWnd::FromHandlePermanent(original)!=this || (!identity.IsEmpty()&&!HasTranscript(identity,name)))return;
+  WorkspaceModernResources resources;
+  if(command==1){DetachToWindow();return;}
+  if(command==2 || command==3){if(auto* group=GetParentTabbedPane()){auto* tabs=group->GetUnderlyingWindow();const int index=tabs->GetTabFromHwnd(m_hWnd),next=index+(command==2?-1:1);if(index>=0 && next>=0 && next<tabs->GetTabsNum())tabs->SwapTabs(index,next);}return;}
+  if(command>=100 && command-100<choices.size()){const Move move=choices[command-100];auto* target=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(move.target));if(target && ::IsWindow(move.target))ArrangeBeside(*target,move.placement);}
 }
 unsigned int CWorkspacePane::UnreadCount(const CString& id,const CString& name) const
 {

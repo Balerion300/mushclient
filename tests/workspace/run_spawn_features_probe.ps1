@@ -18,7 +18,7 @@ foreach($taskSignature in @('bool WorkspaceSpawnSchema(', 'bool CMainFrame::AddW
 }
 $taskFunctions+=Extract-Function $taskIntegration 'bool WorkspacePublishRecord('
 Set-Content -LiteralPath (Join-Path $taskOutput 'spawn-production.inc') -Value ($taskFunctions -join "`r`n") -Encoding UTF8
-$taskSources=@('tests\workspace\spawn_features_probe.cpp','WorkspacePane.cpp','InlineImage.cpp','workspace\WorkspaceInputPolicy.cpp') | ForEach-Object {'"'+(Join-Path $RepoRoot $_)+'"'}
+$taskSources=@('tests\workspace\spawn_features_probe.cpp','WorkspacePane.cpp','WorkspaceStyle.cpp','InlineImage.cpp','workspace\WorkspaceInputPolicy.cpp') | ForEach-Object {'"'+(Join-Path $RepoRoot $_)+'"'}
 $taskPcre=Get-ChildItem (Join-Path $RepoRoot 'WinRel') -Filter 'pcre_*.obj'
 if($taskPcre.Count -lt 10){throw 'Existing Release PCRE objects are required; this fixture never builds the solution.'}
 $taskResponse=@"

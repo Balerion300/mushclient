@@ -1477,6 +1477,9 @@
     <ClInclude Include="WorkspaceDockGuides.h" />
     <ClInclude Include="workspace\CharacterLabelsDialog.h" />
     <ClInclude Include="workspace\WorkspaceShell.h" />
+    <ClInclude Include="workspace\WorkspaceNativeTabs.h" />
+    <ClInclude Include="workspace\WorkspaceFocus.h" />
+    <ClInclude Include="workspace\WorkspaceDockActions.h" />
     <ClInclude Include="workspace\WorkflowUi.h" />
     <ClInclude Include="workspace\LogStartSetup.h" />
     <ClInclude Include="WorkspaceResources.h" />

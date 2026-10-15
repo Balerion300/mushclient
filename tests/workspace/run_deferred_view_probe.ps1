@@ -16,6 +16,7 @@ $taskResponse=@(
   ('/Fe"'+$taskTemporary+'\deferred-view-probe.exe" /Fo"'+$taskTemporary+'\\"'),
   ('"'+$RepoRoot+'\tests\workspace\deferred_view_probe.cpp"'),
   ('"'+$RepoRoot+'\WorkspacePane.cpp"'),
+  ('"'+$RepoRoot+'\WorkspaceStyle.cpp"'),
   ('"'+$RepoRoot+'\InlineImage.cpp"'),
   ('"'+$RepoRoot+'\workspace\WorkspaceInputPolicy.cpp"'),
   '/link /SUBSYSTEM:WINDOWS /LTCG Shlwapi.lib Psapi.lib'

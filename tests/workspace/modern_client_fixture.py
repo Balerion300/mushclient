@@ -7,6 +7,7 @@ Writing 'stop' to fixture.control stops only this fixture and its candidate proc
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -23,6 +24,7 @@ p.add_argument('--exe', type=Path, default=ROOT/'WinRel/MUSHclient.exe')
 p.add_argument('--runtime', type=Path, default=ROOT/'.distribution-source/extracted')
 p.add_argument('--destination', type=Path)
 p.add_argument('--duration', type=int, default=1800)
+p.add_argument('--focus-trace', action='store_true', help='Bounded own-client focus diagnostics; logs no input text')
 a = p.parse_args()
 dest = a.destination or Path(tempfile.mkdtemp(prefix='mush-modern-acceptance-'))
 dest.mkdir(exist_ok=True)
@@ -145,7 +147,9 @@ db.close()
 startup = subprocess.STARTUPINFO()
 startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 startup.wShowWindow = 0
-client = subprocess.Popen([str(dest/'MUSHclient.exe'), '/noregister'], cwd=dest, startupinfo=startup)
+environment = os.environ.copy()
+if a.focus_trace: environment['VALYRIA_FOCUS_TRACE'] = '1'
+client = subprocess.Popen([str(dest/'MUSHclient.exe'), '/noregister'], cwd=dest, startupinfo=startup, env=environment)
 print(json.dumps({'fixture':str(dest), 'candidate_pid':client.pid, 'candidate_exe':str(dest/'MUSHclient.exe')}, indent=2), flush=True)
 started = time.monotonic()
 try:

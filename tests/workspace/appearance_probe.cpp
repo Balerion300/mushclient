@@ -21,8 +21,8 @@ public:
  }
  LRESULT WindowProc(UINT message,WPARAM wp,LPARAM lp) override {const LRESULT value=CDockablePane::WindowProc(message,wp,lp);if(message==WM_SIZE && ::IsWindow(text)){CRect r;GetClientRect(r);::MoveWindow(text,0,0,r.Width(),r.Height(),TRUE);}return value;}
 };
-int tabChanges=0;
-LRESULT CALLBACK ToolProc(HWND h,UINT msg,WPARAM wp,LPARAM lp){if(msg==WM_NOTIFY && ((NMHDR*)lp)->code==TCN_SELCHANGE)++tabChanges;return DefWindowProcW(h,msg,wp,lp);}
+int tabChanges=0,statusDraws=0;
+LRESULT CALLBACK ToolProc(HWND h,UINT msg,WPARAM wp,LPARAM lp){if(msg==WM_NOTIFY && ((NMHDR*)lp)->code==TCN_SELCHANGE)++tabChanges;if(msg==WM_DRAWITEM){auto* draw=(DRAWITEMSTRUCT*)lp;if(draw->itemData==0x1234){++statusDraws;HBRUSH brush=CreateSolidBrush(RGB(17,33,55));FillRect(draw->hDC,&draw->rcItem,brush);DeleteObject(brush);return TRUE;}}return DefWindowProcW(h,msg,wp,lp);}
 class AppearanceApp:public CWinApp {
  int result=1;
  BOOL InitInstance() override {
@@ -39,6 +39,12 @@ class AppearanceApp:public CWinApp {
   auto* group=first.GetParentTabbedPane();const HWND originalText=first.text;const HFONT originalFont=(HFONT)::SendMessageW(first.text,WM_GETFONT,0,0);::SendMessageW(first.text,EM_SETSEL,5,18);const LRESULT originalSelection=::SendMessageW(first.text,EM_GETSEL,0,0);
   ok=Check(out,"production visual manager installed",!strcmp(CMFCVisualManager::GetInstance()->GetRuntimeClass()->m_lpszClassName,"CWorkspaceVisualManager"))&&ok;
   ok=Check(out,"native tab group has both original panes",group && group->GetTabsNum()==2)&&ok;
+  if(group){auto* measured=group->GetUnderlyingWindow();CRect hit;measured->GetTabRect(0,hit);
+    ok=Check(out,"channel factory constructs real Valyria tab geometry class",!strcmp(measured->GetRuntimeClass()->m_lpszClassName,"CValyriaChannelTabs"))&&ok;
+    ok=Check(out,"native measured tab area reserves at least forty logical pixels",measured->GetTabsHeight()>=style::Scale(measured->m_hWnd,40))&&ok;
+    ok=Check(out,"native tab hit rectangle grows with the forty-pixel layout",hit.Height()>=style::Scale(measured->m_hWnd,34))&&ok;}
+  const auto neutral=style::Colors();ok=Check(out,"Valyria red is the default secondary accent",style::GetAccent()==style::Accent::Red && GetRValue(neutral.accent)>GetBValue(neutral.accent))&&ok;
+  style::SetAccent(style::Accent::Blue);const auto blue=style::Colors();ok=Check(out,"blue alternative changes accent without recoloring neutral surfaces",blue.background==neutral.background && blue.surface==neutral.surface && blue.accent!=neutral.accent)&&ok;style::SetAccent(style::Accent::Red);
   workspace_appearance::Refresh(frame->m_hWnd);frame->RedrawWindow(NULL,NULL,RDW_INVALIDATE|RDW_UPDATENOW|RDW_FRAME|RDW_ALLCHILDREN);
   ok=Check(out,"light production dock chrome screenshot",Screenshot(frame->m_hWnd,L"appearance-dock-light.bmp"))&&ok;
   style::SetTheme(style::Theme::Dark);frame->RedrawWindow(NULL,NULL,RDW_INVALIDATE|RDW_UPDATENOW|RDW_FRAME|RDW_ALLCHILDREN);
@@ -74,6 +80,13 @@ class AppearanceApp:public CWinApp {
   ok=Check(out,"tab theme leaves editor content font selection and focus intact",(HFONT)::SendMessageW(editor,WM_GETFONT,0,0)==beforeEditor && ::SendMessageW(editor,EM_GETSEL,0,0)==editorSel && ::GetFocus()==editor)&&ok;
   HWND vertical=CreateWindowExW(0,WC_TABCONTROLW,L"",WS_CHILD|TCS_VERTICAL|TCS_MULTILINE,0,0,80,80,tool,NULL,AfxGetInstanceHandle(),NULL);ok=Check(out,"custom vertical tabs stay under native rendering",!workspace_appearance::StyleTabs(vertical))&&ok;
   HWND nested=CreateWindowExW(0,L"STATIC",L"",WS_CHILD,0,0,1,1,tool,NULL,AfxGetInstanceHandle(),NULL);HWND unowned=CreateWindowExW(0,WC_TABCONTROLW,L"",WS_CHILD|WS_TABSTOP,0,0,80,40,nested,NULL,AfxGetInstanceHandle(),NULL);HFONT fixed=(HFONT)GetStockObject(ANSI_FIXED_FONT);::SendMessageW(unowned,WM_SETFONT,(WPARAM)fixed,0);style::ApplySurface(tool);ok=Check(out,"nested content/plugin tabs are not enrolled",(HFONT)::SendMessageW(unowned,WM_GETFONT,0,0)==fixed)&&ok;
+  HWND status=CreateWindowExW(0,STATUSCLASSNAMEW,L"",WS_CHILD|WS_VISIBLE|SBARS_SIZEGRIP,0,0,600,28,tool,(HMENU)103,AfxGetInstanceHandle(),NULL);
+  workspace_appearance::StyleStatusBar(status);int parts[]={500,-1};::SendMessage(status,SB_SETPARTS,2,(LPARAM)parts);::SendMessageW(status,SB_SETTEXTW,0,(LPARAM)L"Fictional ready");::SendMessage(status,SB_SETTEXTW,1|SBT_OWNERDRAW,0x1234);
+  RECT statusRect;::GetClientRect(status,&statusRect);RECT ownerRect;::SendMessage(status,SB_GETRECT,1,(LPARAM)&ownerRect);
+  ok=Check(out,"themed status preserves owner-drawn MORE-style feedback",Pixel(status,ownerRect.left+2,ownerRect.top+2)==RGB(17,33,55) && statusDraws>0)&&ok;
+  ok=Check(out,"resizable status paints a visible native resize-grip affordance",Pixel(status,statusRect.right-7,statusRect.bottom-4)==style::Colors(status).muted)&&ok;
+  POINT statusCorner={statusRect.right-2,statusRect.bottom-2};::ClientToScreen(status,&statusCorner);
+  ok=Check(out,"status resize-grip retains native bottom-right hit testing",::SendMessage(status,WM_NCHITTEST,0,MAKELPARAM(statusCorner.x,statusCorner.y))==HTBOTTOMRIGHT)&&ok;
   StyleFixtureHighContrast=true;style::SetTheme(style::Theme::Dark);ok=Check(out,"high contrast takes precedence over selected dark palette",style::Colors().highContrast)&&ok;
   TabCtrl_GetItemRect(tabs,2,&tabRect);const COLORREF highPixel=Pixel(tabs,tabRect.left+3,tabRect.top);ok=Check(out,"native tabs yield to Windows high contrast painting",highPixel!=style::Colors().accent)&&ok;
   CClientDC frameDc(frame);CDC memory;memory.CreateCompatibleDC(&frameDc);CBitmap bitmap;bitmap.CreateCompatibleBitmap(&frameDc,64,32);CBitmap* old=memory.SelectObject(&bitmap);CMFCVisualManager::GetInstance()->OnDrawPaneCaption(&memory,&first,TRUE,CRect(0,0,64,32),CRect());ok=Check(out,"high contrast docking caption uses native system active caption",memory.GetPixel(20,15)==GetSysColor(COLOR_ACTIVECAPTION))&&ok;memory.SelectObject(old);

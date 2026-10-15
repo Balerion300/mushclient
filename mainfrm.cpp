@@ -298,8 +298,8 @@ IMPLEMENT_DYNAMIC(CMainFrame, CMDIFrameWndEx)
 
 BEGIN_MESSAGE_MAP(CMainFrame, CMDIFrameWndEx)
   ON_MESSAGE(WM_APP+0x3a0,OnInitializeWorkspaceShell)
-  ON_COMMAND_RANGE(59030,59036,OnWorkspaceShellCommand)
-  ON_UPDATE_COMMAND_UI_RANGE(59030,59036,OnUpdateWorkspaceShellCommand)
+  ON_COMMAND_RANGE(59030,59038,OnWorkspaceShellCommand)
+  ON_UPDATE_COMMAND_UI_RANGE(59030,59038,OnUpdateWorkspaceShellCommand)
   ON_COMMAND(ID_WORKSPACE_TRANSCRIPT, OnWorkspaceTranscript)
   ON_COMMAND(59005, OnWorkspaceFloatTranscript)
   ON_COMMAND(59006, OnWorkspaceRoute)
@@ -618,10 +618,15 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
   FixUpTitleBar ();
 
   m_nPauseItem =  m_wndStatusBar.CommandToIndex (ID_STATUSLINE_FREEZE);
+  workspace_appearance::StyleStatusBar(m_wndStatusBar.GetSafeHwnd());
+  // Locale DLLs can still carry historical MUSHclient icons. Load the approved
+  // application identity explicitly from this executable, not Afx's locale handle.
+  SetIcon((HICON)::LoadImage(::GetModuleHandle(NULL),MAKEINTRESOURCE(IDR_MAINFRAME),IMAGE_ICON,GetSystemMetrics(SM_CXICON),GetSystemMetrics(SM_CYICON),LR_SHARED),TRUE);
+  SetIcon((HICON)::LoadImage(::GetModuleHandle(NULL),MAKEINTRESOURCE(IDR_MAINFRAME),IMAGE_ICON,GetSystemMetrics(SM_CXSMICON),GetSystemMetrics(SM_CYSMICON),LR_SHARED),FALSE);
 
   // Tabbed Windows - if wanted
 
-  bool tabbedWorlds=true;
+  bool tabbedWorlds=false; // Tree-first workspace; keep an explicit saved tab preference.
   if(App.db && sqlite3_exec(App.db,"CREATE TABLE IF NOT EXISTS workspace_window_mode_v1(slot INTEGER PRIMARY KEY CHECK(slot=1),tabbed INTEGER NOT NULL)",NULL,NULL,NULL)==SQLITE_OK){sqlite3_stmt* query=NULL;if(sqlite3_prepare_v2(App.db,"SELECT tabbed FROM workspace_window_mode_v1 WHERE slot=1",-1,&query,NULL)==SQLITE_OK){if(sqlite3_step(query)==SQLITE_ROW)tabbedWorlds=sqlite3_column_int(query,0)!=0;sqlite3_finalize(query);}}
   SetWorkspaceTabbedWorlds(tabbedWorlds);
 
@@ -2618,7 +2623,7 @@ void CMainFrame::EnsureWorkspaceMenu()
   workspace->AppendMenu(MF_SEPARATOR);
   workspace->AppendMenu(MF_STRING,59030,"Show &Worlds and channels");
   workspace->AppendMenu(MF_STRING,59035,"Game and &character labels...");
-  workspace->AppendMenu(MF_STRING,59036,"Tabbed character workspace");
+  workspace->AppendMenu(MF_STRING,59036,"Show character document tabs");
   workspace->AppendMenu(MF_STRING,59031,"Show &classic toolbars");
   CMenu appearance;appearance.CreatePopupMenu();appearance.AppendMenu(MF_STRING,59032,"Use Windows appearance");appearance.AppendMenu(MF_STRING,59033,"Light appearance");appearance.AppendMenu(MF_STRING,59034,"Dark appearance");
   workspace->AppendMenu(MF_POPUP,(UINT_PTR)appearance.Detach(),"Appearance");
@@ -2669,6 +2674,8 @@ LRESULT CMainFrame::OnInitializeWorkspaceShell(WPARAM,LPARAM)
   if(!legacy){CMDIFrameWnd::ShowControlBar(&m_wndToolBar,FALSE,FALSE);CMDIFrameWnd::ShowControlBar(&m_wndGameToolBar,FALSE,FALSE);CMDIFrameWnd::ShowControlBar(&m_wndActivityToolBar,FALSE,FALSE);}
   else if(!visible){CMDIFrameWnd::ShowControlBar(&m_wndToolBar,m_workspaceLegacyMask&1,FALSE);CMDIFrameWnd::ShowControlBar(&m_wndGameToolBar,m_workspaceLegacyMask&2,FALSE);CMDIFrameWnd::ShowControlBar(&m_wndActivityToolBar,m_workspaceLegacyMask&4,FALSE);}
   workspace_style::SetTheme(theme==1?workspace_style::Theme::Light:theme==2?workspace_style::Theme::Dark:workspace_style::Theme::System);
+  if(App.db){sqlite3_exec(App.db,"CREATE TABLE IF NOT EXISTS workspace_accent_v1(slot INTEGER PRIMARY KEY CHECK(slot=1),accent INTEGER NOT NULL)",NULL,NULL,NULL);sqlite3_stmt* query=NULL;
+    if(sqlite3_prepare_v2(App.db,"SELECT accent FROM workspace_accent_v1 WHERE slot=1",-1,&query,NULL)==SQLITE_OK){if(sqlite3_step(query)==SQLITE_ROW)workspace_style::SetAccent(sqlite3_column_int(query,0)==1?workspace_style::Accent::Blue:workspace_style::Accent::Red);sqlite3_finalize(query);}}
   m_workspaceShellReady=true;m_workspaceShell->ShowNavigator(navigator);UpdateWorkspaceShell();return 0;
 }
 void CMainFrame::SetWorkspaceTabbedWorlds(bool enabled)
@@ -2678,7 +2685,7 @@ void CMainFrame::SetWorkspaceTabbedWorlds(bool enabled)
   CMDITabInfo tabs;tabs.m_tabLocation=CMFCTabCtrl::LOCATION_TOP;tabs.m_style=CMFCTabCtrl::STYLE_3D;
   tabs.m_bTabIcons=FALSE;tabs.m_bTabCloseButton=FALSE;tabs.m_bActiveTabCloseButton=TRUE;
   tabs.m_bEnableTabSwap=TRUE;tabs.m_bAutoColor=FALSE;tabs.m_bFlatFrame=TRUE;tabs.m_nTabBorderSize=0;tabs.m_bDocumentMenu=TRUE;
-  {WorkspaceModernResources resources;EnableMDITabbedGroups(enabled,tabs);}m_workspaceTabbedWorlds=enabled;RecalcLayout();
+  {WorkspaceModernResources resources;EnableMDITabbedGroups(enabled,tabs);}m_workspaceTabbedWorlds=enabled;if(!enabled){if(auto* child=MDIGetActive())MDIMaximize(child);}RecalcLayout();
   if(App.db){sqlite3_stmt* write=NULL;if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_window_mode_v1(slot,tabbed) VALUES(1,?)",-1,&write,NULL)==SQLITE_OK){sqlite3_bind_int(write,1,enabled?1:0);sqlite3_step(write);sqlite3_finalize(write);}}
 }
 void CMainFrame::SaveWorkspaceShell()
@@ -2687,6 +2694,7 @@ void CMainFrame::SaveWorkspaceShell()
   if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_shell_v1(slot,navigator,legacy,theme,mask) VALUES(1,?,?,?,?)",-1,&write,NULL)!=SQLITE_OK)return;
   const unsigned visible=(m_wndToolBar.IsWindowVisible()?1:0)|(m_wndGameToolBar.IsWindowVisible()?2:0)|(m_wndActivityToolBar.IsWindowVisible()?4:0);if(visible)m_workspaceLegacyMask=visible;
   sqlite3_bind_int(write,1,m_workspaceShell->NavigatorVisible());sqlite3_bind_int(write,2,visible!=0);sqlite3_bind_int(write,3,(int)workspace_style::GetTheme());sqlite3_bind_int(write,4,m_workspaceLegacyMask);sqlite3_step(write);sqlite3_finalize(write);
+  if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_accent_v1(slot,accent) VALUES(1,?)",-1,&write,NULL)==SQLITE_OK){sqlite3_bind_int(write,1,(int)workspace_style::GetAccent());sqlite3_step(write);sqlite3_finalize(write);}
 }
 void CMainFrame::UpdateWorkspaceShell()
 {
@@ -2701,16 +2709,21 @@ void CMainFrame::UpdateWorkspaceShell()
   bool found=false;
   for(POSITION pos=App.m_pWorldDocTemplate->GetFirstDocPosition();pos;){auto* doc=(CMUSHclientDoc*)App.m_pWorldDocTemplate->GetNextDoc(pos);workspace_shell::Row row;const CString identity=WorkspaceConnectionId(doc);row.world=(LPCSTR)identity;row.label=WorkspaceShellWide(doc->m_mush_name);if(row.label.empty())row.label=L"Untitled world";row.connected=doc->m_iConnectPhase==eConnectConnectedToMud;row.disconnecting=doc->m_iConnectPhase==eConnectDisconnecting;row.connecting=doc->m_iConnectPhase!=eConnectNotConnected && !row.connected && !row.disconnecting;row.logging=doc->m_logfile!=NULL;row.unread=(unsigned)max(0L,(long)doc->m_new_lines);
     WorkspaceCharacterIdentity(*this,*doc,row);
+    auto present=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layout;pane->GetLayouts(layout,false);if(!layout.empty() && layout[0].connectionId==identity)pane->SetPresentationIdentity(row.gameLabel,row.characterLabel);};
+    present(&m_workspacePane);for(auto* pane:m_workspaceSplits)present(pane);
     if(row.world==snapshot.world)found=true;for(const auto& channel:channels[identity])row.mentions+=channel.mentions;snapshot.rows.push_back(row);for(const auto& channel:channels[identity])snapshot.rows.push_back(channel);}
   if(!found){snapshot.world.clear();snapshot.name.clear();}m_workspaceShellWorld=snapshot.world.c_str();m_workspaceShellName=snapshot.name.c_str();snapshot.legacy=m_wndToolBar.IsWindowVisible() || m_wndGameToolBar.IsWindowVisible() || m_wndActivityToolBar.IsWindowVisible();m_workspaceShell->Update(snapshot);
 }
 void CMainFrame::OnWorkspaceShellCommand(UINT command)
-{WorkspaceShellAction(command==59030?workspace_shell::ToggleWorlds:command==59031?workspace_shell::Legacy:command==59033?workspace_shell::ThemeLight:command==59034?workspace_shell::ThemeDark:command==59035?workspace_shell::OrganizeCharacter:command==59036?workspace_shell::ToggleWorldTabs:workspace_shell::ThemeSystem,(LPCSTR)m_workspaceShellWorld,(LPCSTR)m_workspaceShellName);}
+{WorkspaceShellAction(command==59037?workspace_shell::AccentRed:command==59038?workspace_shell::AccentBlue:command==59030?workspace_shell::ToggleWorlds:command==59031?workspace_shell::Legacy:command==59033?workspace_shell::ThemeLight:command==59034?workspace_shell::ThemeDark:command==59035?workspace_shell::OrganizeCharacter:command==59036?workspace_shell::ToggleWorldTabs:workspace_shell::ThemeSystem,(LPCSTR)m_workspaceShellWorld,(LPCSTR)m_workspaceShellName);}
 void CMainFrame::OnUpdateWorkspaceShellCommand(CCmdUI* command)
-{command->Enable(TRUE);if(command->m_nID==59036)command->SetCheck(m_workspaceTabbedWorlds);else if(command->m_nID==59035)command->Enable(WorkspaceShellDocument((LPCSTR)m_workspaceShellWorld)!=NULL);else if(command->m_nID==59030)command->SetCheck(m_workspaceShellReady && m_workspaceShell->NavigatorVisible());else if(command->m_nID==59031)command->SetCheck(m_wndToolBar.IsWindowVisible() || m_wndGameToolBar.IsWindowVisible() || m_wndActivityToolBar.IsWindowVisible());else command->SetRadio((int)workspace_style::GetTheme()==(command->m_nID==59033?1:command->m_nID==59034?2:0));}
+{command->Enable(TRUE);if(command->m_nID==59037 || command->m_nID==59038)command->SetRadio(workspace_style::GetAccent()==(command->m_nID==59038?workspace_style::Accent::Blue:workspace_style::Accent::Red));else if(command->m_nID==59036)command->SetCheck(m_workspaceTabbedWorlds);else if(command->m_nID==59035)command->Enable(WorkspaceShellDocument((LPCSTR)m_workspaceShellWorld)!=NULL);else if(command->m_nID==59030)command->SetCheck(m_workspaceShellReady && m_workspaceShell->NavigatorVisible());else if(command->m_nID==59031)command->SetCheck(m_wndToolBar.IsWindowVisible() || m_wndGameToolBar.IsWindowVisible() || m_wndActivityToolBar.IsWindowVisible());else command->SetRadio((int)workspace_style::GetTheme()==(command->m_nID==59033?1:command->m_nID==59034?2:0));}
 void CMainFrame::WorkspaceShellAction(int action,const std::string& world,const std::string& name)
 {
   using namespace workspace_shell;
+  if(action==AccentRed || action==AccentBlue){workspace_style::SetAccent(action==AccentBlue?workspace_style::Accent::Blue:workspace_style::Accent::Red);SaveWorkspaceShell();return;}
+  if(action==Editor){if(WorkspaceShellActivate(*this,world))SendMessage(WM_COMMAND,59001);return;}
+  if(action==Review){SendMessage(WM_COMMAND,59007);return;}
   if(action==ToggleWorldTabs){SetWorkspaceTabbedWorlds(!m_workspaceTabbedWorlds);return;}
   if(action==OrganizeCharacter){auto* doc=WorkspaceShellDocument(world);if(!doc)return;Row row;row.world=world;WorkspaceCharacterIdentity(*this,*doc,row);std::wstring game=row.gameLabel,character=row.characterLabel;
     if(!ShowCharacterLabelsDialog(GetSafeHwnd(),game,character))return;
@@ -2726,9 +2739,9 @@ void CMainFrame::WorkspaceShellAction(int action,const std::string& world,const 
   if(action==ThemeSystem || action==ThemeLight || action==ThemeDark){workspace_style::SetTheme(action==ThemeLight?workspace_style::Theme::Light:action==ThemeDark?workspace_style::Theme::Dark:workspace_style::Theme::System);RecalcLayout();SaveWorkspaceShell();return;}
   if(action==Tools || action==Logging){CMenu menu;menu.CreatePopupMenu();auto* doc=WorkspaceShellDocument(world);const UINT unavailable=doc?0:MF_GRAYED;
     if(action==Logging){menu.AppendMenu(MF_STRING|unavailable,ID_FILE_LOGSESSION,doc && doc->m_logfile?"Stop logging":"Start logging...");menu.AppendMenu(MF_STRING|unavailable,59008,"Automatic filenames...");}
-    else{menu.AppendMenu(MF_STRING|unavailable,59001,"PennMUSH editor...");menu.AppendMenu(MF_STRING,59002,"Agent access...");menu.AppendMenu(MF_STRING,59003,"Agent conversations...");menu.AppendMenu(MF_STRING,59004,"Scene director...");menu.AppendMenu(MF_STRING,59007,"Agent review and captures...");menu.AppendMenu(MF_STRING|unavailable,59035,"Game and character labels...");menu.AppendMenu(MF_STRING|(m_workspaceTabbedWorlds?MF_CHECKED:0),59036,"Tabbed character workspace");menu.AppendMenu(MF_SEPARATOR);menu.AppendMenu(MF_STRING,59031,"Show classic toolbars");CMenu appearance;appearance.CreatePopupMenu();appearance.AppendMenu(MF_STRING,59032,"Use Windows appearance");appearance.AppendMenu(MF_STRING,59033,"Light appearance");appearance.AppendMenu(MF_STRING,59034,"Dark appearance");menu.AppendMenu(MF_POPUP,(UINT_PTR)appearance.Detach(),"Appearance");}
+    else{menu.AppendMenu(MF_STRING|unavailable,59001,"PennMUSH editor...");menu.AppendMenu(MF_STRING,59002,"Agent access...");menu.AppendMenu(MF_STRING,59003,"Agent conversations...");menu.AppendMenu(MF_STRING,59004,"Scene director...");menu.AppendMenu(MF_STRING,59007,"Agent review and captures...");menu.AppendMenu(MF_STRING|unavailable,59035,"Game and character labels...");menu.AppendMenu(MF_STRING|(m_workspaceTabbedWorlds?MF_CHECKED:0),59036,"Show character document tabs");menu.AppendMenu(MF_SEPARATOR);menu.AppendMenu(MF_STRING,59031,"Show classic toolbars");CMenu appearance;appearance.CreatePopupMenu();appearance.AppendMenu(MF_STRING,59032,"Use Windows appearance");appearance.AppendMenu(MF_STRING,59033,"Light appearance");appearance.AppendMenu(MF_STRING,59034,"Dark appearance");appearance.AppendMenu(MF_SEPARATOR);appearance.AppendMenu(MF_STRING|(workspace_style::GetAccent()==workspace_style::Accent::Red?MF_CHECKED:0),59037,"Valyria red accent (default)");appearance.AppendMenu(MF_STRING|(workspace_style::GetAccent()==workspace_style::Accent::Blue?MF_CHECKED:0),59038,"Blue accent");menu.AppendMenu(MF_POPUP,(UINT_PTR)appearance.Detach(),"Appearance");}
     CPoint point;GetCursorPos(&point);if(auto* focused=GetFocus()){CRect rect;focused->GetWindowRect(rect);if(m_workspaceShell->OwnsFocus())point=CPoint(rect.left,rect.bottom);}
-    const UINT command=menu.TrackPopupMenu(TPM_RETURNCMD|TPM_NONOTIFY|TPM_LEFTALIGN,point.x,point.y,this);if(!command)return;if(command==59036){WorkspaceShellAction(ToggleWorldTabs,world,name);return;}if(command==59035){WorkspaceShellAction(OrganizeCharacter,world,name);return;}if(command>=59030 && command<=59034){OnWorkspaceShellCommand(command);return;}
+    const UINT command=menu.TrackPopupMenu(TPM_RETURNCMD|TPM_NONOTIFY|TPM_LEFTALIGN,point.x,point.y,this);if(!command)return;if(command==59036){WorkspaceShellAction(ToggleWorldTabs,world,name);return;}if(command==59035){WorkspaceShellAction(OrganizeCharacter,world,name);return;}if(command>=59030 && command<=59038){OnWorkspaceShellCommand(command);return;}
     if(command==59002 || command==59003 || command==59004 || command==59007){SendMessage(WM_COMMAND,command);return;}
     if(!WorkspaceShellActivate(*this,world))return;SendMessage(WM_COMMAND,command);UpdateWorkspaceShell();return;}
   if(!WorkspaceShellActivate(*this,world)){SetStatusMessage("The selected world changed or closed; no action was taken.");UpdateWorkspaceShell();return;}
@@ -2736,6 +2749,8 @@ void CMainFrame::WorkspaceShellAction(int action,const std::string& world,const 
   m_workspaceShellWorld=world.c_str();m_workspaceShellName=name.c_str();
   CWorkspacePane* selected=NULL;size_t selectedIndex=0;auto locate=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);for(size_t i=0;i<layouts.size();++i)if(world==(LPCSTR)layouts[i].connectionId && name==(LPCSTR)layouts[i].name){selected=pane;selectedIndex=i;}};locate(&m_workspacePane);for(auto* pane:m_workspaceSplits)locate(pane);
   if(action==Select && selected){ShowControlBar(selected,TRUE,FALSE);selected->FocusTranscript(selectedIndex);}
+  else if(action==Arrange && selected){ShowControlBar(selected,TRUE,FALSE);selected->ShowPlacementMenu();}
+  else if(action==Arrange){SetStatusMessage("Choose a channel in the navigator to arrange its native pane.");}
   else if(action==Find && selected){ShowControlBar(selected,TRUE,FALSE);selected->FocusTranscript(selectedIndex);selected->FocusSearch();}
   else if(action==Find)SendMessage(WM_COMMAND,ID_DISPLAY_FIND);
   else if(action==Connect && doc->m_iConnectPhase==eConnectNotConnected)SendMessage(WM_COMMAND,ID_CONNECTION_CONNECT);

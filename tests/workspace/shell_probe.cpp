@@ -12,7 +12,11 @@ bool Inside(HWND child,HWND parent){RECT a,b;GetWindowRect(child,&a);GetClientRe
 bool Separate(HWND bar){for(int i=0;i<7;++i)for(int j=i+1;j<7;++j){RECT a,b,overlap;GetWindowRect(GetDlgItem(bar,0x7800+i),&a);GetWindowRect(GetDlgItem(bar,0x7800+j),&b);if(IntersectRect(&overlap,&a,&b))return false;}return true;}
 class ShellApp:public CWinApp {
  int result_=1;
- BOOL InitInstance(){AfxOleInit();AfxInitRichEdit2();std::ofstream out("shell-results.txt");out.setf(std::ios::unitbuf);bool ok=true;
+ BOOL InitInstance(){
+#ifdef _DEBUG
+  _CrtSetReportHook([](int type,char* message,int*)->int{if(type==_CRT_ASSERT){FILE* file=NULL;fopen_s(&file,"shell-debug-assert.txt","w");if(file){fputs(message,file);fclose(file);}ExitProcess(91);}return FALSE;});
+#endif
+  AfxOleInit();AfxInitRichEdit2();std::ofstream out("shell-results.txt");out.setf(std::ios::unitbuf);bool ok=true;
   auto* frame=new WorkspaceTestFrame;ok=frame->Create(NULL,"Native workspace shell - fictional fixture",WS_OVERLAPPEDWINDOW,CRect(80,80,1360,960))!=FALSE;m_pMainWnd=frame;frame->EnableWorkspaceDocking();
   ws::Action last=ws::Tools;std::string world,name;int actions=0;CWorkspaceShell shell;ok=shell.Create(*frame,[&](ws::Action action,const std::string& w,const std::string& n){last=action;world=w;name=n;++actions;})&&ok;
   ws::Snapshot snapshot;snapshot.world="fictional-harbor:runtime:alpha";
@@ -28,6 +32,9 @@ class ShellApp:public CWinApp {
   if(ws::ActivateOriginal(harbor.world,resolve,[&](HWND){alive=false;active=targetB;},[&](){return active;}))++wrongActions;
   ok=Check(out,"reentrant activation closure cannot use stale target or dispatch to another world",wrongActions==0)&&ok;
   HWND bar=frame->GetDlgItem(0xe7a0)->m_hWnd,nav=frame->GetDlgItem(0xe7a1)->m_hWnd,tree=::GetDlgItem(nav,0x7820);auto* nativeTree=(CTreeCtrl*)CWnd::FromHandle(tree);
+  MEASUREITEMSTRUCT gameMeasure={};gameMeasure.CtlType=ODT_LISTBOX;gameMeasure.CtlID=0x7822;
+  ::SendMessage(nav,WM_MEASUREITEM,0x7822,(LPARAM)&gameMeasure);
+  ok=Check(out,"owner-drawn game rail supplies native row measurement",gameMeasure.itemHeight==(UINT)workspace_style::Scale(nav,52))&&ok;
   ok=Check(out,"native labeled daily actions and navigator register with frame",bar && nav && tree && ::IsWindowVisible(bar) && shell.NavigatorVisible())&&ok;
   RECT client;::GetClientRect(frame->m_hWndMDIClient,&client);HWND transcript=::CreateWindowExW(0,L"RichEdit20W",L"",WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY,0,0,client.right,client.bottom-70,frame->m_hWndMDIClient,NULL,AfxGetInstanceHandle(),NULL);
   HFONT original=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,FIXED_PITCH,L"Consolas");SendMessageW(transcript,WM_SETFONT,(WPARAM)original,FALSE);SendMessageW(transcript,EM_SETBKGNDCOLOR,0,RGB(25,25,28));CHARFORMAT2W format;memset(&format,0,sizeof(format));format.cbSize=sizeof(format);format.dwMask=CFM_COLOR;format.crTextColor=RGB(226,226,230);SendMessageW(transcript,EM_SETCHARFORMAT,SCF_ALL,(LPARAM)&format);
@@ -72,6 +79,9 @@ class ShellApp:public CWinApp {
   const int beforeGroup=actions;nativeTree->SelectItem(gameRoot);ok=Check(out,"selecting cosmetic game group never dispatches a character command",actions==beforeGroup)&&ok;
   nativeTree->SelectItem(miraChat);ok=Check(out,"first character Chat retains its exact runtime target",last==ws::Select && world==harbor.world && name=="Chat")&&ok;
   nativeTree->SelectItem(rowanChat);ok=Check(out,"second same-name Chat dispatches only its own runtime target",last==ws::Select && world==ash.world && name=="Chat")&&ok;
+  const HWND rail=::GetDlgItem(nav,0x7822);::SendMessage(rail,LB_SETCURSEL,1,0);const int beforeRail=actions;
+  ::SendMessage(nav,WM_COMMAND,MAKEWPARAM(0x7822,LBN_SELCHANGE),(LPARAM)rail);
+  ok=Check(out,"game rail dispatches exact first character in newly selected game",actions==beforeRail+1 && last==ws::Select && world==watch.world && name.empty())&&ok;
   snapshot.rows[2].characterLabel=L"Rowan renamed";shell.Update(snapshot);ok=Check(out,"character rename preserves native items and runtime identity",nativeTree->GetChildItem(gameRoot)==mira && nativeTree->GetNextSiblingItem(mira)==rowan)&&ok;
   nativeTree->SelectItem(rowan);ok=Check(out,"display rename cannot change the original connection destination",world==ash.world && name.empty())&&ok;
   nativeTree->Expand(gameRoot,TVE_COLLAPSE);for(int i=0;i<100;++i){snapshot.rows[1].unread=i;shell.Update(snapshot);}ok=Check(out,"passive spawn updates keep cosmetic game group collapsed",!(nativeTree->GetItemState(gameRoot,TVIS_EXPANDED)&TVIS_EXPANDED))&&ok;

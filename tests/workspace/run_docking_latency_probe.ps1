@@ -20,7 +20,7 @@ try {
  $taskResponse=@"
 /nologo /MT /EHsc /D_WIN32_WINNT=0x0601 /DNO_HTMLHELP /DNDEBUG /DWIN32 /D_WINDOWS /DZLIB_DLL /DLUA51 /D_CRT_SECURE_NO_WARNINGS /D_CRT_NON_CONFORMING_SWPRINTFS /DNO_WARN_MBCS_MFC_DEPRECATION $taskInclude /Iluacom /Iopenssl\include
 /FeWinRel\docking-latency-$Label.exe /Fo$taskDirectory\
-tests\workspace\docking_latency_probe.cpp "$taskPane" InlineImage.cpp workspace\WorkspaceInputPolicy.cpp
+tests\workspace\docking_latency_probe.cpp "$taskPane" WorkspaceStyle.cpp InlineImage.cpp workspace\WorkspaceInputPolicy.cpp
 /link /SUBSYSTEM:WINDOWS /LTCG Shlwapi.lib
 "@
  $taskResponse+="`n"+(($taskPcreObjects|ForEach-Object {'"'+$_.FullName+'"'}) -join ' ')

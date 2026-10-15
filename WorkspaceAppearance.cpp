@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "WorkspaceAppearance.h"
 #include "WorkspaceStyle.h"
+#include "workspace/WorkspaceNativeTabs.h"
 #pragma push_macro("Translate")
 #undef Translate
 #include <afxvisualmanager.h>
@@ -8,23 +9,27 @@
 #include <afxpaneframewnd.h>
 #include <afxcaptionbutton.h>
 #include <afxtabctrl.h>
+#include <afxtabbedpane.h>
 #include <afxautohidebutton.h>
 #include <afxautohidebar.h>
 #pragma pop_macro("Translate")
 #include <commctrl.h>
 #include <string>
 
+IMPLEMENT_DYNCREATE(CValyriaChannelTabs,CMFCTabCtrl)
+
 namespace {
 namespace style = workspace_style;
 bool HighContrast() {return style::Colors().highContrast;}
 bool Dark(const style::Palette& p) {return GetRValue(p.background)<128;}
-// All dimensions originate with MFC/native controls. Painting never changes the
-// nonclient rectangle, caption hit regions, tab geometry, or docking state.
+// MFC/native controls own geometry and hit testing. The channel-tab subclass
+// and caption-height virtual establish larger real rectangles before painting.
 class CWorkspaceVisualManager : public CMFCVisualManager {
   DECLARE_DYNCREATE(CWorkspaceVisualManager)
   CBrush m_tabBackground,m_tabBorder;
   COLORREF m_background=(COLORREF)-1,m_border=(COLORREF)-1;
 public:
+  int GetDockingPaneCaptionExtraHeight() const override {return HighContrast()?0:workspace_style::Scale(NULL,12);}
   BOOL OnEraseMDIClientArea(CDC* dc,CRect rect) override {
     if(HighContrast())return CMFCVisualManager::OnEraseMDIClientArea(dc,rect);
     dc->FillSolidRect(rect,style::Colors().background);return TRUE;
@@ -180,6 +185,21 @@ LRESULT CALLBACK TabProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR i
      message==TCM_DELETEITEM || message==TCM_DELETEALLITEMS))InvalidateRect(window,NULL,FALSE);
   return result;
 }
+void PaintStatus(HWND window,HDC dc){const auto p=style::Colors(window);RECT bounds;::GetClientRect(window,&bounds);HBRUSH brush=CreateSolidBrush(p.surface);FillRect(dc,&bounds,brush);DeleteObject(brush);RECT line=bounds;line.bottom=line.top+1;brush=CreateSolidBrush(p.border);FillRect(dc,&line,brush);DeleteObject(brush);const auto old=SelectObject(dc,style::UiFont(window));SetBkMode(dc,TRANSPARENT);SetTextColor(dc,p.muted);const int count=(int)::SendMessage(window,SB_GETPARTS,0,0);for(int i=0;i<count;++i){RECT r;if(!::SendMessage(window,SB_GETRECT,i,(LPARAM)&r))continue;const LRESULT length=::SendMessageW(window,SB_GETTEXTLENGTHW,i,0);if(HIWORD(length)&SBT_OWNERDRAW){DRAWITEMSTRUCT draw={};draw.CtlType=ODT_STATIC;draw.CtlID=::GetDlgCtrlID(window);draw.itemID=i;draw.itemAction=ODA_DRAWENTIRE;draw.hwndItem=window;draw.hDC=dc;draw.rcItem=r;draw.itemData=(ULONG_PTR)::SendMessageW(window,SB_GETTEXTW,i,0);::SendMessage(::GetParent(window),WM_DRAWITEM,draw.CtlID,(LPARAM)&draw);continue;}std::vector<wchar_t> text((size_t)LOWORD(length)+1);::SendMessageW(window,SB_GETTEXTW,i,(LPARAM)text.data());r.left+=style::Scale(window,8);r.right-=style::Scale(window,5);DrawTextW(dc,text.data(),-1,&r,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX);}
+  if((GetWindowLongPtrW(window,GWL_STYLE)&SBARS_SIZEGRIP) && !::IsZoomed(::GetParent(window))){
+    RECT grip=bounds;grip.left=max(grip.left,grip.right-GetSystemMetrics(SM_CXVSCROLL));grip.top=max(grip.top,grip.bottom-GetSystemMetrics(SM_CYHSCROLL));
+    HBRUSH background=CreateSolidBrush(p.surface);FillRect(dc,&grip,background);DeleteObject(background);
+    HPEN pen=CreatePen(PS_SOLID,1,p.muted);HGDIOBJ previous=SelectObject(dc,pen);
+    for(int distance=4;distance<=12;distance+=4){MoveToEx(dc,grip.right-style::Scale(window,distance),grip.bottom-3,NULL);LineTo(dc,grip.right-3,grip.bottom-style::Scale(window,distance));}
+    SelectObject(dc,previous);DeleteObject(pen);
+  }
+  SelectObject(dc,old);
+}
+LRESULT CALLBACK StatusProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR){
+  if(!HighContrast()){if(message==WM_ERASEBKGND)return 1;if(message==WM_PAINT){PAINTSTRUCT paint;HDC dc=BeginPaint(window,&paint);PaintStatus(window,dc);EndPaint(window,&paint);return 0;}if(message==WM_PRINTCLIENT){PaintStatus(window,(HDC)wp);return 0;}}
+  if(message==WM_NCDESTROY)RemoveWindowSubclass(window,StatusProc,id);
+  const LRESULT result=DefSubclassProc(window,message,wp,lp);if(::IsWindow(window)&&(message==SB_SETTEXTA||message==SB_SETTEXTW||message==SB_SETPARTS||message==WM_THEMECHANGED))::InvalidateRect(window,NULL,FALSE);return result;
+}
 BOOL CALLBACK RefreshFrame(HWND window,LPARAM) {
   workspace_appearance::ApplyNativeFrame(window);
   ::RedrawWindow(window,NULL,NULL,RDW_INVALIDATE|RDW_FRAME|RDW_ALLCHILDREN);
@@ -205,7 +225,7 @@ void AppearanceChanged(HWND window) {
 namespace workspace_appearance {
 void Install() {
   static bool installed=false;
-  if(!installed){CMFCVisualManager::SetDefaultManager(RUNTIME_CLASS(CWorkspaceVisualManager));installed=true;}
+  if(!installed){CMFCVisualManager::SetDefaultManager(RUNTIME_CLASS(CWorkspaceVisualManager));CTabbedPane::m_pTabWndRTC=RUNTIME_CLASS(CValyriaChannelTabs);installed=true;}
   style::SetAppearanceChangedHandler(AppearanceChanged);
 }
 bool ApplyNativeFrame(HWND window) {
@@ -237,4 +257,5 @@ bool StyleTabs(HWND tabs) {
   ::SendMessageW(tabs,WM_SETFONT,(WPARAM)style::UiFont(tabs),TRUE);
   InvalidateRect(tabs,NULL,TRUE);return true;
 }
+bool StyleStatusBar(HWND status){if(!::IsWindow(status))return false;if(!SetWindowSubclass(status,StatusProc,(UINT_PTR)&StatusProc,0))return false;style::StyleControl(status);::SendMessage(status,SB_SETMINHEIGHT,style::Scale(status,27),0);::SendMessage(status,WM_SIZE,0,0);return true;}
 }
