@@ -60,6 +60,7 @@ for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md','SCRIPTED_LOGGING
 shutil.copy2(ROOT/'docs/INLINE_SPELLING.md',dest/'INLINE_SPELLING.md')
 for name in ('WINDOWS_UX_EXECUTION_2026-10-16.md', 'WINDOWS_INPUT_UX_2026-10-16.md',
              'WINDOWS_CHANNELS_UX_2026-10-16.md', 'WINDOWS_DOCKING_UX_2026-10-16.md',
+             'WINDOWS_PERFORMANCE_UX_ACCEPTANCE_2026-10-16.md',
              'CROSS_PLATFORM_AND_PROFILE_PORTABILITY.md'):
     shutil.copy2(ROOT/'docs'/name,dest/name)
 # Sources/examples for the explicitly configured external runner, never credentials.

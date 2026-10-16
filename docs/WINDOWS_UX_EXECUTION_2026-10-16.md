@@ -115,3 +115,25 @@ badges remain supported. Physical dragging/mixed-DPI, real IME and screen-reader
 acceptance, all classic preference dialogs, and sustained everyday use remain
 separate from these synthetic regressions. This is a test candidate, not a claim
 of complete cross-platform or full visual-prototype parity.
+
+## Final performance and installation gate
+
+The accepted Release executable above completed a quiet 180-second test with
+four genuinely visible/following split panes, Fixedsys input/output, 80 offered
+text lines/second, styled/Unicode traffic, public static images, mention routing
+and changing unsent spelling drafts. All 1,790 batches completed (14,114 offered
+lines), with no crash or backpressure. Completed-output p95 was 77.4 ms and
+scripted Execute/echo p95 was 4.1 ms. These are neither per-character timing nor
+physical key-to-paint measurements.
+
+All four panes had zero unread/mention badges at startup and after the image
+phase without selection or input commands. Warm-to-final private bytes rose from
+12.3 to 26.0 MiB, with a 69.5 MiB image-phase peak; final drain stayed flat.
+GDI returned to 274, USER was 312, and handles stabilized at 708. This bounded
+resource check gives no clear runaway signal; it is not a long-duration leak
+proof and does not interpret retained text/image/network caches as leaks.
+
+Exact receipts, per-phase early/late comparisons, image-receipt limitations and
+conditions are in WINDOWS_PERFORMANCE_UX_ACCEPTANCE_2026-10-16.md. Earlier runs
+with incorrect hidden-frame behavior or lost follow are diagnostic baselines,
+not final all-visible acceptance. No temporary diagnostic code remains.
