@@ -29,3 +29,11 @@ This fixture simulates native messages and checks rendered native controls. Phys
 Evidence: `C:/Users/Elio/AppData/Local/Temp/valyria-cycle-input-86541e614e8c4d31b01dbc350e89a1af/`.
 
 This isolates production routing logic with native HWND ownership and fictional targets. It does not replace full-client acceptance of actual focus callbacks or physical keyboard/mixed-DPI behavior.
+
+## Actual Release client shared-history acceptance
+
+The new `tests/workspace/shared_history_client_fixture.py` ran a copied Release client with two fresh fictional worlds and a real loopback TCP receiver, confined to a verified private desktop. It passed ten end-to-end checks through the original Main `CSendView`, document alias pipeline, actual channel input message loop, and captured wire output. Main-to-channel and channel-to-Main recall both retained the canonical command; a deliberately installed alias that would modify a re-expanded canonical command proved that recall bypassed alias expansion. Prefixes appeared once. Each pane's Down navigation restored its own draft, channel activity preserved the Main draft, and the second character did not inherit the first character's history.
+
+Evidence: `C:/Users/Elio/AppData/Local/Temp/mush-modern-acceptance-mwlw_hi9/`. Tested copied executable SHA256: `ef6b7aac5ad59cb98084506c2583d595fd5344128047dbab49a05c0dc39803a7`.
+
+These are actual-client loopback transport checks, not live Blood of Dragons or physical-keyboard acceptance. The helper only addresses HWNDs owned by its explicit disposable candidate PID after checking its private-desktop identity. It never switches desktops or injects global keyboard/mouse input.

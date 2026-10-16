@@ -50,10 +50,16 @@ if mode=='prompts':
   results.append({'choice':choice,'message':message,'default':default})
   u.SendMessageW(button,0xf5,0,0)
   wait(lambda:h not in windows())
-elif mode in ('set-channel','read-channel'):
+elif mode in ('set-channel','read-channel','channel-key'):
  label=values['label'];h=wait(lambda:next((h for h in windows() if kind(h).lower()=='edit' and u.GetDlgCtrlID(h)==2 and label in text(u.GetParent(h)) and u.GetDlgItem(u.GetParent(h),100)),None))
  if mode=='set-channel':
   content=ctypes.create_unicode_buffer(values['text']);assert u.SendMessageW(h,0xc,0,ctypes.cast(content,ctypes.c_void_p).value)
+ if mode=='channel-key':
+  key={'up':0x26,'down':0x28,'enter':0x0d}[values['key']]
+  u.PostMessageW.argtypes=[w.HWND,w.UINT,w.WPARAM,w.LPARAM]
+  assert u.PostMessageW(h,0x100,key,1)
+  if 'expected' in values:wait(lambda:text(h)==values['expected'])
+  else:time.sleep(.3)
  results.append({'label':label,'text':text(h),'hwnd':int(h)})
 else:raise AssertionError(mode)
 output.write_text(json.dumps({'desktop':name.value,'candidate_pid':pid,'mode':mode,'results':results},indent=2),encoding='utf-8')
