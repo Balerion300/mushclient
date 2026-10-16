@@ -333,7 +333,7 @@ protected:
     patternLabel.Create("Incoming label or text to match",
                         WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     prefixLabel.Create(
-        "Reply prefix (include a trailing space or = when needed)",
+        "Reply prefix (bare commands add a space)",
         WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     destination.Create("Original world", WS_CHILD | WS_VISIBLE,
                        CRect(0, 0, 1, 1), this);
