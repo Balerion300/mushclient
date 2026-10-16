@@ -21,3 +21,11 @@ The fixture passed exact-target Add channel and badge mouse-message checks, pres
 ## Remaining boundaries
 
 This fixture simulates native messages and checks rendered native controls. Physical mixed-DPI dragging, screen-reader behavior, and live game traffic require separate acceptance. Arbitrary RGB channel label and Main-line highlighting and notification sound selection are not added by this change; no ANSI rendering behavior is changed. Root integration owns atomic persistence of channel-wide Main routing toggles.
+
+## Independent keyboard routing acceptance
+
+`tests/workspace/build_cycle_input_probe.ps1` extracts the exact production `CMainFrame::CycleWorkspaceInput` body into a fictional native-control fixture. It does not change the physical keyboard state or send game input. The fixture ran on a verified private desktop and passed 13 checks: borrowed/reparented input context; runtime-character isolation; forward, backward, and wrap-to-Main navigation; Alt+Page shortcuts; AltGr pass-through; held-key and IME guards; disabled-owner/modal guard; search-field exclusion; hidden-pane exclusion; original Main input overriding legacy world cycling when channels exist; and legacy fallback when they do not.
+
+Evidence: `C:/Users/Elio/AppData/Local/Temp/valyria-cycle-input-86541e614e8c4d31b01dbc350e89a1af/`.
+
+This isolates production routing logic with native HWND ownership and fictional targets. It does not replace full-client acceptance of actual focus callbacks or physical keyboard/mixed-DPI behavior.
