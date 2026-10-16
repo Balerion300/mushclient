@@ -11,6 +11,7 @@
 #include "mainfrm.h"
 #include "WorkspaceIntegration.h"
 #include "WorkspaceTools.h"
+#include "WorkspaceRouteManager.h"
 #include "WorkspaceResources.h"
 #include "workspace/WorkspaceDockLayout.h"
 #include "workspace/WorkspaceShell.h"
@@ -599,7 +600,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
   if (!m_workspacePane.Create(this)) return -1;
   m_workspacePane.EnableDocking(CBRS_ALIGN_ANY);
   m_workspacePane.SetActionHandler(ActivateWorkspaceAction);
-  m_workspacePane.SetInputHandler(WorkspaceSendHumanInput);
+  m_workspacePane.SetInputHandler(WorkspaceSendHumanInput);m_workspacePane.SetFullInputHandler(WorkspaceSendFullHumanInput);
   m_workspacePane.SetSharedInputHandler(WorkspaceSelectSharedInput);
   m_workspacePane.SetAppearanceHandler(WorkspaceWorldAppearance);
   m_workspacePane.SetSpellingContextProvider(workspace_spell::ForConnection);
@@ -1169,6 +1170,7 @@ void CMainFrame::FixUpTitleBar (void)
 BOOL CMainFrame::PreTranslateMessage(MSG* pMsg) 
 {
   if(workspace_composer::BorrowedEditors().count(pMsg->hwnd) && workspace_composer::CompositionActive(pMsg->hwnd))return FALSE;
+  if(CycleWorkspaceInput(pMsg))return TRUE;
   if(workspace_composer::PreTranslateInput(pMsg))return TRUE;
   if(HandleWorkspaceShortcut(pMsg))return TRUE;
   if(m_workspaceShell && m_workspaceShell->PreTranslate(pMsg))return TRUE;
@@ -2727,8 +2729,11 @@ void CMainFrame::UpdateWorkspaceShell()
   if(!m_workspaceShellReady || !App.m_pWorldDocTemplate)return;workspace_shell::Snapshot snapshot;
   snapshot.world=(LPCSTR)m_workspaceShellWorld;snapshot.name=(LPCSTR)m_workspaceShellName;
   HWND focus=::GetFocus();const bool retain=m_workspaceShell->OwnsFocus();std::map<CString,std::vector<workspace_shell::Row>> channels;
-  bool paneFocused=false;auto inspect=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);for(const auto& layout:layouts){workspace_shell::Row row;row.world=(LPCSTR)layout.connectionId;row.name=(LPCSTR)layout.name;row.label=layout.name=="Output"?L"Main transcript":WorkspaceShellWide(layout.name,true);row.channel=true;row.priority=WorkspaceTranscriptPreferences(layout.connectionId,layout.name).priority;row.unread=pane->UnreadCount(layout.connectionId,layout.name);row.mentions=pane->MentionCount(layout.connectionId,layout.name);channels[layout.connectionId].push_back(row);
-    if(!retain && (focus==pane->GetSafeHwnd() || ::IsChild(pane->GetSafeHwnd(),focus) || (workspace_composer::BorrowedEditors().count(pane->SharedInputWindow()) && focus==pane->SharedInputWindow()))){snapshot.world=row.world;snapshot.name=row.name;paneFocused=true;}}};
+  bool paneFocused=false;auto inspect=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);for(const auto& layout:layouts){workspace_shell::Row row;row.world=(LPCSTR)layout.connectionId;row.name=(LPCSTR)layout.name;row.label=layout.name=="Output"?L"Main transcript":WorkspaceShellWide(layout.name,true);row.channel=true;
+    bool mirrored=false,separate=false;for(const auto& route:m_workspaceRoutes)if(route.connectionId==layout.connectionId && route.transcriptName==layout.name){if(route.omitFromMain)separate=true;else mirrored=true;}
+    row.mainRouting=mirrored?(separate?3:1):(separate?2:0);row.priority=WorkspaceTranscriptPreferences(layout.connectionId,layout.name).priority;row.unread=pane->UnreadCount(layout.connectionId,layout.name);row.mentions=pane->MentionCount(layout.connectionId,layout.name);channels[layout.connectionId].push_back(row);
+    CString selectedId,selectedName;const bool selectedRow=pane->SharedInputIdentity(selectedId,selectedName) && selectedId==layout.connectionId && selectedName==layout.name;
+    if(!retain && selectedRow && (focus==pane->GetSafeHwnd() || ::IsChild(pane->GetSafeHwnd(),focus) || (workspace_composer::BorrowedEditors().count(pane->SharedInputWindow()) && focus==pane->SharedInputWindow()))){snapshot.world=row.world;snapshot.name=row.name;paneFocused=true;}}};
   inspect(&m_workspacePane);for(auto* pane:m_workspaceSplits)inspect(pane);
   for(auto& group:channels)std::stable_sort(group.second.begin(),group.second.end(),[](const workspace_shell::Row& a,const workspace_shell::Row& b){if(a.priority!=b.priority)return a.priority>b.priority;if(a.label!=b.label)return a.label<b.label;return a.name<b.name;});
   if(!retain && !paneFocused){auto* child=MDIGetActive();auto* doc=child?DYNAMIC_DOWNCAST(CMUSHclientDoc,child->GetActiveDocument()):NULL;if(doc){snapshot.world=(LPCSTR)WorkspaceConnectionId(doc);snapshot.name.clear();}}
@@ -2741,6 +2746,30 @@ void CMainFrame::UpdateWorkspaceShell()
     if(row.world==snapshot.world)found=true;for(const auto& channel:channels[identity])row.mentions+=channel.mentions;snapshot.rows.push_back(row);for(const auto& channel:channels[identity])snapshot.rows.push_back(channel);}
   if(!found){snapshot.world.clear();snapshot.name.clear();}m_workspaceShellWorld=snapshot.world.c_str();m_workspaceShellName=snapshot.name.c_str();snapshot.legacy=m_wndToolBar.IsWindowVisible() || m_wndGameToolBar.IsWindowVisible() || m_wndActivityToolBar.IsWindowVisible();m_workspaceShell->Update(snapshot);
 }
+bool CMainFrame::CycleWorkspaceInput(MSG* message)
+{
+  if(!message || !::IsWindowEnabled(GetSafeHwnd()) || (message->message!=WM_KEYDOWN && message->message!=WM_SYSKEYDOWN) || (message->lParam&(1L<<30)))return false;
+  const bool control=(GetKeyState(VK_CONTROL)&0x8000)!=0,alt=(GetKeyState(VK_MENU)&0x8000)!=0,shift=(GetKeyState(VK_SHIFT)&0x8000)!=0;
+  const bool tab=control&&!alt&&message->wParam==VK_TAB;
+  const bool page=alt&&!control&&!shift&&(message->wParam==VK_PRIOR || message->wParam==VK_NEXT);
+  if(!tab&&!page)return false;
+  CString id,name;bool context=false;HWND focus=message->hwnd;
+  auto inspect=[&](CWorkspacePane* pane){if(focus==pane->GetSafeHwnd() || focus==pane->SharedInputWindow() || ::IsChild(pane->GetSafeHwnd(),focus)){
+    // Search fields and other tools keep their normal editing shortcuts.
+    char type[32]={};::GetClassNameA(focus,type,31);if(_stricmp(type,"Edit")==0 && focus!=pane->SharedInputWindow())return;
+    if(pane->SharedInputIdentity(id,name))context=true;}};
+  inspect(&m_workspacePane);for(auto* pane:m_workspaceSplits)inspect(pane);
+  if(!context){auto* view=DYNAMIC_DOWNCAST(CView,CWnd::FromHandlePermanent(focus));auto* doc=view?DYNAMIC_DOWNCAST(CMUSHclientDoc,view->GetDocument()):NULL;
+    if(doc && (view->IsKindOf(RUNTIME_CLASS(CSendView)) || view->IsKindOf(RUNTIME_CLASS(CMUSHView)))){id=WorkspaceConnectionId(doc);context=true;}}
+  if(!context || workspace_composer::CompositionActive(focus))return false;
+  std::vector<CString> channels(1,CString());
+  auto collect=[&](CWorkspacePane* pane){if(!pane->IsWindowVisible())return;std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);
+    for(const auto& layout:layouts)if(layout.connectionId==id && std::find(channels.begin(),channels.end(),layout.name)==channels.end())channels.push_back(layout.name);};
+  collect(&m_workspacePane);for(auto* pane:m_workspaceSplits)collect(pane);
+  if(channels.size()<2)return false;auto found=std::find(channels.begin(),channels.end(),name);size_t index=found==channels.end()?0:found-channels.begin();
+  const bool previous=tab?shift:message->wParam==VK_PRIOR;index=(index+channels.size()+(previous?-1:1))%channels.size();
+  WorkspaceShellAction(workspace_shell::Select,(LPCSTR)id,(LPCSTR)channels[index]);return true;
+}
 void CMainFrame::OnWorkspaceShellCommand(UINT command)
 {if(command==59039){WorkspaceShellAction(workspace_shell::Dictionaries,(LPCSTR)m_workspaceShellWorld,"");return;}WorkspaceShellAction(command==59037?workspace_shell::AccentRed:command==59038?workspace_shell::AccentBlue:command==59030?workspace_shell::ToggleWorlds:command==59031?workspace_shell::Legacy:command==59033?workspace_shell::ThemeLight:command==59034?workspace_shell::ThemeDark:command==59035?workspace_shell::OrganizeCharacter:command==59036?workspace_shell::ToggleWorldTabs:workspace_shell::ThemeSystem,(LPCSTR)m_workspaceShellWorld,(LPCSTR)m_workspaceShellName);}
 void CMainFrame::OnUpdateWorkspaceShellCommand(CCmdUI* command)
@@ -2749,6 +2778,7 @@ void CMainFrame::WorkspaceShellAction(int action,const std::string& world,const 
 {
   using namespace workspace_shell;
   if(action==AccentRed || action==AccentBlue){workspace_style::SetAccent(action==AccentBlue?workspace_style::Accent::Blue:workspace_style::Accent::Red);SaveWorkspaceShell();return;}
+  if(action==ToggleChannelMain){if(!WorkspaceShellDocument(world))return;CString error;if(!ToggleWorkspaceChannelMain(world.c_str(),name.c_str(),error))AfxMessageBox(error);UpdateWorkspaceShell();return;}
   if(action==Editor){if(WorkspaceShellActivate(*this,world))SendMessage(WM_COMMAND,59001);return;}
   if(action==Review){SendMessage(WM_COMMAND,59007);return;}
   if(action==ToggleWorldTabs){SetWorkspaceTabbedWorlds(!m_workspaceTabbedWorlds);return;}
@@ -2781,13 +2811,15 @@ void CMainFrame::WorkspaceShellAction(int action,const std::string& world,const 
   CWorkspacePane* selected=NULL;size_t selectedIndex=0;auto locate=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);for(size_t i=0;i<layouts.size();++i)if(world==(LPCSTR)layouts[i].connectionId && name==(LPCSTR)layouts[i].name){selected=pane;selectedIndex=i;}};locate(&m_workspacePane);for(auto* pane:m_workspaceSplits)locate(pane);
   if(action==Select && !selected){auto* child=DYNAMIC_DOWNCAST(CChildFrame,MDIGetActive());if(child){child->m_wndSplitter.ReleaseChannelEditor();::SetFocus(child->m_wndSplitter.CurrentInput());}}
   if(action==Select && selected){ShowControlBar(selected,TRUE,FALSE);selected->FocusTranscript(selectedIndex);}
-  else if(action==Arrange && selected){ShowControlBar(selected,TRUE,FALSE);selected->ShowPlacementMenu();}
+  else if(action==Arrange && selected){ShowControlBar(selected,TRUE,FALSE);selected->FocusTranscript(selectedIndex);selected->ShowPlacementMenu();}
   else if(action==Arrange){SetStatusMessage("Choose a channel in the navigator to arrange its native pane.");}
   else if(action==Find && selected){ShowControlBar(selected,TRUE,FALSE);selected->FocusTranscript(selectedIndex);selected->FocusSearch();}
   else if(action==Find)SendMessage(WM_COMMAND,ID_DISPLAY_FIND);
   else if(action==Connect && doc->m_iConnectPhase==eConnectNotConnected)SendMessage(WM_COMMAND,ID_CONNECTION_CONNECT);
   else if(action==Disconnect && doc->m_iConnectPhase!=eConnectNotConnected && doc->m_iConnectPhase!=eConnectDisconnecting)SendMessage(WM_COMMAND,ID_CONNECTION_DISCONNECT);
-  else if(action==Channels)SendMessage(WM_COMMAND,59006);
+  else if(action==AddChannel)OpenWorkspaceRouteManager(this,world.c_str(),"",true);
+  else if(action==ChannelSettings)OpenWorkspaceRouteManager(this,world.c_str(),name.c_str(),false);
+  else if(action==Channels)OpenWorkspaceRouteManager(this,world.c_str(),name.c_str(),false);
   UpdateWorkspaceShell();
 }
 
@@ -2888,7 +2920,7 @@ bool CMainFrame::OpenWorkspaceTranscript(const CString& connectionId, const CStr
     if(target==&m_workspacePane && m_workspaceSplits.size()<128)
       { CWorkspacePane* extra=new CWorkspacePane;
         if(extra->Create(this,(UINT)(0xE900+m_workspaceSplits.size())))
-          {extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceSendHumanInput);extra->SetSharedInputHandler(WorkspaceSelectSharedInput);extra->SetPruneHandler(WorkspacePanePruned);extra->SetConnectionHandler(WorkspaceIsConnectionLive);extra->SetInputErrorHandler(WorkspaceHumanInputError);
+          {extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceSendHumanInput);extra->SetFullInputHandler(WorkspaceSendFullHumanInput);extra->SetSharedInputHandler(WorkspaceSelectSharedInput);extra->SetPruneHandler(WorkspacePanePruned);extra->SetConnectionHandler(WorkspaceIsConnectionLive);extra->SetInputErrorHandler(WorkspaceHumanInputError);
             extra->SetAppearanceHandler(WorkspaceWorldAppearance);extra->SetSpellingContextProvider(workspace_spell::ForConnection);m_workspaceSplits.push_back(extra);target=extra; }
         else delete extra; }
     }
@@ -3431,6 +3463,22 @@ bool CMainFrame::SaveWorkspaceRoute(const WorkspaceRoute* original,const Workspa
   m_workspaceRoutes.push_back(route);m_workspacePane.SetInputPrefix(route.connectionId,route.transcriptName,prefix);
   for(auto* pane:m_workspaceSplits)pane->SetInputPrefix(route.connectionId,route.transcriptName,prefix);
   return true;
+}
+bool CMainFrame::ToggleWorkspaceChannelMain(const CString& id,const CString& name,CString& error)
+{
+  bool found=false,allMirrored=true;
+  for(const auto& route:m_workspaceRoutes)if(route.connectionId==id && route.transcriptName==name){found=true;if(route.omitFromMain)allMirrored=false;}
+  if(!found){error="Add an incoming routing rule before changing whether this channel also appears in Main.";return false;}
+  if(!WorkspaceLayoutSchema()){error="Channel settings storage is unavailable.";return false;}
+  workspace_settings::Save save(App.db);if(!save.Ready()){error="Channel settings could not be saved.";return false;}
+  sqlite3_stmt* statement=NULL;
+  if(sqlite3_prepare_v2(App.db,"UPDATE workspace_route_v1 SET omit_main=? WHERE world_id=? AND name=?",-1,&statement,NULL)!=SQLITE_OK){error="Channel settings could not be saved.";return false;}
+  const CString persistent=WorkspacePersistentWorld(id);
+  sqlite3_bind_int(statement,1,allMirrored);sqlite3_bind_text(statement,2,persistent,-1,SQLITE_TRANSIENT);sqlite3_bind_text(statement,3,name,-1,SQLITE_TRANSIENT);
+  const int result=sqlite3_step(statement);sqlite3_finalize(statement);
+  if(result!=SQLITE_DONE || sqlite3_changes(App.db)==0 || !save.Commit()){error="Channel settings could not be saved. Previous routing remains active.";return false;}
+  for(auto& route:m_workspaceRoutes)if(route.connectionId==id && route.transcriptName==name)route.omitFromMain=allMirrored;
+  ClearWorkspaceImageAssociation(id);return true;
 }
 std::wstring CMainFrame::WorkspaceInputPrefix(const CString& id,const CString& name) const
 {

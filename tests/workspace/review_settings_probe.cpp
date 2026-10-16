@@ -24,6 +24,7 @@ public:
  void LoadWorkspaceDockState(){}int WorkspaceDockEntries(){return 0;}void SetStatusMessage(const char*){}void ClearWorkspaceImageAssociation(const CString&){}
  bool OpenWorkspaceTranscript(const CString&,const CString&){return true;}
  bool SaveWorkspaceRoute(const WorkspaceRoute*,const WorkspaceRoute&,const std::wstring&,CString&);
+ bool ToggleWorkspaceChannelMain(const CString&,const CString&,CString&);
  void SaveWorkspaceLayouts();
 };
 #include "review-settings-production.inc"
@@ -40,6 +41,14 @@ int main(){std::ofstream out("review-settings-results.txt");out.setf(std::ios::u
  check("late old-rule deletion failure rolls back replacement and prefix",!frame.SaveWorkspaceRoute(&original,changed,L"+after ",error)&&Read("SELECT pattern FROM workspace_route_v1")=="before"&&Read("SELECT prefix FROM workspace_input_prefix_v1")=="+before ");
  sqlite3_exec(App.db,"DROP TRIGGER reject_delete",NULL,NULL,NULL);
  check("successful replacement atomically switches persisted and live settings",frame.SaveWorkspaceRoute(&original,changed,L"+after ",error)&&Read("SELECT pattern FROM workspace_route_v1")=="after"&&Read("SELECT prefix FROM workspace_input_prefix_v1")=="+after "&&frame.m_workspaceRoutes.size()==1&&frame.m_workspaceRoutes[0].pattern==L"after"&&frame.m_workspacePane.prefixes[{CString("fictional"),CString("Chat")}]==L"+after ");
+ WorkspaceRoute second=changed;second.pattern=L"second";second.omitFromMain=false;
+ check("second channel rule creates mixed routing",frame.SaveWorkspaceRoute(NULL,second,L"+after ",error));
+ check("mixed channel toggle mirrors every matching rule",frame.ToggleWorkspaceChannelMain("fictional","Chat",error)&&Read("SELECT count(*) FROM workspace_route_v1 WHERE omit_main<>0")=="0" && std::all_of(frame.m_workspaceRoutes.begin(),frame.m_workspaceRoutes.end(),[](const WorkspaceRoute& r){return !r.omitFromMain;}));
+ sqlite3_exec(App.db,"CREATE TRIGGER reject_toggle BEFORE UPDATE ON workspace_route_v1 BEGIN SELECT RAISE(ABORT,'fixture toggle failure'); END",NULL,NULL,NULL);
+ check("toggle failure keeps saved and live routing unchanged",!frame.ToggleWorkspaceChannelMain("fictional","Chat",error)&&Read("SELECT count(*) FROM workspace_route_v1 WHERE omit_main<>0")=="0" && !frame.m_workspaceRoutes[0].omitFromMain);
+ sqlite3_exec(App.db,"DROP TRIGGER reject_toggle",NULL,NULL,NULL);
+ check("mirrored channel toggle separates all rules",frame.ToggleWorkspaceChannelMain("fictional","Chat",error)&&Read("SELECT count(*) FROM workspace_route_v1 WHERE omit_main=1")=="2" && frame.m_workspaceRoutes[0].omitFromMain && frame.m_workspaceRoutes[1].omitFromMain);
+ check("missing channel cannot toggle unrelated routes",!frame.ToggleWorkspaceChannelMain("fictional","Missing",error)&&Read("SELECT count(*) FROM workspace_route_v1 WHERE omit_main=1")=="2");
  WorkspacePaneLayout layout;layout.connectionId="fictional";layout.name="Chat";layout.width=400;layout.height=300;frame.m_workspacePane.layouts.push_back(layout);frame.SaveWorkspaceLayouts();
  check("complete initial layout saves without error feedback",feedback==0&&Read("SELECT data FROM workspace_dock_forest_v3")=="original-forest"&&Read("SELECT width FROM workspace_pane_layout_v1")=="400");
  frame.session.forest="changed-forest";frame.m_workspacePane.layouts[0].width=900;
