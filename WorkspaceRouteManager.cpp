@@ -89,7 +89,7 @@ INT_PTR CALLBACK SpawnOptionsProc(HWND dialog,UINT message,WPARAM wp,LPARAM lp)
   auto* options=(SpawnOptions*)GetWindowLongPtrW(dialog,DWLP_USER);
   if(message==WM_INITDIALOG){
     options=(SpawnOptions*)lp;SetWindowLongPtrW(dialog,DWLP_USER,lp);
-    SetWindowTextW(dialog,(L"Transcript options: "+RouteWide(options->name)).c_str());
+    SetWindowTextW(dialog,(L"Channel options: "+RouteWide(options->name)).c_str());
     auto label=[&](const wchar_t* text,int x,int y,int width,int height){OptionControl(dialog,L"STATIC",text,SS_LEFT,-1,x,y,width,height);};
     label(L"Mention text (optional, literal, case-insensitive)",10,10,280,12);
     HWND mention=OptionControl(dialog,L"EDIT",options->preferences.mention.c_str(),WS_TABSTOP|ES_AUTOHSCROLL,101,10,25,280,16);::SendMessageW(mention,EM_SETLIMITTEXT,128,0);
@@ -133,11 +133,11 @@ INT_PTR CALLBACK SpawnOptionsProc(HWND dialog,UINT message,WPARAM wp,LPARAM lp)
       auto preferences=options->preferences;preferences.mention=Read(GetDlgItem(dialog,101),128);
       preferences.appearanceOverride=IsDlgButtonChecked(dialog,105)!=BST_CHECKED;
       auto priority=Read(GetDlgItem(dialog,102),4);wchar_t* end=NULL;long number=wcstol(priority.c_str(),&end,10);
-      if(priority.empty() || !end || *end || number < -100 || number>100){MessageBoxW(dialog,L"Choose a priority from -100 to 100.",L"Transcript options",MB_ICONWARNING);return TRUE;}
+      if(priority.empty() || !end || *end || number < -100 || number>100){MessageBoxW(dialog,L"Choose a priority from -100 to 100.",L"Channel options",MB_ICONWARNING);return TRUE;}
       preferences.priority=(int)number;preferences.shortcut=(unsigned short)SendDlgItemMessageW(dialog,103,HKM_GETHOTKEY,0,0);
-      CString error;if(!options->frame->SetWorkspaceTranscriptPreferences(options->identity,options->name,preferences,error)){MessageBoxW(dialog,RouteWide(error).c_str(),L"Transcript options",MB_ICONWARNING);return TRUE;}
+      CString error;if(!options->frame->SetWorkspaceTranscriptPreferences(options->identity,options->name,preferences,error)){MessageBoxW(dialog,RouteWide(error).c_str(),L"Channel options",MB_ICONWARNING);return TRUE;}
       options->preferences=preferences;EndDialog(dialog,IDOK);
-    }catch(const std::exception& error){MessageBoxW(dialog,RouteWide(error.what()).c_str(),L"Transcript options",MB_ICONWARNING);}
+    }catch(const std::exception& error){MessageBoxW(dialog,RouteWide(error.what()).c_str(),L"Channel options",MB_ICONWARNING);}
     return TRUE;
   }
   return FALSE;
@@ -148,7 +148,7 @@ void ShowSpawnOptions(HWND owner,SpawnOptions& options)
   auto* dialog=(DLGTEMPLATE*)bytes.data();dialog->style=WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_SETFONT;dialog->cx=300;dialog->cy=290;
   auto append=[&](const void* value,size_t size){const auto* begin=(const unsigned char*)value;bytes.insert(bytes.end(),begin,begin+size);};
   WORD zero=0,fontSize=9;append(&zero,sizeof(zero));append(&zero,sizeof(zero));
-  const wchar_t title[]=L"Transcript options";append(title,sizeof(title));append(&fontSize,sizeof(fontSize));const wchar_t face[]=L"Segoe UI";append(face,sizeof(face));
+  const wchar_t title[]=L"Channel options";append(title,sizeof(title));append(&fontSize,sizeof(fontSize));const wchar_t face[]=L"Segoe UI";append(face,sizeof(face));
   DialogBoxIndirectParamW(AfxGetInstanceHandle(),(DLGTEMPLATE*)bytes.data(),owner,SpawnOptionsProc,(LPARAM)&options);
 }
 } // namespace
@@ -243,13 +243,13 @@ class CWorkspaceRouteDialog : public CWnd {
         std::wstring label =
             RouteWide((LPCTSTR)route.transcriptName) + L" | priority "+std::to_wstring(frame->WorkspaceTranscriptPreferences(identity,route.transcriptName).priority)+L" | " +
             (route.regex ? L"regex: " : L"literal: ") + route.pattern +
-            (route.omitFromMain ? L" | hidden from Main" : L" | copied from Main")+(route.followingImages?L" | following images":L"");
+            (route.omitFromMain ? L" | Separate" : L" | +Main")+(route.followingImages?L" | following images":L"");
         ::SendMessageW(routes.m_hWnd, LB_ADDSTRING, 0, (LPARAM)label.c_str());
       }
     editing = -1;
     removeRoute.EnableWindow(FALSE);
     optionsButton.EnableWindow(FALSE);
-    save.SetWindowText("Create route");
+    save.SetWindowText("Add channel");
     Destination();
   }
 
@@ -260,10 +260,17 @@ public:
     return CreateEx(WS_EX_DLGMODALFRAME,
                     AfxRegisterWndClass(0, LoadCursor(NULL, IDC_ARROW),
                                         (HBRUSH)(COLOR_BTNFACE + 1)),
-                    "Local output channels",
+                    "Channel settings",
                     WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME |
                         WS_MINIMIZEBOX | WS_VSCROLL,
                     CRect(200, 100, 860, 800), frame, 0);
+  }
+  void ChooseChannel(const CString& channelName, bool addChannel) {
+    if(addChannel){OnNew();return;}
+    if(channelName.IsEmpty())return;
+    for(size_t i=0;i<visibleRoutes.size();++i)if(visibleRoutes[i].transcriptName==channelName){routes.SetCurSel((int)i);OnSelect();return;}
+    OnNew();::SetWindowTextW(name.m_hWnd,RouteWide(channelName).c_str());
+    Feedback(L"This channel has no incoming routing rule. Choose the received text to match before saving.");
   }
   virtual void PostNcDestroy() { delete this; }
   virtual BOOL PreTranslateMessage(MSG *message) {
@@ -308,20 +315,20 @@ protected:
                                   AfxGetInstanceHandle(), NULL);
     if (!list || !routes.Attach(list))
       return -1;
-    newRoute.Create("New", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+    newRoute.Create("Add custom channel", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                     CRect(0, 0, 1, 1), this, 8);
     removeRoute.Create("Delete",
                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                        CRect(0, 0, 1, 1), this, 9);
-    channelExample.Create("Channel",
+    channelExample.Create("Channel example",
                           WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                           CRect(0, 0, 1, 1), this, 11);
-    tellExample.Create("Tell",
+    tellExample.Create("Pages example",
                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                        CRect(0, 0, 1, 1), this, 12);
-    optionsButton.Create("Options...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,13);
+    optionsButton.Create("Appearance / alerts...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,13);
     advancedButton.Create("Advanced routing",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,15);
-    nameLabel.Create("Transcript name", WS_CHILD | WS_VISIBLE,
+    nameLabel.Create("Channel name (local label)", WS_CHILD | WS_VISIBLE,
                      CRect(0, 0, 1, 1), this);
     patternLabel.Create("Incoming label or text to match",
                         WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
@@ -330,9 +337,9 @@ protected:
         WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     destination.Create("Original world", WS_CHILD | WS_VISIBLE,
                        CRect(0, 0, 1, 1), this);
-    hint.Create("Filters received text locally; it does not join game channels. A blank reply prefix sends complete commands.",
+    hint.Create("Main is the game transcript. Channels filter received text into local panes; they do not join game channels. +Main keeps a copy in Main; Separate hides future matches there.",
                 WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
-    feedback.Create("Choose a channel or tell example, or select a saved rule. Select a rule to enable Options and Delete.",
+    feedback.Create("Add a custom channel, try an example, or select a saved rule to edit its routing and appearance.",
                     WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     CEdit *edits[] = {&name, &pattern, &prefix};
     int ids[] = {1, 2, 10};
@@ -358,7 +365,7 @@ protected:
                     BS_MULTILINE,
                 CRect(0, 0, 1, 1), this, 4);
     followingImages.Create("Include up to 4 immediately following server images (within 2 seconds)",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX|BS_MULTILINE,CRect(0,0,1,1),this,14);
-    save.Create("Create route",
+    save.Create("Add channel",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
                 CRect(0, 0, 1, 1), this, 5);
     cancel.Create("Close", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
@@ -427,21 +434,20 @@ protected:
     removeRoute.EnableWindow(TRUE);
     save.SetWindowText("Save changes");
     Feedback(L"Editing the selected rule. The prefix applies to this entire "
-             L"named transcript.");
+             L"named channel.");
   }
   afx_msg void OnNew() {
     editing = -1;
     routes.SetCurSel(-1);
-    ::SetWindowTextW(name.m_hWnd, L"Tells");
+    ::SetWindowTextW(name.m_hWnd, L"");
     ::SetWindowTextW(pattern.m_hWnd, L"");
     ::SetWindowTextW(prefix.m_hWnd, L"");
     regex.SetCheck(BST_UNCHECKED);
     omit.SetCheck(BST_UNCHECKED);
     followingImages.SetCheck(BST_UNCHECKED);optionsButton.EnableWindow(FALSE);
     removeRoute.EnableWindow(FALSE);
-    save.SetWindowText("Create route");
-    Feedback(L"New rule: choose received text to match and an optional "
-             L"outgoing prefix.");
+    save.SetWindowText("Add channel");
+    Feedback(L"New custom channel: give it a name, choose received text to match, and optionally set an outgoing prefix.");
     name.SetFocus();
   }
   afx_msg void OnChannel() {
@@ -586,10 +592,11 @@ ON_BN_CLICKED(13, OnOptions)
 ON_BN_CLICKED(15, OnAdvanced)
 ON_LBN_SELCHANGE(7, OnSelect)
 END_MESSAGE_MAP()
-void OpenWorkspaceRouteManager(CMainFrame *frame, const CString &identity) {
+void OpenWorkspaceRouteManager(CMainFrame *frame, const CString &identity, const CString &channelName, bool addChannel) {
   CWorkspaceRouteDialog *dialog = new CWorkspaceRouteDialog(frame, identity);
   if (!dialog->Open())
     return;
+  dialog->ChooseChannel(channelName, addChannel);
   dialog->ShowWindow(SW_SHOW);
   workspace_style::FitToWorkArea(dialog->GetSafeHwnd(),400,420);
   dialog->SetForegroundWindow();

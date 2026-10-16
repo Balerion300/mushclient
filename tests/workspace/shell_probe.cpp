@@ -21,7 +21,7 @@ class ShellApp:public CWinApp {
   ws::Action last=ws::Tools;std::string world,name;int actions=0;CWorkspaceShell shell;ok=shell.Create(*frame,[&](ws::Action action,const std::string& w,const std::string& n){last=action;world=w;name=n;++actions;})&&ok;
   ws::Snapshot snapshot;snapshot.world="fictional-harbor:runtime:alpha";
   ws::Row harbor;harbor.world=snapshot.world;harbor.label=L"Silver Harbor";harbor.connected=true;harbor.logging=true;harbor.unread=12;snapshot.rows.push_back(harbor);
-  ws::Row chat;chat.world=harbor.world;chat.name="Chat";chat.label=L"Chat";chat.channel=true;chat.unread=12;chat.mentions=2;snapshot.rows.push_back(chat);
+  ws::Row chat;chat.world=harbor.world;chat.name="Chat";chat.label=L"Chat";chat.channel=true;chat.unread=12;chat.mentions=2;chat.mainRouting=2;snapshot.rows.push_back(chat);
   chat.name="Tells";chat.label=L"Tells";chat.unread=3;chat.mentions=0;snapshot.rows.push_back(chat);
   ws::Row ash;ash.world="fictional-ash:runtime:beta";ash.label=L"Ash Hill";snapshot.rows.push_back(ash);ws::Row watch;watch.world="fictional-watch:runtime:gamma";watch.label=L"Watchroom";watch.connecting=true;snapshot.rows.push_back(watch);
   shell.Update(snapshot);frame->ShowWindow(SW_SHOWNOACTIVATE);frame->RecalcLayout();frame->UpdateWindow();
@@ -45,6 +45,15 @@ class ShellApp:public CWinApp {
   ok=Check(out,"central transcript remains wider than navigator",client.right>500)&&ok;
   ::SendMessageW(::GetDlgItem(bar,0x7801),BM_CLICK,0,0);ok=Check(out,"Connect/Disconnect carries exact original runtime world identity",last==ws::Disconnect && world==harbor.world && actions==1)&&ok;
   const HTREEITEM root=nativeTree->GetRootItem(),first=nativeTree->GetChildItem(root);nativeTree->SelectItem(first);ok=Check(out,"channel selection retains original world and channel identity",last==ws::Select && world==harbor.world && name=="Chat")&&ok;
+  wchar_t routeLabel[256]={};TVITEMW routeItem={};routeItem.mask=TVIF_TEXT;routeItem.hItem=first;routeItem.pszText=routeLabel;routeItem.cchTextMax=256;::SendMessageW(tree,TVM_GETITEMW,0,(LPARAM)&routeItem);
+  ok=Check(out,"channel accessible label distinguishes Separate routing and mention counts",wcsstr(routeLabel,L"Separate") && wcsstr(routeLabel,L"@2"))&&ok;
+  const int beforeAdd=actions;::SendMessageW(::GetDlgItem(nav,0x7826),BM_CLICK,0,0);
+  ok=Check(out,"visible Add channel retains exact selected connection without sending input",actions==beforeAdd+1 && last==ws::AddChannel && world==harbor.world && name.empty())&&ok;
+  CRect routeBounds,treeBounds;nativeTree->GetItemRect(first,routeBounds,FALSE);nativeTree->GetClientRect(treeBounds);::SetFocus(composer);const HWND beforeRouteFocus=::GetFocus();const HTREEITEM beforeRouteSelection=nativeTree->GetSelectedItem();const int beforeToggle=actions;
+  ::SendMessageW(tree,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(treeBounds.right-20,routeBounds.CenterPoint().y));
+  ok=Check(out,"clicking route badge changes exact channel without changing input selection or focus",actions==beforeToggle+1 && last==ws::ToggleChannelMain && world==harbor.world && name=="Chat" && nativeTree->GetSelectedItem()==beforeRouteSelection && ::GetFocus()==beforeRouteFocus)&&ok;
+  snapshot.rows[1].mainRouting=1;shell.Update(snapshot);::SendMessageW(tree,TVM_GETITEMW,0,(LPARAM)&routeItem);
+  ok=Check(out,"routing-only refresh updates +Main without rebuilding native tree",wcsstr(routeLabel,L"+Main") && nativeTree->GetChildItem(root)==first)&&ok;
   ::SetFocus(composer);const HWND focus=::GetFocus();const int before=actions;for(int i=0;i<500;++i){snapshot.rows[1].unread=i;shell.Update(snapshot);}
   ok=Check(out,"state-only refreshes retain native tree items and keyboard focus without dispatch",nativeTree->GetRootItem()==root && nativeTree->GetChildItem(root)==first && ::GetFocus()==focus && actions==before)&&ok;
   snapshot.world=ash.world;snapshot.name.clear();shell.Update(snapshot);ok=Check(out,"external world change synchronizes native selection without dispatch or focus loss",nativeTree->GetSelectedItem()==nativeTree->GetNextSiblingItem(root) && actions==before && ::GetFocus()==focus)&&ok;snapshot.world=harbor.world;shell.Update(snapshot);
@@ -56,6 +65,7 @@ class ShellApp:public CWinApp {
   ok=Check(out,"theme does not overwrite original transcript/composer font or selection",SendMessageW(transcript,WM_GETFONT,0,0)==transcriptFont && SendMessageW(composer,WM_GETFONT,0,0)==composerFont && SendMessageW(transcript,EM_GETSEL,0,0)==selection)&&ok;
   ok=Check(out,"dark composition screenshot",Screenshot(frame->m_hWnd,L"shell-dark.bmp"))&&ok;
   snapshot.rows.clear();snapshot.world.clear();shell.Update(snapshot);ok=Check(out,"world-specific actions disable when the original world is closed",!::IsWindowEnabled(::GetDlgItem(bar,0x7801)) && !::IsWindowEnabled(::GetDlgItem(bar,0x7802)) && !::IsWindowEnabled(::GetDlgItem(bar,0x7803)) && !::IsWindowEnabled(::GetDlgItem(bar,0x7804)))&&ok;
+  ok=Check(out,"Add channel disables when no character connection exists",!::IsWindowEnabled(::GetDlgItem(nav,0x7826)))&&ok;
   // Exercise the same inherited CDockablePane idle update used by the client.
   for(int i=0;i<3;++i)::SendMessageW(nav,WM_IDLEUPDATECMDUI,TRUE,0);
   const HWND openButton=::GetDlgItem(nav,0x7821);const int beforeOpen=actions;

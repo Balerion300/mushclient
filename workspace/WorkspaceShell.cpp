@@ -16,9 +16,11 @@ bool ws::ActivateOriginal(const std::string& identity,const std::function<Target
   const Target live=resolve(identity);if(!live.window || !live.document)return false;const Target current=active();return live.window==current.window && live.document==current.document;}
 namespace {
 const UINT BarId=0xe7a0,NavigatorId=0xe7a1,FirstButton=0x7800,TreeId=0x7820;
-std::wstring Count(unsigned value){return std::to_wstring(value);}
+std::wstring Count(unsigned value){return value>999?L"999+":std::to_wstring(value);}
+const wchar_t* RoutingLabel(int mode){return mode==1?L"+Main":mode==2?L"Separate":mode==3?L"Mixed":L"";}
 std::wstring Caption(const ws::Row& row){std::wstring text=!row.channel && !row.characterLabel.empty()?row.characterLabel:row.label;
   if(!row.channel){text+=row.connected?L"  - Connected":row.connecting?L"  - Connecting":row.disconnecting?L"  - Disconnecting":L"  - Offline";if(row.logging)text+=L"  - Logging";}
+  if(row.channel && row.mainRouting)text+=L"  - "+std::wstring(RoutingLabel(row.mainRouting));
   if(row.unread)text+=L"  ("+Count(row.unread)+L" unread)";
   if(row.mentions)text+=L"  @"+Count(row.mentions);return text;}
 class ActionBar:public CControlBar {
@@ -66,16 +68,29 @@ BEGIN_MESSAGE_MAP(ActionBar,CControlBar)
  ON_WM_ERASEBKGND()
  ON_WM_PAINT()
 END_MESSAGE_MAP()
+// Handle the badge before native tree selection, so changing Main routing does
+// not switch the user's input destination or disturb its unfinished draft.
+class ChannelTree:public CTreeCtrl {
+public:
+  std::function<bool(CPoint)> routingClick;
+protected:
+  afx_msg void OnLButtonDown(UINT flags,CPoint point){if(routingClick && routingClick(point))return;CTreeCtrl::OnLButtonDown(flags,point);}
+  DECLARE_MESSAGE_MAP()
+};
+BEGIN_MESSAGE_MAP(ChannelTree,CTreeCtrl)
+ ON_WM_LBUTTONDOWN()
+END_MESSAGE_MAP()
 class Navigator:public CDockablePane {
-  CTreeCtrl tree_;HWND title_=NULL,open_=NULL,create_=NULL,hint_=NULL;ws::Snapshot snapshot_;ws::Handler handler_;std::vector<HTREEITEM> items_;std::map<std::string,HTREEITEM> games_;bool updating_=false;
+  ChannelTree tree_;HWND title_=NULL,open_=NULL,create_=NULL,add_=NULL,hint_=NULL;ws::Snapshot snapshot_;ws::Handler handler_;std::vector<HTREEITEM> items_;std::map<std::string,HTREEITEM> games_;bool updating_=false;
   CListBox rail_;std::vector<std::pair<std::string,std::wstring>> railGames_;HWND editor_=NULL,review_=NULL,brand_=NULL;
   int S(int value)const{return style::Scale(m_hWnd,value);}
 protected:
   afx_msg void OnSize(UINT type,int cx,int cy){CDockablePane::OnSize(type,cx,cy);if(!tree_.m_hWnd)return;
     const int left=S(62);::MoveWindow(brand_,S(11),S(10),S(32),S(32),TRUE);rail_.MoveWindow(S(5),S(58),S(46),max(1,cy-S(72)));
-    ::MoveWindow(title_,left+S(8),S(10),max(1,cx-left-S(16)),S(28),TRUE);tree_.MoveWindow(left,S(48),max(1,cx-left-S(6)),max(1,cy-S(211)));
-    ::MoveWindow(editor_,left+S(5),max(S(48),cy-S(152)),max(1,cx-left-S(12)),S(32),TRUE);
-    ::MoveWindow(review_,left+S(5),max(S(48),cy-S(115)),max(1,cx-left-S(12)),S(32),TRUE);
+    ::MoveWindow(title_,left+S(8),S(10),max(1,cx-left-S(16)),S(28),TRUE);tree_.MoveWindow(left,S(48),max(1,cx-left-S(6)),max(1,cy-S(248)));
+    ::MoveWindow(editor_,left+S(5),max(S(48),cy-S(189)),max(1,cx-left-S(12)),S(32),TRUE);
+    ::MoveWindow(review_,left+S(5),max(S(48),cy-S(152)),max(1,cx-left-S(12)),S(32),TRUE);
+    ::MoveWindow(add_,left+S(5),max(S(48),cy-S(115)),max(1,cx-left-S(12)),S(32),TRUE);
     ::MoveWindow(hint_,left+S(8),S(52),max(1,cx-left-S(20)),S(160),TRUE);
     ::MoveWindow(create_,left+S(5),max(S(48),cy-S(78)),max(1,cx-left-S(12)),S(32),TRUE);
     ::MoveWindow(open_,left+S(5),max(S(48),cy-S(41)),max(1,cx-left-S(12)),S(32),TRUE);}
@@ -88,11 +103,40 @@ protected:
     if(draw->nmcd.dwDrawStage!=CDDS_ITEMPOSTPAINT)return;const size_t index=(size_t)draw->nmcd.lItemlParam;if(index>=snapshot_.rows.size())return;
     const auto& row=snapshot_.rows[index];CRect rect,client;if(!tree_.GetItemRect((HTREEITEM)draw->nmcd.dwItemSpec,rect,TRUE))return;tree_.GetClientRect(client);rect.right=client.right-S(5);rect.left=max(S(4),rect.left-S(1));
     const auto colors=style::Colors(m_hWnd);const bool selected=(draw->nmcd.uItemState&CDIS_SELECTED)!=0;HDC dc=draw->nmcd.hdc;HBRUSH brush=CreateSolidBrush(selected?colors.hover:colors.surface);FillRect(dc,rect,brush);DeleteObject(brush);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,colors.text);const HGDIOBJ old=SelectObject(dc,style::UiFont(m_hWnd));CRect label=rect;label.left+=S(4);
-    if(row.channel){const auto text=Caption(row);DrawTextW(dc,text.c_str(),(int)text.size(),label,DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX);}
+    if(row.channel){
+      const bool routed=row.mainRouting!=0;CRect badge=rect;badge.left=max(rect.left,rect.right-S(76));badge.DeflateRect(S(2),S(9));
+      label.right=routed?badge.left-S(5):rect.right;label.top+=S(2);label.bottom=label.top+S(19);
+      SetTextColor(dc,row.mentions?colors.accent:colors.text);DrawTextW(dc,row.label.c_str(),(int)row.label.size(),label,DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+      std::wstring activity=row.unread?Count(row.unread)+L" unread":L"";if(row.mentions)activity+=(activity.empty()?L"":L"  / ")+Count(row.mentions)+L" mentions";
+      label.top=rect.top+S(23);label.bottom=rect.bottom;SetTextColor(dc,row.mentions?colors.accent:colors.muted);DrawTextW(dc,activity.c_str(),(int)activity.size(),label,DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+      if(routed){HBRUSH fill=CreateSolidBrush(colors.background);FillRect(dc,badge,fill);DeleteObject(fill);SetTextColor(dc,colors.accent);const auto text=RoutingLabel(row.mainRouting);DrawTextW(dc,text,-1,badge,DT_SINGLELINE|DT_VCENTER|DT_CENTER|DT_NOPREFIX);}
+    }
     else{const auto& character=row.characterLabel.empty()?row.label:row.characterLabel;label.top+=S(2);label.bottom=label.top+S(19);DrawTextW(dc,character.c_str(),(int)character.size(),label,DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
       std::wstring status=row.connected?L"Connected":row.connecting?L"Connecting":row.disconnecting?L"Disconnecting":L"Offline";if(row.logging)status+=L"  - Logging";if(row.unread)status+=L"  - "+Count(row.unread)+L" unread";
       label.top=rect.top+S(22);label.bottom=rect.bottom;SetTextColor(dc,colors.muted);DrawTextW(dc,status.c_str(),(int)status.size(),label,DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);}
     if(selected && ::GetFocus()==tree_.m_hWnd){CRect focus=rect;focus.DeflateRect(1,1);DrawFocusRect(dc,focus);}SelectObject(dc,old);
+  }
+  bool ClickRouting(CPoint point){
+    UINT flags=0;HTREEITEM item=tree_.HitTest(point,&flags);if(!item)return false;
+    const size_t index=(size_t)tree_.GetItemData(item);if(index>=snapshot_.rows.size())return false;const auto row=snapshot_.rows[index];if(!row.channel || !row.mainRouting)return false;
+    CRect rect,client;if(!tree_.GetItemRect(item,rect,FALSE))return false;tree_.GetClientRect(client);
+    if(point.x<client.right-S(81))return false;handler_(ws::ToggleChannelMain,row.world,row.name);return true;
+  }
+  afx_msg void OnTreeInfo(NMHDR* header,LRESULT* result){
+    *result=0;auto* info=(NMTVGETINFOTIP*)header;const size_t index=(size_t)info->lParam;if(index>=snapshot_.rows.size())return;
+    const auto& row=snapshot_.rows[index];std::wstring text=Caption(row);
+    if(row.channel){text+=L"\nRight-click for channel settings or arrangement.";if(row.mainRouting)text+=L"\nClick Separate / +Main to change whether future matches also appear in Main. Mixed means this channel's rules differ.";}
+    lstrcpyn(info->pszText,CString(text.c_str()),info->cchTextMax);
+  }
+  afx_msg void OnContextMenu(CWnd* window,CPoint point){
+    if(!window || window->GetSafeHwnd()!=tree_.m_hWnd)return;
+    HTREEITEM item=NULL;if(point.x==-1 && point.y==-1){item=tree_.GetSelectedItem();CRect rect;if(item && tree_.GetItemRect(item,rect,TRUE)){point=rect.CenterPoint();tree_.ClientToScreen(&point);}}
+    else {CPoint local=point;tree_.ScreenToClient(&local);UINT flags=0;item=tree_.HitTest(local,&flags);}
+    if(!item)return;const size_t index=(size_t)tree_.GetItemData(item);if(index>=snapshot_.rows.size())return;const auto row=snapshot_.rows[index];CMenu menu;menu.CreatePopupMenu();
+    if(row.channel){menu.AppendMenu(MF_STRING,1,"Channel settings...");menu.AppendMenu(MF_STRING|(row.mainRouting?0:MF_GRAYED),2,row.mainRouting==1?"Show future matches separately":"Also show future matches in Main");menu.AppendMenu(MF_STRING,3,"Arrange panes...");menu.AppendMenu(MF_SEPARATOR);}
+    menu.AppendMenu(MF_STRING,4,"Add custom channel...");
+    const UINT command=menu.TrackPopupMenu(TPM_RETURNCMD|TPM_NONOTIFY|TPM_LEFTALIGN,point.x,point.y,this);if(!command)return;
+    handler_(command==1?ws::ChannelSettings:command==2?ws::ToggleChannelMain:command==3?ws::Arrange:ws::AddChannel,row.world,row.name);
   }
   afx_msg void OnGame(){const int selected=rail_.GetCurSel();if(updating_ || selected<0 || selected>=(int)railGames_.size())return;const auto game=games_.find(railGames_[selected].first);if(game==games_.end())return;
     tree_.Expand(game->second,TVE_EXPAND);
@@ -111,8 +155,8 @@ protected:
   }
   afx_msg void OnDrawItem(int id,LPDRAWITEMSTRUCT draw){if(id!=TreeId+2){CDockablePane::OnDrawItem(id,draw);return;}if(draw->itemID>=railGames_.size())return;const auto p=style::Colors(m_hWnd);const bool active=(draw->itemState&ODS_SELECTED)!=0;CRect r=draw->rcItem;HBRUSH base=CreateSolidBrush(p.background);FillRect(draw->hDC,r,base);DeleteObject(base);r.DeflateRect(S(3),S(4));HBRUSH fill=CreateSolidBrush(active?p.pressed:p.surface);FillRect(draw->hDC,r,fill);DeleteObject(fill);
     if(active){CRect line=r;line.right=line.left+S(3);HBRUSH brush=CreateSolidBrush(p.accent);FillRect(draw->hDC,line,brush);DeleteObject(brush);}const auto label=railGames_[draw->itemID].second;std::wstring initials;if(!label.empty())initials+=towupper(label[0]);for(size_t i=1;i<label.size()&&initials.size()<2;++i)if(label[i-1]==L' '&&label[i]!=L' ')initials+=towupper(label[i]);if(initials.size()<2&&label.size()>1)initials+=towupper(label[1]);const auto old=SelectObject(draw->hDC,style::UiFont(m_hWnd));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,active?p.accent:p.muted);DrawTextW(draw->hDC,initials.c_str(),(int)initials.size(),r,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){r.DeflateRect(2,2);DrawFocusRect(draw->hDC,r);}SelectObject(draw->hDC,old);}
-  virtual BOOL OnCommand(WPARAM wp,LPARAM lp){if(HIWORD(wp)==BN_CLICKED){if(LOWORD(wp)==TreeId+1 || LOWORD(wp)==TreeId+5){handler_(LOWORD(wp)==TreeId+5?ws::CreateWorld:ws::OpenWorld,"","");return TRUE;}if(LOWORD(wp)==TreeId+3 || LOWORD(wp)==TreeId+4){handler_(LOWORD(wp)==TreeId+3?ws::Editor:ws::Review,snapshot_.world,snapshot_.name);return TRUE;}}return CDockablePane::OnCommand(wp,lp);}
-  afx_msg void OnUpdateOpen(CCmdUI* command){command->Enable(command->m_nID!=TreeId+3 || !snapshot_.world.empty());}
+  virtual BOOL OnCommand(WPARAM wp,LPARAM lp){if(HIWORD(wp)==BN_CLICKED){if(LOWORD(wp)==TreeId+6){handler_(ws::AddChannel,snapshot_.world,"");return TRUE;}if(LOWORD(wp)==TreeId+1 || LOWORD(wp)==TreeId+5){handler_(LOWORD(wp)==TreeId+5?ws::CreateWorld:ws::OpenWorld,"","");return TRUE;}if(LOWORD(wp)==TreeId+3 || LOWORD(wp)==TreeId+4){handler_(LOWORD(wp)==TreeId+3?ws::Editor:ws::Review,snapshot_.world,snapshot_.name);return TRUE;}}return CDockablePane::OnCommand(wp,lp);}
+  afx_msg void OnUpdateOpen(CCmdUI* command){command->Enable((command->m_nID!=TreeId+3 && command->m_nID!=TreeId+6) || !snapshot_.world.empty());}
   virtual void GetMinSize(CSize& size)const{size=CSize(S(250),S(320));}
   DECLARE_MESSAGE_MAP()
 public:
@@ -125,10 +169,12 @@ public:
     if(!rail_.Create(WS_CHILD|WS_VISIBLE|WS_TABSTOP|LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOINTEGRALHEIGHT|WS_VSCROLL,CRect(0,0,1,1),this,TreeId+2))return false;
     rail_.SetItemHeight(0,S(52));style::StyleControl(rail_.m_hWnd);::SetWindowTextW(rail_.m_hWnd,L"Switch game; all connections stay visible");
     if(!tree_.Create(WS_CHILD|WS_VISIBLE|WS_TABSTOP|TVS_HASBUTTONS|TVS_SHOWSELALWAYS|TVS_FULLROWSELECT|TVS_INFOTIP|TVS_NOHSCROLL,CRect(0,0,1,1),this,TreeId))return false;
+    tree_.routingClick=[this](CPoint point){return ClickRouting(point);};
     style::StyleControl(tree_.m_hWnd);OnAppearance(0,0);
     hint_=::CreateWindowExW(0,L"STATIC",L"A profile saves a server connection on this computer. The game asks you to log in after connecting.",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_NOPREFIX,0,0,1,1,m_hWnd,NULL,AfxGetInstanceHandle(),NULL);style::StyleControl(hint_);
     editor_=::CreateWindowExW(0,L"BUTTON",L"Script editor",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+3),AfxGetInstanceHandle(),NULL);style::StyleButton(editor_,style::Icon::Editor);
     review_=::CreateWindowExW(0,L"BUTTON",L"Agent review",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+4),AfxGetInstanceHandle(),NULL);style::StyleButton(review_,style::Icon::Agent);
+    add_=::CreateWindowExW(0,L"BUTTON",L"&Add channel...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+6),AfxGetInstanceHandle(),NULL);style::StyleButton(add_,style::Icon::Add,false,L"Add a custom local channel: match game output, choose a reply prefix, and set appearance or alerts");
     create_=::CreateWindowExW(0,L"BUTTON",L"&New connection...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+5),AfxGetInstanceHandle(),NULL);style::StyleButton(create_,style::Icon::Add,false,L"Create local server connection settings; log in to the game after connecting");
     open_=::CreateWindowExW(0,L"BUTTON",L"&Open saved profile...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+1),AfxGetInstanceHandle(),NULL);style::StyleButton(open_,style::Icon::Add,false,L"Open connection settings saved in a world profile file");
     CRect rect;GetClientRect(rect);OnSize(0,rect.Width(),rect.Height());return true;}
@@ -149,11 +195,11 @@ public:
       tree_.SetRedraw(TRUE);tree_.Invalidate();}
     if(rebuild || snapshot.world!=snapshot_.world){for(const auto& row:snapshot.rows)if(!row.channel && row.world==snapshot.world){for(size_t i=0;i<railGames_.size();++i)if(railGames_[i].first==row.game){rail_.SetCurSel((int)i);}break;}}
     ::ShowWindow(hint_,snapshot.rows.empty()?SW_SHOWNOACTIVATE:SW_HIDE);
-    ::EnableWindow(editor_,!snapshot.world.empty());snapshot_=snapshot;updating_=false;
+    ::EnableWindow(add_,!snapshot.world.empty());::EnableWindow(editor_,!snapshot.world.empty());snapshot_=snapshot;updating_=false;
   }
 };
 BEGIN_MESSAGE_MAP(Navigator,CDockablePane)
- ON_UPDATE_COMMAND_UI_RANGE(TreeId+1,TreeId+5,OnUpdateOpen)
+ ON_UPDATE_COMMAND_UI_RANGE(TreeId+1,TreeId+6,OnUpdateOpen)
  ON_LBN_SELCHANGE(TreeId+2,OnGame)
  ON_WM_DRAWITEM()
  ON_WM_MEASUREITEM()
@@ -161,6 +207,8 @@ BEGIN_MESSAGE_MAP(Navigator,CDockablePane)
  ON_WM_ERASEBKGND()
  ON_NOTIFY(TVN_SELCHANGED,TreeId,OnSelect)
  ON_NOTIFY(NM_CUSTOMDRAW,TreeId,OnTreeDraw)
+ ON_NOTIFY(TVN_GETINFOTIP,TreeId,OnTreeInfo)
+ ON_WM_CONTEXTMENU()
  ON_MESSAGE(WM_THEMECHANGED,OnAppearance)
 END_MESSAGE_MAP()
 }
