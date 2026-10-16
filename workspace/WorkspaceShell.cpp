@@ -25,7 +25,7 @@ class ActionBar:public CControlBar {
   std::vector<HWND> buttons_;HWND status_=NULL;ws::Snapshot snapshot_;ws::Handler handler_;
   int S(int value)const{return style::Scale(m_hWnd,value);}
   void Layout(){if(buttons_.empty())return;CRect bounds;GetClientRect(bounds);const int gap=S(6),height=S(34);int x=S(10),y=S(7);
-    const int widths[]={94,122,82,110,116,90};
+    const int widths[]={94,122,82,110,144,90};
     for(size_t i=0;i<buttons_.size();++i){int width=S(widths[i]);if(x+width>bounds.Width()-S(10) && x>S(10)){x=S(10);y+=height+gap;}
       ::MoveWindow(buttons_[i],x,y,width,height,TRUE);x+=width+gap;}
     const int room=bounds.Width()-x-S(12);if(y==S(7) && room>S(160))::MoveWindow(status_,x+S(8),S(9),room-S(8),S(30),TRUE);
@@ -45,19 +45,19 @@ public:
   bool Create(CMDIFrameWndEx& frame,const ws::Handler& handler){handler_=handler;
     if(!CWnd::Create(AfxRegisterWndClass(0,LoadCursor(NULL,IDC_ARROW)),"Daily actions",WS_CHILD|WS_VISIBLE|WS_CLIPCHILDREN|CBRS_TOP,CRect(0,0,900,50),&frame,BarId))return false;
     SetBarStyle(CBRS_TOP|CBRS_SIZE_FIXED);SetOwner(&frame);ModifyStyleEx(0,WS_EX_CONTROLPARENT);style::ApplySurface(m_hWnd);
-    const wchar_t* labels[]={L"&Worlds",L"&Connect",L"&Find",L"&Logging",L"C&hannels",L"&Tools"};
+    const wchar_t* labels[]={L"&Worlds",L"&Connect",L"&Find",L"&Logging",L"Output c&hannels",L"&Tools"};
     const style::Icon icons[]={style::Icon::Worlds,style::Icon::Connect,style::Icon::Find,style::Icon::Logging,style::Icon::Channels,style::Icon::Tools};
-    const wchar_t* tips[]={L"Show or hide Worlds and channels",L"Connect the selected original world",L"Find in the selected transcript",L"Logging for the selected original world",L"Channels and tells for the selected original world",L"Editor, agents, scenes and appearance"};
+    const wchar_t* tips[]={L"Show or hide Worlds and channels",L"Connect the selected original world",L"Find in the selected transcript",L"Logging for the selected original world",L"Filter received text into local transcripts; this does not join server channels",L"Editor, agents, scenes and appearance"};
     for(int i=0;i<6;++i){HWND button=::CreateWindowExW(0,L"BUTTON",labels[i],WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(FirstButton+i),AfxGetInstanceHandle(),NULL);if(!button)return false;buttons_.push_back(button);style::StyleButton(button,icons[i],false,tips[i]);}
-    status_=::CreateWindowExW(0,L"STATIC",L"Open a world to get started",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(FirstButton+6),AfxGetInstanceHandle(),NULL);style::StyleControl(status_);Layout();return true;}
+    status_=::CreateWindowExW(0,L"STATIC",L"Create a connection profile or open a saved one",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(FirstButton+6),AfxGetInstanceHandle(),NULL);style::StyleControl(status_);Layout();return true;}
   virtual CSize CalcFixedLayout(BOOL stretch,BOOL){CRect rect;if(GetParent())GetParent()->GetClientRect(rect);const int width=max(S(320),rect.Width());
-    const int actionWidth=S(664);const int rows=width>=actionWidth?1:width>=S(360)?2:3;const bool inlineStatus=width>=actionWidth+S(190);
+    const int actionWidth=S(692);const int rows=width>=actionWidth?1:width>=S(360)?2:3;const bool inlineStatus=width>=actionWidth+S(190);
     return CSize(stretch?32767:width,S(14)+rows*S(34)+(rows-1)*S(6)+(inlineStatus?0:S(27)));}
   void Update(const ws::Snapshot& snapshot){snapshot_=snapshot;const auto world=std::find_if(snapshot.rows.begin(),snapshot.rows.end(),[&](const ws::Row& row){return !row.channel && row.world==snapshot.world;});
     const bool exists=world!=snapshot.rows.end(),disconnect=exists && (world->connected || world->connecting);const wchar_t* label=disconnect?L"&Disconnect":L"&Connect";
     wchar_t old[64]={};::GetWindowTextW(buttons_[1],old,64);if(wcscmp(old,label)){::SetWindowTextW(buttons_[1],label);style::StyleButton(buttons_[1],disconnect?style::Icon::Disconnect:style::Icon::Connect,false,disconnect?L"Disconnect the selected original world":L"Connect the selected original world");}
     for(int i:{1,2,3,4})::EnableWindow(buttons_[i],exists && (i!=1 || !world->disconnecting));
-    const std::wstring status=exists?(world->gameLabel.empty()?L"":world->gameLabel+L" / ")+Caption(*world):L"Open a character profile to get started";wchar_t current[2048]={};::GetWindowTextW(status_,current,2048);if(status!=current)::SetWindowTextW(status_,status.c_str());
+    const std::wstring status=exists?(world->gameLabel.empty()?L"":world->gameLabel+L" / ")+Caption(*world):L"Create a connection profile or open a saved one";wchar_t current[2048]={};::GetWindowTextW(status_,current,2048);if(status!=current)::SetWindowTextW(status_,status.c_str());
   }
   HWND Button(ws::Action action)const{const int index=action==ws::Logging?3:action==ws::Tools?5:0;return buttons_.empty()?NULL:buttons_[index];}
 };
@@ -67,15 +67,17 @@ BEGIN_MESSAGE_MAP(ActionBar,CControlBar)
  ON_WM_PAINT()
 END_MESSAGE_MAP()
 class Navigator:public CDockablePane {
-  CTreeCtrl tree_;HWND title_=NULL,open_=NULL;ws::Snapshot snapshot_;ws::Handler handler_;std::vector<HTREEITEM> items_;std::map<std::string,HTREEITEM> games_;bool updating_=false;
+  CTreeCtrl tree_;HWND title_=NULL,open_=NULL,create_=NULL,hint_=NULL;ws::Snapshot snapshot_;ws::Handler handler_;std::vector<HTREEITEM> items_;std::map<std::string,HTREEITEM> games_;bool updating_=false;
   CListBox rail_;std::vector<std::pair<std::string,std::wstring>> railGames_;HWND editor_=NULL,review_=NULL,brand_=NULL;
   int S(int value)const{return style::Scale(m_hWnd,value);}
 protected:
   afx_msg void OnSize(UINT type,int cx,int cy){CDockablePane::OnSize(type,cx,cy);if(!tree_.m_hWnd)return;
     const int left=S(62);::MoveWindow(brand_,S(11),S(10),S(32),S(32),TRUE);rail_.MoveWindow(S(5),S(58),S(46),max(1,cy-S(72)));
-    ::MoveWindow(title_,left+S(8),S(10),max(1,cx-left-S(16)),S(28),TRUE);tree_.MoveWindow(left,S(48),max(1,cx-left-S(6)),max(1,cy-S(174)));
-    ::MoveWindow(editor_,left+S(5),max(S(48),cy-S(115)),max(1,cx-left-S(12)),S(32),TRUE);
-    ::MoveWindow(review_,left+S(5),max(S(48),cy-S(78)),max(1,cx-left-S(12)),S(32),TRUE);
+    ::MoveWindow(title_,left+S(8),S(10),max(1,cx-left-S(16)),S(28),TRUE);tree_.MoveWindow(left,S(48),max(1,cx-left-S(6)),max(1,cy-S(211)));
+    ::MoveWindow(editor_,left+S(5),max(S(48),cy-S(152)),max(1,cx-left-S(12)),S(32),TRUE);
+    ::MoveWindow(review_,left+S(5),max(S(48),cy-S(115)),max(1,cx-left-S(12)),S(32),TRUE);
+    ::MoveWindow(hint_,left+S(8),S(52),max(1,cx-left-S(20)),S(160),TRUE);
+    ::MoveWindow(create_,left+S(5),max(S(48),cy-S(78)),max(1,cx-left-S(12)),S(32),TRUE);
     ::MoveWindow(open_,left+S(5),max(S(48),cy-S(41)),max(1,cx-left-S(12)),S(32),TRUE);}
   afx_msg BOOL OnEraseBkgnd(CDC* dc){CRect rect;GetClientRect(rect);dc->FillSolidRect(rect,style::Colors(m_hWnd).surface);return TRUE;}
   afx_msg void OnSelect(NMHDR* header,LRESULT* result){*result=0;if(updating_)return;auto* event=(NMTREEVIEW*)header;const size_t index=(size_t)event->itemNew.lParam;if(index<snapshot_.rows.size()){const auto row=snapshot_.rows[index];handler_(ws::Select,row.world,row.name);if(event->action==TVC_BYKEYBOARD)tree_.SetFocus();}}
@@ -109,24 +111,26 @@ protected:
   }
   afx_msg void OnDrawItem(int id,LPDRAWITEMSTRUCT draw){if(id!=TreeId+2){CDockablePane::OnDrawItem(id,draw);return;}if(draw->itemID>=railGames_.size())return;const auto p=style::Colors(m_hWnd);const bool active=(draw->itemState&ODS_SELECTED)!=0;CRect r=draw->rcItem;HBRUSH base=CreateSolidBrush(p.background);FillRect(draw->hDC,r,base);DeleteObject(base);r.DeflateRect(S(3),S(4));HBRUSH fill=CreateSolidBrush(active?p.pressed:p.surface);FillRect(draw->hDC,r,fill);DeleteObject(fill);
     if(active){CRect line=r;line.right=line.left+S(3);HBRUSH brush=CreateSolidBrush(p.accent);FillRect(draw->hDC,line,brush);DeleteObject(brush);}const auto label=railGames_[draw->itemID].second;std::wstring initials;if(!label.empty())initials+=towupper(label[0]);for(size_t i=1;i<label.size()&&initials.size()<2;++i)if(label[i-1]==L' '&&label[i]!=L' ')initials+=towupper(label[i]);if(initials.size()<2&&label.size()>1)initials+=towupper(label[1]);const auto old=SelectObject(draw->hDC,style::UiFont(m_hWnd));SetBkMode(draw->hDC,TRANSPARENT);SetTextColor(draw->hDC,active?p.accent:p.muted);DrawTextW(draw->hDC,initials.c_str(),(int)initials.size(),r,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(draw->itemState&ODS_FOCUS){r.DeflateRect(2,2);DrawFocusRect(draw->hDC,r);}SelectObject(draw->hDC,old);}
-  virtual BOOL OnCommand(WPARAM wp,LPARAM lp){if(HIWORD(wp)==BN_CLICKED){if(LOWORD(wp)==TreeId+1){handler_(ws::OpenWorld,"","");return TRUE;}if(LOWORD(wp)==TreeId+3 || LOWORD(wp)==TreeId+4){handler_(LOWORD(wp)==TreeId+3?ws::Editor:ws::Review,snapshot_.world,snapshot_.name);return TRUE;}}return CDockablePane::OnCommand(wp,lp);}
+  virtual BOOL OnCommand(WPARAM wp,LPARAM lp){if(HIWORD(wp)==BN_CLICKED){if(LOWORD(wp)==TreeId+1 || LOWORD(wp)==TreeId+5){handler_(LOWORD(wp)==TreeId+5?ws::CreateWorld:ws::OpenWorld,"","");return TRUE;}if(LOWORD(wp)==TreeId+3 || LOWORD(wp)==TreeId+4){handler_(LOWORD(wp)==TreeId+3?ws::Editor:ws::Review,snapshot_.world,snapshot_.name);return TRUE;}}return CDockablePane::OnCommand(wp,lp);}
   afx_msg void OnUpdateOpen(CCmdUI* command){command->Enable(command->m_nID!=TreeId+3 || !snapshot_.world.empty());}
-  virtual void GetMinSize(CSize& size)const{size=CSize(S(250),S(260));}
+  virtual void GetMinSize(CSize& size)const{size=CSize(S(250),S(320));}
   DECLARE_MESSAGE_MAP()
 public:
   bool Create(CMDIFrameWndEx& frame,const ws::Handler& handler){handler_=handler;
     if(!CDockablePane::Create("Valyria",&frame,CRect(0,0,314,600),TRUE,NavigatorId,WS_CHILD|WS_VISIBLE|CBRS_LEFT|CBRS_HIDE_INPLACE|CBRS_FLOAT_MULTI))return false;
     EnableDocking(CBRS_ALIGN_LEFT|CBRS_ALIGN_RIGHT);ModifyStyleEx(0,WS_EX_CONTROLPARENT);style::ApplySurface(m_hWnd);
-    title_=::CreateWindowExW(0,L"STATIC",L"Your characters",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE|SS_NOPREFIX,0,0,1,1,m_hWnd,NULL,AfxGetInstanceHandle(),NULL);style::StyleControl(title_);
+    title_=::CreateWindowExW(0,L"STATIC",L"All open connections",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE|SS_NOPREFIX,0,0,1,1,m_hWnd,NULL,AfxGetInstanceHandle(),NULL);style::StyleControl(title_);
     brand_=::CreateWindowExW(0,L"STATIC",L"",WS_CHILD|WS_VISIBLE|SS_ICON|SS_CENTERIMAGE,0,0,1,1,m_hWnd,NULL,AfxGetInstanceHandle(),NULL);
     HICON mark=(HICON)::LoadImage(::GetModuleHandle(NULL),MAKEINTRESOURCE(128),IMAGE_ICON,S(32),S(32),LR_SHARED);if(mark)::SendMessage(brand_,STM_SETICON,(WPARAM)mark,0);
     if(!rail_.Create(WS_CHILD|WS_VISIBLE|WS_TABSTOP|LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOINTEGRALHEIGHT|WS_VSCROLL,CRect(0,0,1,1),this,TreeId+2))return false;
-    rail_.SetItemHeight(0,S(52));style::StyleControl(rail_.m_hWnd);::SetWindowTextW(rail_.m_hWnd,L"Games");
+    rail_.SetItemHeight(0,S(52));style::StyleControl(rail_.m_hWnd);::SetWindowTextW(rail_.m_hWnd,L"Switch game; all connections stay visible");
     if(!tree_.Create(WS_CHILD|WS_VISIBLE|WS_TABSTOP|TVS_HASBUTTONS|TVS_SHOWSELALWAYS|TVS_FULLROWSELECT|TVS_INFOTIP|TVS_NOHSCROLL,CRect(0,0,1,1),this,TreeId))return false;
     style::StyleControl(tree_.m_hWnd);OnAppearance(0,0);
-    open_=::CreateWindowExW(0,L"BUTTON",L"&Open profile...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+1),AfxGetInstanceHandle(),NULL);style::StyleButton(open_,style::Icon::Add,false,L"Open a world profile for your character");
+    hint_=::CreateWindowExW(0,L"STATIC",L"A profile saves a server connection on this computer. The game asks you to log in after connecting.",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_NOPREFIX,0,0,1,1,m_hWnd,NULL,AfxGetInstanceHandle(),NULL);style::StyleControl(hint_);
     editor_=::CreateWindowExW(0,L"BUTTON",L"Script editor",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+3),AfxGetInstanceHandle(),NULL);style::StyleButton(editor_,style::Icon::Editor);
     review_=::CreateWindowExW(0,L"BUTTON",L"Agent review",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+4),AfxGetInstanceHandle(),NULL);style::StyleButton(review_,style::Icon::Agent);
+    create_=::CreateWindowExW(0,L"BUTTON",L"&New connection...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+5),AfxGetInstanceHandle(),NULL);style::StyleButton(create_,style::Icon::Add,false,L"Create local server connection settings; log in to the game after connecting");
+    open_=::CreateWindowExW(0,L"BUTTON",L"&Open saved profile...",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(TreeId+1),AfxGetInstanceHandle(),NULL);style::StyleButton(open_,style::Icon::Add,false,L"Open connection settings saved in a world profile file");
     CRect rect;GetClientRect(rect);OnSize(0,rect.Width(),rect.Height());return true;}
   void Update(const ws::Snapshot& snapshot){updating_=true;bool rebuild=snapshot.rows.size()!=snapshot_.rows.size();if(!rebuild)for(size_t i=0;i<snapshot.rows.size();++i)if(snapshot.rows[i].world!=snapshot_.rows[i].world || snapshot.rows[i].name!=snapshot_.rows[i].name || snapshot.rows[i].channel!=snapshot_.rows[i].channel || snapshot.rows[i].game!=snapshot_.rows[i].game || snapshot.rows[i].gameLabel!=snapshot_.rows[i].gameLabel){rebuild=true;break;}
     std::set<std::string> collapsed;if(rebuild)for(size_t i=0;i<snapshot_.rows.size();++i)if(!snapshot_.rows[i].channel && !(tree_.GetItemState(items_[i],TVIS_EXPANDED)&TVIS_EXPANDED))collapsed.insert(snapshot_.rows[i].world);
@@ -143,12 +147,13 @@ public:
     if((rebuild || snapshot.world!=snapshot_.world || snapshot.name!=snapshot_.name) && ::GetFocus()!=tree_.m_hWnd)for(size_t i=0;i<snapshot.rows.size();++i)if(snapshot.rows[i].world==snapshot.world && snapshot.rows[i].name==snapshot.name){tree_.SelectItem(items_[i]);break;}
     if(rebuild){rail_.ResetContent();railGames_.clear();for(const auto& entry:games_){for(const auto& row:snapshot.rows)if(!row.channel && row.game==entry.first){railGames_.push_back({entry.first,row.gameLabel});::SendMessageW(rail_.m_hWnd,LB_ADDSTRING,0,(LPARAM)row.gameLabel.c_str());break;}}
       tree_.SetRedraw(TRUE);tree_.Invalidate();}
-    if(rebuild || snapshot.world!=snapshot_.world){for(const auto& row:snapshot.rows)if(!row.channel && row.world==snapshot.world){for(size_t i=0;i<railGames_.size();++i)if(railGames_[i].first==row.game){rail_.SetCurSel((int)i);::SetWindowTextW(title_,row.gameLabel.c_str());}break;}}
+    if(rebuild || snapshot.world!=snapshot_.world){for(const auto& row:snapshot.rows)if(!row.channel && row.world==snapshot.world){for(size_t i=0;i<railGames_.size();++i)if(railGames_[i].first==row.game){rail_.SetCurSel((int)i);}break;}}
+    ::ShowWindow(hint_,snapshot.rows.empty()?SW_SHOWNOACTIVATE:SW_HIDE);
     ::EnableWindow(editor_,!snapshot.world.empty());snapshot_=snapshot;updating_=false;
   }
 };
 BEGIN_MESSAGE_MAP(Navigator,CDockablePane)
- ON_UPDATE_COMMAND_UI_RANGE(TreeId+1,TreeId+4,OnUpdateOpen)
+ ON_UPDATE_COMMAND_UI_RANGE(TreeId+1,TreeId+5,OnUpdateOpen)
  ON_LBN_SELCHANGE(TreeId+2,OnGame)
  ON_WM_DRAWITEM()
  ON_WM_MEASUREITEM()

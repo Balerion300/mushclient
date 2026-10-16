@@ -829,6 +829,16 @@ void CWorkspacePane::SaveInputDraft()
   ::GetWindowTextW(m_input.m_hWnd,&text[0],(int)text.size());text.resize(wcslen(text.c_str()));
   m_transcripts[m_selectedInput]->inputDraft=text;
 }
+bool CWorkspacePane::HasUnsentInput(const CString& id) const
+{
+
+  for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]->connectionId==id){
+    if((int)i==m_selectedInput && ::IsWindow(m_input.GetSafeHwnd())){
+      if(::GetWindowTextLengthW(m_input.GetSafeHwnd())>0)return true;
+    }else if(!m_transcripts[i]->inputDraft.empty())return true;
+  }
+  return false;
+}
 bool CWorkspacePane::SetInputPrefix(const CString& id,const CString& name,const std::wstring& prefix)
 {
   Transcript* transcript=Find(id,name);

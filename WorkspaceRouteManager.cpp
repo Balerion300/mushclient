@@ -222,7 +222,7 @@ class CWorkspaceRouteDialog : public CWnd {
     move(advancedButton,pad,y,width,Scale(28));y+=Scale(34);
     regex.ShowWindow(advanced?SW_SHOW:SW_HIDE);followingImages.ShowWindow(advanced?SW_SHOW:SW_HIDE);
     if(advanced){move(regex,pad,y,width,Scale(28));y+=Scale(32);move(followingImages,pad,y,width,Scale(38));y+=Scale(44);}
-    move(hint,pad,y,width,Scale(34));y+=Scale(40);
+    move(hint,pad,y,width,Scale(52));y+=Scale(58);
     move(save,pad,y,max(90,width-Scale(112)),Scale(32));move(cancel,pad+width-Scale(104),y,Scale(104),Scale(32));y+=Scale(40);
     move(feedback,pad,y,width,Scale(44));
     contentHeight=y+Scale(56);
@@ -260,7 +260,7 @@ public:
     return CreateEx(WS_EX_DLGMODALFRAME,
                     AfxRegisterWndClass(0, LoadCursor(NULL, IDC_ARROW),
                                         (HBRUSH)(COLOR_BTNFACE + 1)),
-                    "Channels & tells",
+                    "Local output channels",
                     WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME |
                         WS_MINIMIZEBOX | WS_VSCROLL,
                     CRect(200, 100, 860, 800), frame, 0);
@@ -330,7 +330,7 @@ protected:
         WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     destination.Create("Original world", WS_CHILD | WS_VISIBLE,
                        CRect(0, 0, 1, 1), this);
-    hint.Create("A blank reply prefix accepts complete commands. Replies go to the original world shown above.",
+    hint.Create("Filters received text locally; it does not join game channels. A blank reply prefix sends complete commands.",
                 WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
     feedback.Create("Choose a channel or tell example, or select a saved rule. Select a rule to enable Options and Delete.",
                     WS_CHILD | WS_VISIBLE, CRect(0, 0, 1, 1), this);
@@ -535,18 +535,10 @@ protected:
         pattern.SetFocus();
         return;
       }
-      bool saved = editing >= 0 && editing < (int)visibleRoutes.size()
-                       ? frame->ReplaceWorkspaceRoute(visibleRoutes[editing],
-                                                      route, error)
-                       : frame->AddWorkspaceRoute(route, error);
+      const WorkspaceRoute* original=editing>=0 && editing<(int)visibleRoutes.size()?&visibleRoutes[editing]:NULL;
+      bool saved=frame->SaveWorkspaceRoute(original,route,prefixText,error);
       if (!saved) {
         Feedback(RouteWide((LPCTSTR)error));
-        return;
-      }
-      if (!frame->SetWorkspaceInputPrefix(identity, transcriptName,
-                                          prefixText)) {
-        Feedback(L"The routing rule was saved, but its outgoing prefix was not "
-                 L"saved. Retry the prefix before sending.");
         return;
       }
       RefreshRoutes();

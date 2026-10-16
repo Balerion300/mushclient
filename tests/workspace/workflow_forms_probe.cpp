@@ -19,6 +19,7 @@ struct {FictionalDocs* m_pWorldDocTemplate=&fictionalDocs;} App;
 CString WorkspaceConnectionId(CMUSHclientDoc*){return "fictional-world:runtime:1";}
 bool WorkspaceIsConnectionLive(const CString&){return true;}
 std::string WorkspaceEndpointForWindow(const std::string& id){return id;}
+bool WorkspaceWorldAppearance(const CString&,workspace_spawn::Appearance& value){value=workspace_spawn::Appearance();return true;}
 struct WorkspaceRoute {
   CString connectionId,transcriptName;
   std::wstring pattern;
@@ -36,6 +37,7 @@ public:
   bool SetWorkspaceInputPrefix(const CString&,const CString&,const std::wstring&){return true;}
   bool AddWorkspaceRoute(const WorkspaceRoute& route,CString&){routes.push_back(route);return true;}
   bool ReplaceWorkspaceRoute(const WorkspaceRoute&,const WorkspaceRoute& route,CString& error){return AddWorkspaceRoute(route,error);}
+  bool SaveWorkspaceRoute(const WorkspaceRoute*,const WorkspaceRoute& route,const std::wstring&,CString& error){return AddWorkspaceRoute(route,error);}
   bool RemoveWorkspaceRoute(const WorkspaceRoute&){return true;}
 };
 agent_workspace::Store store;

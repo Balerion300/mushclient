@@ -27,6 +27,8 @@ user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
 user.EnumChildWindows.argtypes = [wintypes.HWND, callback_type, wintypes.LPARAM]
 user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
 user.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user.SendMessageW.argtypes=[wintypes.HWND,wintypes.UINT,wintypes.WPARAM,wintypes.LPARAM]
+user.SendMessageW.restype=wintypes.LPARAM
 user.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 rows = []
 def inspect(hwnd, parameter):
@@ -34,7 +36,9 @@ def inspect(hwnd, parameter):
     user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
     if pid.value == int(sys.argv[1]):
         text, kind = ctypes.create_unicode_buffer(4096), ctypes.create_unicode_buffer(256)
-        user.GetWindowTextW(hwnd, text, len(text))
+        # GetWindowText cannot read another process's native EDIT contents.
+        # Standard WM_GETTEXT is marshaled by Windows for this owned candidate.
+        user.SendMessageW(hwnd,0x000d,len(text),ctypes.cast(text,ctypes.c_void_p).value)
         user.GetClassNameW(hwnd, kind, len(kind))
         rows.append({'hwnd':int(hwnd), 'class':kind.value, 'text':text.value})
     return True

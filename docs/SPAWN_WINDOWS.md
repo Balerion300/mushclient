@@ -1,6 +1,6 @@
 # Spawn windows
 
-Open a world, then use **Workspace → Output routes**. The route manager keeps
+Open a connection profile, then use **Output channels** or **Workspace → Manage local output channels**. These transcripts filter received text on this computer; they do not join or create game channels. The route manager keeps
 the original world shown at the top even when you switch to another world.
 
 1. Choose **New**, or use **Channel example** / **Tell example** as a starting
@@ -29,7 +29,7 @@ restores the unfinished draft you had before browsing. The current prefix is
 applied when a recalled message is submitted. History is bounded to 100 entries
 and 64 KiB per transcript, and consecutive identical submissions do not duplicate
 it. Failed validation, plugin rejection or disconnect keeps the draft and history.
-Reconnect the original world before retrying a disconnected input.
+Reconnect the original world before retrying a disconnected input. Closing a world or exiting with unsent Main/channel writing asks you to **Discard input** or **Cancel**; Cancel is the default and keeps the writing open. Drafts are not automatically saved to disk.
 
 One submission contains one input line, with a default limit of 4096 UTF-8 bytes
 including the prefix. Line breaks, tabs, control characters and invalid Unicode

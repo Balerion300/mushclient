@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser()
 p.add_argument('--exe', type=Path, default=ROOT/'WinRel/MUSHclient.exe')
 p.add_argument('--runtime', type=Path, default=ROOT/'.distribution-source/extracted')
+p.add_argument('--package',type=Path,help='Copy a clean full package instead of assembling runtime components')
+p.add_argument('--default-settings',action='store_true',help='Keep normal close confirmation, spelling and window defaults')
 p.add_argument('--destination', type=Path)
 p.add_argument('--duration', type=int, default=1800)
 p.add_argument('--focus-trace', action='store_true', help='Bounded own-client focus diagnostics; logs no input text')
@@ -34,12 +36,17 @@ p.add_argument('--isolated-desktop', action='store_true', help='Confine all cand
 a = p.parse_args()
 dest = a.destination or Path(tempfile.mkdtemp(prefix='mush-modern-acceptance-'))
 dest.mkdir(exist_ok=True)
-for name in ('locale', 'pennmush-reference'):
-    source = a.runtime/name if name == 'locale' else ROOT/'third_party'/name
-    shutil.copytree(source, dest/name)
-shutil.copytree(ROOT/'spelling/packs',dest/'spelling/packs')
-for source in (a.exe, a.runtime/'lua5.1.dll', ROOT/'third_party/scintilla/bin/Scintilla.dll', ROOT/'WinRel/MUSHclientAgent.exe'):
-    shutil.copy2(source, dest/source.name)
+if a.package:
+    assert not (a.package/'mushclient_prefs.sqlite').exists(),'Use a clean package without user state'
+    shutil.copytree(a.package,dest,dirs_exist_ok=True)
+    shutil.copy2(a.exe,dest/'MUSHclient.exe')
+else:
+    for name in ('locale', 'pennmush-reference'):
+        source = a.runtime/name if name == 'locale' else ROOT/'third_party'/name
+        shutil.copytree(source, dest/name)
+    shutil.copytree(ROOT/'spelling/packs',dest/'spelling/packs')
+    for source in (a.exe, a.runtime/'lua5.1.dll', ROOT/'third_party/scintilla/bin/Scintilla.dll', ROOT/'WinRel/MUSHclientAgent.exe'):
+        shutil.copy2(source, dest/source.name)
 
 plugin = dest/'fixture-plugin.xml'
 plugin.write_text('''<?xml version="1.0"?><!DOCTYPE muclient><muclient>
@@ -150,7 +157,9 @@ for index, label in enumerate(('Alpha', 'Beta')):
 
 for key, value in {'database_version':1, 'First time':0, 'Version':507, 'Tip_StartUp':1}.items():
     db.execute('INSERT INTO control VALUES(?,?)', (key,value))
-for key, value in {'WorldList':'*'.join(worlds), 'EnableSpellCheck':'0', 'AutoConnectWorlds':'1', 'OpenWorldsMaximised':'1', 'ConfirmBeforeClosingMushclient':'0', 'ConfirmBeforeClosingWorld':'0'}.items():
+preferences={'WorldList':'*'.join(worlds)}
+if not a.default_settings:preferences.update({'EnableSpellCheck':'0', 'AutoConnectWorlds':'1', 'OpenWorldsMaximised':'1', 'ConfirmBeforeClosingMushclient':'0', 'ConfirmBeforeClosingWorld':'0'})
+for key, value in preferences.items():
     db.execute('INSERT INTO prefs VALUES(?,?)', (key,value))
 db.commit()
 if a.tabbed_worlds:

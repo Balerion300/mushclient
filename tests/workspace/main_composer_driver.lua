@@ -29,6 +29,12 @@ function OnPluginTick()
   if action=='draft' then SelectCommand();PasteCommand(value)
   elseif action=='submit' then receipt('submit-result:'..tostring(DoCommand('SubmitMainInput')))
   elseif action=='activate' then Activate()
+  elseif action=='disconnect' then Disconnect()
+  elseif action=='exit' then
+   assert(Save('')==false,'Fictional world save failed')
+   local other=GetWorldById(string.rep(label=='Alpha' and '22' or '11',12))
+   if other then assert(other:Save('')==false,'Other fictional world save failed') end
+   assert(DoCommand('ExitClient')==0)
   elseif action=='height' then assert(SetCommandWindowHeight(tonumber(value))==0)
   elseif action=='autoheight' then assert(SetOption('auto_resize_command_window',tonumber(value))==0)
   elseif action=='fullscreen' then Activate();assert(DoCommand('FullScreenMode')==0)

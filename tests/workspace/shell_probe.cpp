@@ -61,6 +61,9 @@ class ShellApp:public CWinApp {
   const HWND openButton=::GetDlgItem(nav,0x7821);const int beforeOpen=actions;
   ok=Check(out,"Open a world remains enabled after native idle command updates with no worlds",::IsWindowEnabled(openButton)!=FALSE)&&ok;
   ::SendMessageW(openButton,BM_CLICK,0,0);ok=Check(out,"idle-updated Open a world dispatches only the original open-file action",actions==beforeOpen+1 && last==ws::OpenWorld && world.empty() && name.empty())&&ok;
+  const HWND createButton=::GetDlgItem(nav,0x7825);const int beforeCreate=actions;
+  ok=Check(out,"first-run create and open are distinct enabled actions",createButton && ::IsWindowEnabled(createButton) && Inside(createButton,nav) && Inside(openButton,nav))&&ok;
+  ::SendMessageW(createButton,BM_CLICK,0,0);ok=Check(out,"New connection dispatches creation rather than an existing-file picker",actions==beforeCreate+1 && last==ws::CreateWorld && world.empty() && name.empty())&&ok;
   const LONG widthWithNav=client.right;shell.ShowNavigator(false);::GetClientRect(frame->m_hWndMDIClient,&client);ok=Check(out,"collapsing navigator returns space to central transcript",client.right>widthWithNav && !shell.NavigatorVisible())&&ok;
   frame->SetWindowPos(NULL,0,0,600,700,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);frame->RecalcLayout();bool inside=true;for(int i=0;i<6;++i)inside=Inside(::GetDlgItem(bar,0x7800+i),bar)&&inside;
   ok=Check(out,"narrow daily action bar wraps every labeled action inside its reserved height",inside && Inside(::GetDlgItem(bar,0x7806),bar))&&ok;

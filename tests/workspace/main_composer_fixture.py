@@ -38,7 +38,8 @@ def read(path):return path.read_text(encoding='utf-8') if path.exists() else ''
 def base(label):return dest/('fixture-plugin.xml.main-'+label)
 def action(label,name,value=''):
     receipt=Path(str(base(label))+'.receipt');before=len(read(receipt))
-    Path(str(base(label))+'.control').write_text(name+'\n'+value,encoding='utf-8',newline='')
+    control=Path(str(base(label))+'.control');pending=Path(str(control)+'.pending')
+    pending.write_text(name+'\n'+value,encoding='utf-8',newline='');pending.replace(control)
     result=wait(lambda:read(receipt)[before:] if 'done:'+name+':' in read(receipt)[before:] else None)
     assert 'done:'+name+':ok' in result,result
     return result
@@ -79,6 +80,9 @@ try:
     action('Beta','activate');action('Alpha','activate')
     action('Alpha','fullscreen');action('Alpha','fullscreen')
     action('Alpha','activate');assert 'active:true' in action('Alpha','snapshot')
+    # Draft-discard protection has its own cancel/discard fixture. This suite
+    # closes an intentionally empty input while checking saved body geometry.
+    action('Alpha','draft','');assert 'draft:\n' in action('Alpha','snapshot')
     action('Alpha','close');time.sleep(.4)
     first_close=action('Beta','snapshot')
     assert 'alpha-open:false' in first_close,first_close

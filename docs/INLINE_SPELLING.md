@@ -6,6 +6,8 @@ Right-click an underlined word for suggestions or to add it to a dictionary.
 Nothing is replaced or sent automatically. The ordinary input buffer, native
 selection, undo, command history and game connection remain in place.
 
+**Tools > Spelling dictionaries** (also in the Workspace menu) opens the dictionary manager for the selected original world.
+
 The right-click menu includes **Check spelling for this game**, **Use Westeros
 word pack for this game**, and **Manage personal and game dictionaries**. The
 manager lets you review, add and remove words. Choose Personal for words accepted

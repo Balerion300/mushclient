@@ -130,6 +130,7 @@ public:
   std::wstring SharedInputDestination() const;
   bool SelectSharedInput(bool focus=true);
   void SubmitSharedInput() { OnReviewInput(); }
+  bool HasUnsentInput(const CString& connectionId) const;
   bool SetInputPrefix(const CString& connectionId, const CString& name, const std::wstring& prefix);
   virtual BOOL PreTranslateMessage(MSG* message);
   void SetActionHandler(const ActionHandler& handler) { m_actionHandler=handler; }

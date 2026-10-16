@@ -282,6 +282,11 @@ inline void Manage(const std::shared_ptr<State>& state){
   auto tail=(WORD*)((BYTE*)form+sizeof(DLGTEMPLATE));*tail++=0;*tail++=0;const wchar_t* title=L"Spelling dictionaries";wcscpy_s((wchar_t*)tail,100,title);tail+=wcslen(title)+1;*tail++=9;wcscpy_s((wchar_t*)tail,32,L"Segoe UI");
   DialogBoxIndirectParamW(GetModuleHandle(NULL),form,GetAncestor(state->window,GA_ROOT),DictionaryDialog::Procedure,(LPARAM)&dialog);
 }
+inline bool ManageWindow(HWND window){
+  Refresh(window);auto found=Editors().find(window);
+  if(found==Editors().end() || found->second->current.gameKey.empty())return false;
+  Manage(found->second);return true;
+}
 inline void Menu(const std::shared_ptr<State>& state,LPARAM lp) {
   Refresh(state->window);HWND window=state->window;POINT point={(short)LOWORD(lp),(short)HIWORD(lp)};
   if(state->current.root.empty()||state->current.gameKey.empty()){DefSubclassProc(window,WM_CONTEXTMENU,(WPARAM)window,lp);return;}
@@ -323,7 +328,10 @@ inline LRESULT CALLBACK Procedure(HWND window,UINT message,WPARAM wp,LPARAM lp,U
   const LRESULT result=DefSubclassProc(window,message,wp,lp);
   auto registered=Editors().find(window);if(!state->alive||registered==Editors().end()||registered->second!=state)return result;
   if(message==WM_PAINT)Paint(state);else if(message==WM_PRINTCLIENT)Paint(state,(HDC)wp);
-  if(message==WM_CHAR||message==WM_KEYDOWN||message==WM_SETTEXT||message==EM_REPLACESEL||message==WM_PASTE||message==WM_CUT||message==WM_UNDO){state->changed=GetTickCount64();state->shown.errors.clear();InvalidateRect(window,NULL,FALSE);}
+  // Navigation and modifier keys do not invalidate a result for unchanged text.
+  // Refresh observes actual edits (including Delete/Undo) and advances the
+  // revision only when the text or dictionary context really changed.
+  if(message==WM_CHAR||message==WM_KEYDOWN||message==WM_SETTEXT||message==EM_REPLACESEL||message==WM_PASTE||message==WM_CUT||message==WM_UNDO)Refresh(window);
   return result;
 }
 inline bool Attach(HWND window,std::function<Context()> context) {

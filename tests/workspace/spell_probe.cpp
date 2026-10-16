@@ -34,6 +34,14 @@ int main(int argc,char** argv){
  Check("native worker settles without requiring focus or recipient input",Wait([&](){return Settled(editor,unicode);}));
  Check("native Windows spelling engine is available",ws::Inspect(editor).engineAvailable);
  Check("fictional misspelling is reported",Word(editor,L"qzxvvaal"));
+ SendMessageW(editor,EM_SETSEL,4,4);const auto navigationRevision=ws::Inspect(editor).revision;
+ SendMessageW(editor,WM_KEYDOWN,VK_LEFT,0);SendMessageW(editor,WM_KEYUP,VK_LEFT,0);
+ DWORD navigationStart=0,navigationEnd=0;SendMessageW(editor,EM_GETSEL,(WPARAM)&navigationStart,(LPARAM)&navigationEnd);
+ Check("caret navigation retains spelling results without changing text or revision",navigationStart==3 && navigationEnd==3 && Text(editor)==unicode && ws::Inspect(editor).revision==navigationRevision && Word(editor,L"qzxvvaal"));
+ SendMessageW(editor,WM_KEYDOWN,VK_SHIFT,0);SendMessageW(editor,WM_KEYUP,VK_SHIFT,0);
+ Check("text-neutral modifier keys retain spelling suggestions",Word(editor,L"qzxvvaal"));
+ SendMessageW(editor,EM_SETSEL,2,7);
+ Check("changing the selection retains spelling results for unchanged text",Text(editor)==unicode && Word(editor,L"qzxvvaal") && ws::Inspect(editor).revision==navigationRevision);
  bool exact=false;for(const auto& error:ws::Inspect(editor).errors)if(error.word==L"qzxvvaal")exact=error.first==unicode.find(L"qzxvvaal") && error.length==8;
  Check("supplementary Unicode text retains UTF-16 error indices",exact && Text(editor)==unicode);
  HWND alternate=CreateWindowExW(0,L"STATIC",L"Hidden alternate composer",WS_POPUP,0,0,800,400,NULL,NULL,GetModuleHandle(NULL),NULL);
