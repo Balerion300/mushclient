@@ -62,6 +62,11 @@ Implementation and acceptance receipts will be appended as the work completes.
   last transcript in its group. Main appearance inheritance and explicit channel
   overrides remain available. Hidden/scrolled activity counts are not cleared
   merely by selecting input; returning to live output clears them.
+- Cold RichEdit scrollbars with an uninitialized zero page no longer falsely
+  turn end-of-output carets into manual scrollback. The optimized full-client
+  trace proved the first-packet race; all diagnostic instrumentation was removed.
+- Plain-text viewport resizing now retains live follow or the scrolled reading
+  anchor; both modes have an explicit regression.
 - Labeled docking guides now use their painted target rectangles for hit tests;
   Join/split/separate-window wording is explicit. Nested split/tab/auto-hide
   restoration and light/dark/red/blue styling passed the native fixtures.
@@ -69,7 +74,9 @@ Implementation and acceptance receipts will be appended as the work completes.
 ## Integrated checks
 
 Release SHA256:
-`EF6B7AAC5AD59CB98084506C2583D595FD5344128047DBAB49A05C0DC39803A7`.
+`D7670F9E64AEC3121EE2B50E2D8A075236506E44E67871D7C01CD72CABCA9912`.
+
+Final Debug SHA256: `056B86F3CADD0962105413624F24CE7861598D2746DC3CE830B923DC6E69F53B`.
 
 Release and Debug full builds passed. The optional Debug browse database was
 disabled in temporary local build properties to avoid the existing BSCMAKE size
@@ -81,13 +88,13 @@ loopback worlds. No installed profiles, actual game connections or physical inpu
 
 | Full client | Result | Evidence under Local/Temp |
 |---|---|---|
-| Release Main / tree | 13/13 | mush-modern-acceptance-845ulgcr |
-| Release Main / character tabs | 13/13 | mush-modern-acceptance-spdxqdqm |
-| Debug Main / tree | 13/13 | mush-modern-acceptance-5q_kfr7c |
-| Debug Main / character tabs | 13/13 | mush-modern-acceptance-uuhuk5a9 |
-| Release unsent Main/channel close and Exit | 7/7 | mush-modern-acceptance-1t7acoo8 |
-| Debug unsent Main/channel close and Exit | 7/7 | mush-modern-acceptance-_lkw88_6 |
-| Release shared-history canonical wire / alias / draft / isolation | 10/10 | mush-modern-acceptance-mwlw_hi9 |
+| Release Main / tree | 13/13 | mush-modern-acceptance-vro_96ue |
+| Release Main / character tabs | 13/13 | mush-modern-acceptance-uvxsaikr |
+| Debug Main / tree | 13/13 | mush-modern-acceptance-51ia0lxs |
+| Debug Main / character tabs | 13/13 | mush-modern-acceptance-9tyrk6y3 |
+| Release unsent Main/channel close and Exit | 7/7 | mush-modern-acceptance-n433zgh1 |
+| Debug unsent Main/channel close and Exit | 7/7 | mush-modern-acceptance-adyswq2t |
+| Release shared-history canonical wire / alias / draft / isolation | 10/10 | mush-modern-acceptance-quood8su |
 
 There are also 15 extracted production persistence checks (including rejected
 Main-toggle saves), 13 native production keyboard-routing checks and separate
