@@ -3,6 +3,23 @@
 October 16, 2026. Architecture recommendation, not an implemented port or sync
 feature. Continue shipping and testing Windows and web in parallel.
 
+## Existing port worth evaluating first
+
+QMud already describes itself as a Qt 6 continuation of MUSHclient with
+Windows/macOS/Linux support and migration of worlds/plugins. Its current upstream
+README and license were checked directly, not inferred from the older local
+checkout. Evaluate it against our inline Pueblo images, docking, spell checking,
+IDE, agent interfaces and plugin compatibility before independently repeating
+an entire framework port. Upstream's compatibility claim is not our acceptance.
+
+QMud is GPL-3.0, unlike our MIT engine baseline. Reusing its implementation in a
+distributed derivative requires assessing GPL obligations; do not copy it into
+an MIT-only codebase as if the licenses were identical. Qt's own module licenses
+are a separate consideration. This assessment copies no QMud implementation.
+
+- https://github.com/Nodens-/QMud
+- https://github.com/Nodens-/QMud/blob/main/LICENSE.md
+
 ## Recommendation
 
 Prototype a Qt Widgets shell as a separate experiment before committing to a
