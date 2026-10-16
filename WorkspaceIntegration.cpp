@@ -127,6 +127,12 @@ WorkspaceRecord captureLines(CMUSHclientDoc* doc,const std::vector<CLine*>& line
       if(length<=0)continue;
       WorkspaceRun run;run.text=wide(line->text+offset,length,doc->m_bUTF_8);
       doc->GetStyleRGB(style,run.foreground,run.background);
+      // Only the normal ANSI defaults inherit a channel's base colors.
+      // RGB/custom colors, inverse text and bright ANSI colors stay explicit.
+      const bool ansi=(style->iFlags&COLOURTYPE)==COLOUR_ANSI && !(style->iFlags&INVERSE);
+      run.defaultForeground=ansi && !(style->iFlags&HILITE) && style->iForeColour==WHITE;
+      run.defaultBackground=ansi && style->iBackColour==BLACK;
+      if(doc->m_bCustom16isDefaultColour && (style->iFlags&COLOURTYPE)==COLOUR_CUSTOM && style->iForeColour==15 && !(style->iFlags&INVERSE))run.defaultForeground=run.defaultBackground=true;
       run.bold=(style->iFlags&HILITE)!=0;run.italic=(style->iFlags&ITALIC)!=0;run.underline=(style->iFlags&UNDERLINE)!=0;
       if(style->pAction)run.action=style->pAction->m_strAction;
       run.actionType=style->iFlags&ACTIONTYPE;record.runs.push_back(run);offset+=length;remaining-=length;
@@ -145,6 +151,15 @@ void ensurePane(const CString& connectionId,const CString& name,const std::strin
   CMUSHclientDoc* doc=liveDocument(connectionId);
   if(!found && doc)agentStore.addWindow(id,utf8(wide(doc->m_mush_name,doc->m_mush_name.GetLength(),false)),utf8(wide(name,name.GetLength(),false)));
 }
+}
+bool WorkspaceWorldAppearance(const CString& connectionId,workspace_spawn::Appearance& appearance)
+{
+  auto* doc=liveDocument(connectionId);if(!doc)return false;
+  appearance.face=wide(doc->m_font_name,doc->m_font_name.GetLength(),false);
+  appearance.pointSize=doc->m_font_height;appearance.weight=doc->m_font_weight;appearance.charset=(int)doc->m_font_charset;
+  appearance.background=doc->m_iBackgroundColour!=NO_COLOUR?doc->m_iBackgroundColour:doc->TranslateColour(doc->m_bCustom16isDefaultColour?doc->m_customback[15]:doc->m_normalcolour[BLACK],1.0);
+  appearance.foreground=doc->TranslateColour(doc->m_bCustom16isDefaultColour?doc->m_customtext[15]:doc->m_normalcolour[WHITE],1.0);
+  return workspace_spawn::ValidAppearance(appearance);
 }
 namespace {
 POSITION sourcePosition(CMUSHclientDoc* doc,unsigned __int64 cookie) {

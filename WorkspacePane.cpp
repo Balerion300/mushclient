@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "workspace/WorkspaceSpell.h"
 #include "workspace/WorkspaceNativeControl.h"
 #include "workspace/WorkspaceComposerSplitter.h"
 #include "WorkspacePane.h"
@@ -116,7 +117,7 @@ BOOL CWorkspacePane::FloatPane(CRect bounds,AFX_DOCK_METHOD method,bool show)
 {return CDockablePane::FloatPane(bounds,method,show);}
 LRESULT CWorkspacePane::WindowProc(UINT message,WPARAM wp,LPARAM lp)
 {
-  if(message==WM_DESTROY)workspace_composer::ReleaseEditor(m_input.GetSafeHwnd());
+  if(message==WM_DESTROY){workspace_spell::Detach(m_input.GetSafeHwnd());workspace_composer::ReleaseEditor(m_input.GetSafeHwnd());}
   if(message==WM_COMMAND && LOWORD(wp)==2 && (HIWORD(wp)==EN_SETFOCUS || HIWORD(wp)==EN_KILLFOCUS))WorkspaceFocusState::Trace("channel-input",m_hWnd,message,wp);
   if(message==WM_NCDESTROY)valyriaChannelWindows.erase(m_hWnd);
   if(message==WM_THEMECHANGED && m_tabs.GetSafeHwnd())LayoutChildren();
@@ -134,6 +135,7 @@ int CWorkspacePane::OnCreate(LPCREATESTRUCT cs)
   if(!input || !workspace_native_control::Attach(m_input,input)) return -1;
   ::SendMessageW(input,EM_SETLIMITTEXT,16384,0);
   ::SendMessageW(input,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
+  workspace_spell::Attach(input,[this]{const int selected=m_tabs.GetCurSel();return m_spellingContext && selected>=0 && selected<(int)m_transcripts.size()?m_spellingContext(m_transcripts[selected]->connectionId):workspace_spell::Context();});
   if(!m_reviewInput.Create("Send",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,3)) return -1;
   m_reviewInput.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   HWND search=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
@@ -192,17 +194,18 @@ bool CWorkspacePane::OpenTranscript(const CString& id, const CString& name)
     if(!SetWindowSubclass(textWindow,TranscriptInputProc,1,(DWORD_PTR)m_hWnd)){::DestroyWindow(textWindow);delete transcript;return false;}
     WorkspaceOleCallback* oleCallback=new WorkspaceOleCallback;
     ::SendMessageW(textWindow,EM_SETOLECALLBACK,0,(LPARAM)oleCallback);oleCallback->Release();
-    transcript->text.SetBackgroundColor(FALSE,RGB(25,25,28));
+    transcript->text.SetBackgroundColor(FALSE,transcript->appearance.background);
     transcript->text.LimitText(4*1024*1024);
     transcript->text.SendMessage(EM_SETUNDOLIMIT,0,0); // Read-only output has no editable undo history.
     transcript->text.SetEventMask(transcript->text.GetEventMask()|ENM_LINK);
     CHARFORMAT2W format; memset(&format,0,sizeof(format)); format.cbSize=sizeof(format);
-    format.dwMask=CFM_FACE|CFM_SIZE; format.yHeight=200;
-    wcscpy_s(format.szFaceName, L"Consolas");
+    format.dwMask=CFM_FACE|CFM_SIZE|CFM_COLOR|CFM_BACKCOLOR; format.yHeight=200;
+    format.crTextColor=transcript->appearance.foreground;format.crBackColor=transcript->appearance.background;
+    wcscpy_s(format.szFaceName,transcript->appearance.face.c_str());
     ::SendMessageW(textWindow,EM_SETCHARFORMAT,0,(LPARAM)&format);
     CString label=name+" ["+id.Left(8)+"]";
     m_tabs.InsertItem((int)m_transcripts.size(),label);
-    m_transcripts.push_back(transcript);SetWindowText(label);
+    m_transcripts.push_back(transcript);SetWindowText(label);RefreshAppearance(*transcript);
     }
   for (size_t i=0; i<m_transcripts.size(); ++i)
     if (m_transcripts[i]==transcript) m_tabs.SetCurSel((int)i);
@@ -242,7 +245,7 @@ long WorkspaceRtfText(std::ostringstream& out,const std::wstring& text)
 long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord& record,long insertAt,bool track)
 {
   CRichEditCtrl& control=transcript.text;
-  if(record.hasSurfaceColors && track){
+  if(record.hasSurfaceColors && track && !transcript.appearanceKnown){
     if(transcript.surfaceBackground!=record.surfaceBackground)
       control.SetBackgroundColor(FALSE,record.surfaceBackground);
     transcript.surfaceForeground=record.surfaceForeground;
@@ -257,13 +260,14 @@ long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord&
     {
     // Stream one formatted paragraph rather than forcing RichEdit layout and
     // precise-length queries separately for every style run.
-    std::ostringstream out;out<<"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Consolas;}}{\\colortbl;";
-    for(const auto& run:record.runs)for(COLORREF color:{run.foreground,run.background})
+    std::ostringstream out;out<<"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fcharset"<<transcript.appearance.charset<<' ';
+    WorkspaceRtfText(out,transcript.appearance.face);out<<";}}{\\colortbl;";
+    for(const auto& run:record.runs)for(COLORREF color:{run.defaultForeground?transcript.surfaceForeground:run.foreground,run.defaultBackground?transcript.surfaceBackground:run.background})
       out<<"\\red"<<(int)GetRValue(color)<<"\\green"<<(int)GetGValue(color)<<"\\blue"<<(int)GetBValue(color)<<';';
-    out<<"}\\plain\\f0\\fs20\\uc0 ";
+    out<<"}\\plain\\f0\\fs"<<transcript.appearance.pointSize*2<<"\\uc0 ";
     long position=origin;std::vector<LinkRange> links;
     for(size_t i=0;i<record.runs.size();++i){
-      const WorkspaceRun& run=record.runs[i];out<<"\\cf"<<i*2+1<<"\\highlight"<<i*2+2<<(run.bold?"\\b ":"\\b0 ")<<(run.italic?"\\i ":"\\i0 ")<<(run.underline?"\\ul ":"\\ulnone ");
+      const WorkspaceRun& run=record.runs[i];out<<"\\cf"<<i*2+1<<"\\highlight"<<i*2+2<<((run.bold || transcript.appearance.weight>=700)?"\\b ":"\\b0 ")<<(run.italic?"\\i ":"\\i0 ")<<(run.underline?"\\ul ":"\\ulnone ");
       const long first=position;position+=WorkspaceRtfText(out,run.text);
       if(!run.action.IsEmpty()){LinkRange link;link.first=first;link.last=position;link.type=run.actionType;link.action=run.action;links.push_back(link);}
     }
@@ -277,10 +281,10 @@ long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord&
   WorkspaceSelect(control,end,end);
   CHARFORMAT2W paragraph;memset(&paragraph,0,sizeof(paragraph));paragraph.cbSize=sizeof(paragraph);
   paragraph.dwMask=CFM_COLOR|CFM_BACKCOLOR|CFM_BOLD|CFM_ITALIC|CFM_UNDERLINE|CFM_LINK;
-  paragraph.crTextColor=record.hasSurfaceColors?record.surfaceForeground:transcript.surfaceForeground;
-  paragraph.crBackColor=record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground;
+  paragraph.crTextColor=transcript.appearanceKnown?transcript.surfaceForeground:(record.hasSurfaceColors?record.surfaceForeground:transcript.surfaceForeground);
+  paragraph.crBackColor=transcript.appearanceKnown?transcript.surfaceBackground:(record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground);
   if(record.bleedBackground){
-    if(!record.runs.empty())paragraph.crBackColor=record.runs.back().background;
+    if(!record.runs.empty())paragraph.crBackColor=record.runs.back().defaultBackground?transcript.surfaceBackground:record.runs.back().background;
     else {CHARFORMAT2W inherited;memset(&inherited,0,sizeof(inherited));inherited.cbSize=sizeof(inherited);
       // RichEdit's insertion style can reset at the document end. Read the
       // preceding paragraph mark when intentionally bleeding an empty line.
@@ -459,6 +463,7 @@ void CWorkspacePane::LayoutChildren()
   for (size_t i=0; i<m_transcripts.size(); ++i)
     {
     Transcript& transcript=*m_transcripts[i];
+    RefreshAppearance(transcript);
     const ViewState view=SaveView(transcript.text);
     transcript.text.MoveWindow(body);
     CRect viewport;transcript.text.GetClientRect(viewport);
@@ -522,7 +527,7 @@ long CWorkspacePane::RenderImage(Transcript& transcript, const WorkspaceRecord& 
   if (!bitmap || !pixels) {if(bitmap)DeleteObject(bitmap);return insertAt;}
   CDC dc; dc.CreateCompatibleDC(NULL);
   HGDIOBJ old=::SelectObject(dc.m_hDC,bitmap);
-  dc.FillSolidRect(0,0,width,height,record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground);
+  dc.FillSolidRect(0,0,width,height,transcript.appearanceKnown?transcript.surfaceBackground:(record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground));
   record.image->Draw(&dc,CRect(0,0,width,height));
   GdiFlush(); // synchronize DIB bits before they are consumed by the metafile
   ::SelectObject(dc.m_hDC,old);
@@ -680,6 +685,7 @@ void CWorkspacePane::OnTimer(UINT_PTR timer)
   for (size_t i=0;i<m_transcripts.size();++i)
     {
     Transcript& transcript=*m_transcripts[i];
+    RefreshAppearance(transcript);
     if(m_connectionHandler){const bool live=m_connectionHandler(transcript.connectionId);m_reviewInput.EnableWindow(live);if(transcript.connectionState!=(live?1:0)){m_inputStatus.SetWindowText(live?"Ready":"Disconnected - draft retained");transcript.connectionState=live?1:0;LayoutChildren();m_reviewInput.EnableWindow(live);}}
     if(transcript.paused || transcript.deferred || m_renderBatchDepth)continue;
     CRect viewport;transcript.text.GetClientRect(viewport);
@@ -738,6 +744,9 @@ bool CWorkspacePane::MoveSelectedTo(CWorkspacePane& target)
   Transcript* copied=target.Find(original->connectionId,original->name);
   copied->records=original->records; copied->inputDraft=original->inputDraft;copied->inputPrefix=original->inputPrefix;copied->unread=original->unread;
   copied->retainedBytes=original->retainedBytes;
+  copied->preferences=original->preferences;copied->foldedMention=original->foldedMention;copied->history=original->history;
+  copied->worldAppearance=original->worldAppearance;copied->appearance=original->appearance;copied->appearanceKnown=original->appearanceKnown;
+  copied->surfaceForeground=original->surfaceForeground;copied->surfaceBackground=original->surfaceBackground;copied->text.SetBackgroundColor(FALSE,copied->surfaceBackground);
   for(size_t i=0;i<target.m_transcripts.size();++i)if(target.m_transcripts[i]==copied)target.UpdateTabLabel(i);
   target.m_selectedInput=-1;target.LayoutChildren();target.Rebuild(*copied);
   m_tabs.DeleteItem(selected); original->text.DestroyWindow(); delete original;
@@ -1137,7 +1146,28 @@ bool CWorkspacePane::SetPreferences(const CString& id,const CString& name,const 
 {
   auto* transcript=Find(id,name);if(!transcript || !workspace_spawn::Valid(preferences))return false;
   if(transcript->preferences.mention!=preferences.mention)transcript->mentions=0;
-  transcript->preferences=preferences;transcript->foldedMention=MentionFold(preferences.mention);m_labelDirty=true;return true;
+  transcript->preferences=preferences;transcript->foldedMention=MentionFold(preferences.mention);m_labelDirty=true;RefreshAppearance(*transcript);return true;
+}
+bool CWorkspacePane::GetAppearance(const CString& id,const CString& name,workspace_spawn::Appearance& appearance) const
+{
+  for(auto* transcript:m_transcripts)if(transcript->connectionId==id && transcript->name==name){appearance=transcript->appearance;return true;}return false;
+}
+void CWorkspacePane::RefreshAppearance(Transcript& transcript)
+{
+  workspace_spawn::Appearance inherited=transcript.worldAppearance;
+  const bool supplied=m_appearanceHandler && m_appearanceHandler(transcript.connectionId,inherited) && workspace_spawn::ValidAppearance(inherited);
+  if(supplied)transcript.worldAppearance=inherited;
+  const auto chosen=transcript.preferences.appearanceOverride?transcript.preferences.appearance:transcript.worldAppearance;
+  if(chosen==transcript.appearance && (transcript.appearanceKnown || (!supplied && !transcript.preferences.appearanceOverride)))return;
+  transcript.appearance=chosen;transcript.appearanceKnown=supplied || transcript.appearanceKnown || transcript.preferences.appearanceOverride;
+  transcript.surfaceForeground=chosen.foreground;transcript.surfaceBackground=chosen.background;
+  auto& control=transcript.text;const auto view=SaveView(control);control.SetRedraw(FALSE);control.SetBackgroundColor(FALSE,chosen.background);
+  CHARFORMAT2W format={};format.cbSize=sizeof(format);format.dwMask=CFM_FACE|CFM_SIZE|CFM_CHARSET;format.yHeight=chosen.pointSize*20;format.bCharSet=(BYTE)chosen.charset;wcscpy_s(format.szFaceName,chosen.face.c_str());
+  ::SendMessageW(control.m_hWnd,EM_SETCHARFORMAT,SCF_ALL,(LPARAM)&format);
+  // Frozen panes retain the frozen text, rather than exposing newly buffered output.
+  if(!transcript.paused && !transcript.deferred)Rebuild(transcript);
+  if(transcript.records.empty()){format.dwMask|=CFM_COLOR|CFM_BACKCOLOR;format.crTextColor=chosen.foreground;format.crBackColor=chosen.background;::SendMessageW(control.m_hWnd,EM_SETCHARFORMAT,SCF_DEFAULT,(LPARAM)&format);}
+  RestoreView(control,view);control.SetRedraw(TRUE);control.Invalidate();
 }
 std::wstring CWorkspacePane::InputPrefix(const CString& id,const CString& name) const
 {

@@ -74,6 +74,16 @@ HWND OptionControl(HWND dialog,const wchar_t* kind,const wchar_t* text,DWORD sty
   HWND control=::CreateWindowExW(!wcscmp(kind,L"EDIT")?WS_EX_CLIENTEDGE:0,kind,text,WS_CHILD|WS_VISIBLE|style,bounds.left,bounds.top,bounds.right-bounds.left,bounds.bottom-bounds.top,dialog,(HMENU)(INT_PTR)id,AfxGetInstanceHandle(),NULL);
   ::SendMessageW(control,WM_SETFONT,::SendMessageW(dialog,WM_GETFONT,0,0),TRUE);return control;
 }
+void UpdateSpawnAppearance(HWND dialog,const SpawnOptions& options)
+{
+  const bool inherit=IsDlgButtonChecked(dialog,105)==BST_CHECKED;
+  for(int id:{106,107,108})EnableWindow(GetDlgItem(dialog,id),!inherit);
+  auto appearance=options.preferences.appearance;if(inherit)WorkspaceWorldAppearance(options.identity,appearance);
+  wchar_t color[64]={};swprintf_s(color,L"Text color #%02X%02X%02X",GetRValue(appearance.foreground),GetGValue(appearance.foreground),GetBValue(appearance.foreground));SetDlgItemTextW(dialog,107,color);
+  swprintf_s(color,L"Background #%02X%02X%02X",GetRValue(appearance.background),GetGValue(appearance.background),GetBValue(appearance.background));SetDlgItemTextW(dialog,108,color);
+  const std::wstring summary=inherit?L"Uses this world's Main font and colors; future changes follow Main.":appearance.face+L", "+std::to_wstring(appearance.pointSize)+L" pt. ANSI colors remain available.";
+  SetDlgItemTextW(dialog,109,summary.c_str());
+}
 INT_PTR CALLBACK SpawnOptionsProc(HWND dialog,UINT message,WPARAM wp,LPARAM lp)
 {
   auto* options=(SpawnOptions*)GetWindowLongPtrW(dialog,DWLP_USER);
@@ -83,27 +93,45 @@ INT_PTR CALLBACK SpawnOptionsProc(HWND dialog,UINT message,WPARAM wp,LPARAM lp)
     auto label=[&](const wchar_t* text,int x,int y,int width,int height){OptionControl(dialog,L"STATIC",text,SS_LEFT,-1,x,y,width,height);};
     label(L"Mention text (optional, literal, case-insensitive)",10,10,280,12);
     HWND mention=OptionControl(dialog,L"EDIT",options->preferences.mention.c_str(),WS_TABSTOP|ES_AUTOHSCROLL,101,10,25,280,16);::SendMessageW(mention,EM_SETLIMITTEXT,128,0);
-    label(L"Mentions add unread badges only. No sound or focus change.",10,45,280,20);
-    label(L"Priority (-100 to 100; higher comes first)",10,70,220,14);
-    HWND priority=OptionControl(dialog,L"EDIT",std::to_wstring(options->preferences.priority).c_str(),WS_TABSTOP|ES_AUTOHSCROLL,102,238,67,52,17);::SendMessageW(priority,EM_SETLIMITTEXT,4,0);
-    label(L"Applies to the route list and pane navigation; docking stays as arranged.",10,90,280,23);
-    label(L"Focus shortcut (optional)",10,118,280,12);
-    HWND hotkey=OptionControl(dialog,HOTKEY_CLASSW,L"",WS_TABSTOP,103,10,133,215,18);::SendMessageW(hotkey,HKM_SETHOTKEY,options->preferences.shortcut,0);
-    OptionControl(dialog,L"BUTTON",L"Clear",WS_TABSTOP|BS_PUSHBUTTON,104,233,133,57,18);
-    label(L"Ctrl+Alt with a letter/digit, or a modified F key. F4/F6/F10, existing commands and Ctrl+Shift+F1-F9 are reserved. AltGr never moves focus.",10,157,280,30);
-    label(L"Ctrl+Alt+PageUp / PageDown moves through priority order when unused by existing commands.",10,190,280,25);
-    OptionControl(dialog,L"BUTTON",L"Save options",WS_TABSTOP|BS_DEFPUSHBUTTON,IDOK,163,222,61,18);
-    OptionControl(dialog,L"BUTTON",L"Cancel",WS_TABSTOP|BS_PUSHBUTTON,IDCANCEL,231,222,59,18);
+    label(L"Mentions add unread badges only. No sound or focus change.",10,43,280,12);
+    label(L"Priority (-100 to 100; higher comes first)",10,60,220,14);
+    HWND priority=OptionControl(dialog,L"EDIT",std::to_wstring(options->preferences.priority).c_str(),WS_TABSTOP|ES_AUTOHSCROLL,102,238,57,52,17);::SendMessageW(priority,EM_SETLIMITTEXT,4,0);
+    label(L"Applies to the route list and pane navigation; docking stays as arranged.",10,79,280,14);
+    label(L"Focus shortcut (optional)",10,98,280,12);
+    HWND hotkey=OptionControl(dialog,HOTKEY_CLASSW,L"",WS_TABSTOP,103,10,113,215,18);::SendMessageW(hotkey,HKM_SETHOTKEY,options->preferences.shortcut,0);
+    OptionControl(dialog,L"BUTTON",L"Clear",WS_TABSTOP|BS_PUSHBUTTON,104,233,113,57,18);
+    label(L"Ctrl+Alt with a letter/digit, or a modified F key. F4/F6/F10, existing commands and Ctrl+Shift+F1-F9 are reserved. AltGr never moves focus.",10,136,280,27);
+    label(L"Ctrl+Alt+PageUp / PageDown moves through priority order when unused by existing commands.",10,166,280,16);
+    OptionControl(dialog,L"BUTTON",L"Use Main font and colors",WS_TABSTOP|BS_AUTOCHECKBOX,105,10,188,280,18);
+    CheckDlgButton(dialog,105,options->preferences.appearanceOverride?BST_UNCHECKED:BST_CHECKED);
+    if(!options->preferences.appearanceOverride)WorkspaceWorldAppearance(options->identity,options->preferences.appearance);
+    OptionControl(dialog,L"BUTTON",L"Font...",WS_TABSTOP|BS_PUSHBUTTON,106,10,212,70,18);
+    OptionControl(dialog,L"BUTTON",L"Text color...",WS_TABSTOP|BS_PUSHBUTTON,107,87,212,98,18);
+    OptionControl(dialog,L"BUTTON",L"Background...",WS_TABSTOP|BS_PUSHBUTTON,108,192,212,98,18);
+    OptionControl(dialog,L"STATIC",L"",SS_LEFT,109,10,236,280,20);UpdateSpawnAppearance(dialog,*options);
+    OptionControl(dialog,L"BUTTON",L"Save options",WS_TABSTOP|BS_DEFPUSHBUTTON,IDOK,163,263,61,18);
+    OptionControl(dialog,L"BUTTON",L"Cancel",WS_TABSTOP|BS_PUSHBUTTON,IDCANCEL,231,263,59,18);
     return TRUE;
   }
   if(!options)return FALSE;
   if(message==WM_CLOSE){EndDialog(dialog,IDCANCEL);return TRUE;}
   if(message!=WM_COMMAND)return FALSE;
   if(LOWORD(wp)==104){SendDlgItemMessageW(dialog,103,HKM_SETHOTKEY,0,0);return TRUE;}
+  if(LOWORD(wp)==105){UpdateSpawnAppearance(dialog,*options);return TRUE;}
+  if(LOWORD(wp)==106){
+    auto& appearance=options->preferences.appearance;LOGFONTW font={};HDC dc=GetDC(dialog);const int dpi=GetDeviceCaps(dc,LOGPIXELSY);ReleaseDC(dialog,dc);font.lfHeight=-MulDiv(appearance.pointSize,dpi,72);font.lfWeight=appearance.weight;font.lfCharSet=(BYTE)appearance.charset;wcscpy_s(font.lfFaceName,appearance.face.c_str());
+    CHOOSEFONTW chooser={sizeof(chooser)};chooser.hwndOwner=dialog;chooser.lpLogFont=&font;chooser.Flags=CF_SCREENFONTS|CF_INITTOLOGFONTSTRUCT|CF_LIMITSIZE;chooser.nSizeMin=1;chooser.nSizeMax=72;
+    if(ChooseFontW(&chooser)){appearance.face=font.lfFaceName;appearance.pointSize=max(1,chooser.iPointSize/10);appearance.weight=font.lfWeight;appearance.charset=font.lfCharSet;UpdateSpawnAppearance(dialog,*options);}return TRUE;
+  }
+  if(LOWORD(wp)==107 || LOWORD(wp)==108){
+    static COLORREF custom[16]={};auto& appearance=options->preferences.appearance;CHOOSECOLORW chooser={sizeof(chooser)};chooser.hwndOwner=dialog;chooser.lpCustColors=custom;chooser.rgbResult=LOWORD(wp)==107?appearance.foreground:appearance.background;chooser.Flags=CC_FULLOPEN|CC_RGBINIT;
+    if(ChooseColorW(&chooser)){if(LOWORD(wp)==107)appearance.foreground=chooser.rgbResult;else appearance.background=chooser.rgbResult;UpdateSpawnAppearance(dialog,*options);}return TRUE;
+  }
   if(LOWORD(wp)==IDCANCEL){EndDialog(dialog,IDCANCEL);return TRUE;}
   if(LOWORD(wp)==IDOK){
     try {
       auto preferences=options->preferences;preferences.mention=Read(GetDlgItem(dialog,101),128);
+      preferences.appearanceOverride=IsDlgButtonChecked(dialog,105)!=BST_CHECKED;
       auto priority=Read(GetDlgItem(dialog,102),4);wchar_t* end=NULL;long number=wcstol(priority.c_str(),&end,10);
       if(priority.empty() || !end || *end || number < -100 || number>100){MessageBoxW(dialog,L"Choose a priority from -100 to 100.",L"Transcript options",MB_ICONWARNING);return TRUE;}
       preferences.priority=(int)number;preferences.shortcut=(unsigned short)SendDlgItemMessageW(dialog,103,HKM_GETHOTKEY,0,0);
@@ -117,7 +145,7 @@ INT_PTR CALLBACK SpawnOptionsProc(HWND dialog,UINT message,WPARAM wp,LPARAM lp)
 void ShowSpawnOptions(HWND owner,SpawnOptions& options)
 {
   std::vector<unsigned char> bytes(sizeof(DLGTEMPLATE),0);
-  auto* dialog=(DLGTEMPLATE*)bytes.data();dialog->style=WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_SETFONT;dialog->cx=300;dialog->cy=250;
+  auto* dialog=(DLGTEMPLATE*)bytes.data();dialog->style=WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME|DS_SETFONT;dialog->cx=300;dialog->cy=290;
   auto append=[&](const void* value,size_t size){const auto* begin=(const unsigned char*)value;bytes.insert(bytes.end(),begin,begin+size);};
   WORD zero=0,fontSize=9;append(&zero,sizeof(zero));append(&zero,sizeof(zero));
   const wchar_t title[]=L"Transcript options";append(title,sizeof(title));append(&fontSize,sizeof(fontSize));const wchar_t face[]=L"Segoe UI";append(face,sizeof(face));

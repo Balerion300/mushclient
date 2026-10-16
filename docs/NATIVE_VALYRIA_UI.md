@@ -181,3 +181,28 @@ See `CLOSE_REOPEN_ACCEPTANCE_2026-10-16.md` and
 `SHARED_INPUT_ACCEPTANCE_2026-10-16.md` for candidate identities, evidence and limits.
 Physical click/caret, IME, dragging and mixed-DPI acceptance remain open. No
 personal installation or world profile was replaced by these tests.
+
+### Inline spelling and channel appearance, October 16
+
+Main and shared channel input now use asynchronous Windows spelling with native
+underlines and right-click suggestions. Personal words apply across this client;
+game words and spelling/pack preferences follow the navigator's game grouping.
+An independently authored Westeros word pack is included. Dictionary management
+offers review, Add/Remove, keyboard access and read-only pack inspection, using
+the same light/dark tool styling. See `INLINE_SPELLING.md` for scope and storage.
+
+Channels inherit their owning world's Main font and colors before first output,
+including the empty transcript canvas. Live world changes update inherited
+appearance. Explicit channel overrides are available in Transcript options with
+reset-to-Main behavior; routing, ANSI styles, links and image metadata remain
+independent of the default appearance.
+
+Release and Debug builds pass. Independent fixtures pass 56 spelling checks per
+configuration, 27 appearance checks and dialog layout/control checks. The final
+integrated clients pass 52 original command/close/reopen checks across tree and
+tabbed modes. A short isolated four-channel responsiveness sample completed all
+299 offered batches while fictional unsent Main input changed to exercise
+spelling. Physical visual/IME/mixed-DPI and accessibility acceptance remain open;
+hidden control snapshots do not establish complete visual painting. Evidence is
+in `SPELLING_ACCEPTANCE_2026-10-16.md`, `CHANNEL_APPEARANCE_ACCEPTANCE_2026-10-16.md`,
+`SPELLING_DIALOG_UX_ACCEPTANCE_2026-10-16.md` and `PERFORMANCE_TESTS.md`.

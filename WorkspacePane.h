@@ -9,6 +9,7 @@
 #pragma pop_macro("Translate")
 #include "workspace/WorkspaceInputPolicy.h"
 #include "workspace/WorkspaceSpawnPolicy.h"
+namespace workspace_spell { struct Context; }
 
 // Independently implemented native workspace; no external client code.
 #define ID_WORKSPACE_TRANSCRIPT 59000
@@ -19,6 +20,7 @@ struct WorkspaceRun
   std::wstring text;  // UTF-16, native Unicode RichEdit surface
   COLORREF foreground, background;
   bool bold, italic, underline;
+  bool defaultForeground=false, defaultBackground=false;
   unsigned short actionType;
   CString action;  // immutable action metadata; activation is destination-bound
   WorkspaceRun() : foreground(RGB(225,225,225)), background(RGB(25,25,28)),
@@ -117,6 +119,10 @@ public:
   typedef std::function<void(const CString&,const CString&,const std::deque<WorkspaceRecord>&)> PruneHandler;
   void SetPruneHandler(const PruneHandler& handler) { m_pruneHandler=handler; }
   void SetInputHandler(const InputHandler& handler) { m_inputHandler=handler; }
+  void SetSpellingContextProvider(std::function<workspace_spell::Context(const CString&)> provider){m_spellingContext=provider;}
+  typedef std::function<bool(const CString&,workspace_spawn::Appearance&)> AppearanceHandler;
+  void SetAppearanceHandler(const AppearanceHandler& handler) {m_appearanceHandler=handler;}
+  bool GetAppearance(const CString& id,const CString& name,workspace_spawn::Appearance& appearance) const;
   typedef std::function<bool(CWorkspacePane&,bool)> SharedInputHandler;
   void SetSharedInputHandler(const SharedInputHandler& handler) { m_sharedInputHandler=handler;if(GetSafeHwnd())LayoutChildren(); }
   bool SharedInputIdentity(CString& connectionId,CString& name) const;
@@ -158,6 +164,8 @@ protected:
     unsigned int unread;
     unsigned int mentions = 0;
     workspace_spawn::Preferences preferences;
+    workspace_spawn::Appearance worldAppearance,appearance;
+    bool appearanceKnown=false;
     std::wstring foldedMention;
     int renderedWidth,connectionState;
     COLORREF surfaceForeground,surfaceBackground;
@@ -169,6 +177,8 @@ protected:
   CString m_toolTitle;
   ActionHandler m_actionHandler;
   InputHandler m_inputHandler;
+  std::function<workspace_spell::Context(const CString&)> m_spellingContext;
+  AppearanceHandler m_appearanceHandler;
   SharedInputHandler m_sharedInputHandler;
   CPoint m_inputPointerStart;
   bool m_inputPointerCancelled=true;
@@ -194,6 +204,7 @@ protected:
   CPoint m_resizeStart;
   int m_resizeOriginal;
   Transcript* Find(const CString& connectionId, const CString& name);
+  void RefreshAppearance(Transcript& transcript);
   void LayoutChildren();
   CSize MinimumSize() const;
   virtual void GetMinSize(CSize& size) const { size=MinimumSize(); }

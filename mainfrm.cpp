@@ -2,6 +2,8 @@
 //
 
 #include "stdafx.h"
+#include "workspace/WorkspaceSpellContext.h"
+#include "workspace/WorkflowUi.h"
 #include "MUSHclient.h"
 
 #include "doc.h"
@@ -598,6 +600,8 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
   m_workspacePane.SetActionHandler(ActivateWorkspaceAction);
   m_workspacePane.SetInputHandler(WorkspaceSendHumanInput);
   m_workspacePane.SetSharedInputHandler(WorkspaceSelectSharedInput);
+  m_workspacePane.SetAppearanceHandler(WorkspaceWorldAppearance);
+  m_workspacePane.SetSpellingContextProvider(workspace_spell::ForConnection);
   m_workspacePane.SetPruneHandler(WorkspacePanePruned);
   m_workspacePane.SetConnectionHandler(WorkspaceIsConnectionLive);m_workspacePane.SetInputErrorHandler(WorkspaceHumanInputError);
   DockControlBar(&m_workspacePane, AFX_IDW_DOCKBAR_RIGHT);
@@ -2669,6 +2673,23 @@ bool WorkspaceShellSchema()
  while(sqlite3_step(columns)==SQLITE_ROW){const char* name=(const char*)sqlite3_column_text(columns,1);if(name && !strcmp(name,"mask"))mask=true;}sqlite3_finalize(columns);
  return mask || sqlite3_exec(App.db,"ALTER TABLE workspace_shell_v1 ADD COLUMN mask INTEGER NOT NULL DEFAULT 7",NULL,NULL,NULL)==SQLITE_OK;}
 }
+workspace_spell::Context workspace_spell::ForDocument(CMUSHclientDoc* doc)
+{
+  Context context;if(!doc || !doc->m_bLoaded || !App.m_pMainWnd)return context;
+  workspace_shell::Row row;row.world=(LPCSTR)WorkspaceConnectionId(doc);
+  WorkspaceCharacterIdentity(Frame,*doc,row);
+  context.gameKey=WorkspaceShellWide(row.game.c_str(),true);context.gameLabel=row.gameLabel;
+  wchar_t path[32768]={};const DWORD n=GetModuleFileNameW(NULL,path,32768);
+  if(!n || n>=32768)return Context();context.root=path;const auto slash=context.root.find_last_of(L"\\/");
+  if(slash==std::wstring::npos)return Context();context.root.resize(slash);context.root+=L"\\spelling";
+  const auto folded=Fold(context.gameKey+L" "+context.gameLabel+L" "+WorkspaceShellWide(doc->m_server));
+  context.westerosDefault=folded.find(L"bod.westeros.org")!=std::wstring::npos || folded.find(L"blood of dragons")!=std::wstring::npos;
+  context.polishDialog=[](HWND window){workflow_ui::Polish(window);workspace_style::FitToWorkArea(window);};
+  return context;
+}
+workspace_spell::Context workspace_spell::ForConnection(const CString& connection)
+{return ForDocument(WorkspaceShellDocument((LPCSTR)connection));}
+
 LRESULT CMainFrame::OnInitializeWorkspaceShell(WPARAM,LPARAM)
 {
   if(m_workspaceShellReady)return 0;bool navigator=true,legacy=false;int theme=0,mask=0;
@@ -2862,7 +2883,7 @@ bool CMainFrame::OpenWorkspaceTranscript(const CString& connectionId, const CStr
       { CWorkspacePane* extra=new CWorkspacePane;
         if(extra->Create(this,(UINT)(0xE900+m_workspaceSplits.size())))
           {extra->EnableDocking(CBRS_ALIGN_ANY);extra->SetActionHandler(ActivateWorkspaceAction);extra->SetInputHandler(WorkspaceSendHumanInput);extra->SetSharedInputHandler(WorkspaceSelectSharedInput);extra->SetPruneHandler(WorkspacePanePruned);extra->SetConnectionHandler(WorkspaceIsConnectionLive);extra->SetInputErrorHandler(WorkspaceHumanInputError);
-            m_workspaceSplits.push_back(extra);target=extra; }
+            extra->SetAppearanceHandler(WorkspaceWorldAppearance);extra->SetSpellingContextProvider(workspace_spell::ForConnection);m_workspaceSplits.push_back(extra);target=extra; }
         else delete extra; }
     }
   if (!target->OpenTranscript(connectionId,name)) return false;
@@ -3094,6 +3115,7 @@ bool WorkspaceSpawnSchema()
 {
   return App.db && sqlite3_exec(App.db,
     "CREATE TABLE IF NOT EXISTS workspace_spawn_preferences_v1(world_id TEXT NOT NULL,name TEXT NOT NULL,mention TEXT NOT NULL,priority INTEGER NOT NULL,shortcut INTEGER NOT NULL,PRIMARY KEY(world_id,name));"
+    "CREATE TABLE IF NOT EXISTS workspace_spawn_appearance_v1(world_id TEXT NOT NULL,name TEXT NOT NULL,face TEXT NOT NULL,size INTEGER NOT NULL,weight INTEGER NOT NULL,charset INTEGER NOT NULL,foreground INTEGER NOT NULL,background INTEGER NOT NULL,PRIMARY KEY(world_id,name));"
     "CREATE TABLE IF NOT EXISTS workspace_route_images_v1(world_id TEXT NOT NULL,name TEXT NOT NULL,pattern TEXT NOT NULL,regex INTEGER NOT NULL,following_images INTEGER NOT NULL,PRIMARY KEY(world_id,name,pattern,regex));",NULL,NULL,NULL)==SQLITE_OK;
 }
 }
@@ -3376,6 +3398,11 @@ workspace_spawn::Preferences CMainFrame::WorkspaceTranscriptPreferences(const CS
       if(sqlite3_step(query)==SQLITE_ROW){preferences.mention=WorkspaceLayoutWide((const char*)sqlite3_column_text(query,0));preferences.priority=sqlite3_column_int(query,1);const int chord=sqlite3_column_int(query,2);preferences.shortcut=chord>=0 && chord<=65535?(unsigned short)chord:0;}
       sqlite3_finalize(query);
     }
+    if(sqlite3_prepare_v2(App.db,"SELECT face,size,weight,charset,foreground,background FROM workspace_spawn_appearance_v1 WHERE world_id=? AND name=?",-1,&query,NULL)==SQLITE_OK){
+      const CString world=WorkspacePersistentWorld(id);sqlite3_bind_text(query,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(query,2,name,-1,SQLITE_TRANSIENT);
+      if(sqlite3_step(query)==SQLITE_ROW){workspace_spawn::Appearance appearance;appearance.face=WorkspaceLayoutWide((const char*)sqlite3_column_text(query,0));appearance.pointSize=sqlite3_column_int(query,1);appearance.weight=sqlite3_column_int(query,2);appearance.charset=sqlite3_column_int(query,3);appearance.foreground=(uint32_t)sqlite3_column_int64(query,4);appearance.background=(uint32_t)sqlite3_column_int64(query,5);if(workspace_spawn::ValidAppearance(appearance)){preferences.appearance=appearance;preferences.appearanceOverride=true;}}
+      sqlite3_finalize(query);
+    }
   }
   if(!workspace_spawn::Valid(preferences))preferences=workspace_spawn::Preferences();
   // Runtime identities isolate duplicate opens even though preferences persist
@@ -3447,11 +3474,19 @@ bool CMainFrame::SetWorkspaceTranscriptPreferences(const CString& id,const CStri
   if(!workspace_spawn::Valid(preferences)){error="Use mention text up to 128 characters without controls, priority -100 to 100, and a valid shortcut.";return false;}
   if(!WorkspaceShortcutAvailable(preferences.shortcut,id,name,error))return false;
   if(!WorkspaceSpawnSchema()){error="Transcript settings storage is unavailable.";return false;}
+  if(sqlite3_exec(App.db,"SAVEPOINT workspace_spawn_options",NULL,NULL,NULL)!=SQLITE_OK){error="Transcript settings could not be saved.";return false;}
+  const auto failedSave=[&](const char* message){sqlite3_exec(App.db,"ROLLBACK TO workspace_spawn_options; RELEASE workspace_spawn_options",NULL,NULL,NULL);error=message;return false;};
   sqlite3_stmt* write=NULL;
-  if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_spawn_preferences_v1 VALUES(?,?,?,?,?)",-1,&write,NULL)!=SQLITE_OK){error="Transcript settings could not be saved.";return false;}
+  if(sqlite3_prepare_v2(App.db,"INSERT OR REPLACE INTO workspace_spawn_preferences_v1 VALUES(?,?,?,?,?)",-1,&write,NULL)!=SQLITE_OK)return failedSave("Transcript settings could not be saved.");
   const CString world=WorkspacePersistentWorld(id);const std::string mention=WorkspaceLayoutUtf8(preferences.mention);
   sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,name,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,3,mention.c_str(),(int)mention.size(),SQLITE_TRANSIENT);sqlite3_bind_int(write,4,preferences.priority);sqlite3_bind_int(write,5,preferences.shortcut);
-  const int status=sqlite3_step(write);sqlite3_finalize(write);if(status!=SQLITE_DONE){error="Transcript settings could not be saved.";return false;}
+  const int status=sqlite3_step(write);sqlite3_finalize(write);if(status!=SQLITE_DONE)return failedSave("Transcript settings could not be saved.");
+  const char* appearanceSql=preferences.appearanceOverride?"INSERT OR REPLACE INTO workspace_spawn_appearance_v1 VALUES(?,?,?,?,?,?,?,?)":"DELETE FROM workspace_spawn_appearance_v1 WHERE world_id=? AND name=?";
+  if(sqlite3_prepare_v2(App.db,appearanceSql,-1,&write,NULL)!=SQLITE_OK)return failedSave("Channel appearance could not be saved.");
+  sqlite3_bind_text(write,1,world,-1,SQLITE_TRANSIENT);sqlite3_bind_text(write,2,name,-1,SQLITE_TRANSIENT);
+  if(preferences.appearanceOverride){const auto& appearance=preferences.appearance;const auto face=WorkspaceLayoutUtf8(appearance.face);sqlite3_bind_text(write,3,face.c_str(),(int)face.size(),SQLITE_TRANSIENT);sqlite3_bind_int(write,4,appearance.pointSize);sqlite3_bind_int(write,5,appearance.weight);sqlite3_bind_int(write,6,appearance.charset);sqlite3_bind_int64(write,7,appearance.foreground);sqlite3_bind_int64(write,8,appearance.background);}
+  const int appearanceStatus=sqlite3_step(write);sqlite3_finalize(write);if(appearanceStatus!=SQLITE_DONE)return failedSave("Channel appearance could not be saved.");
+  if(sqlite3_exec(App.db,"RELEASE workspace_spawn_options",NULL,NULL,NULL)!=SQLITE_OK)return failedSave("Transcript settings could not be saved.");
   for(auto it=m_workspacePreferences.begin();it!=m_workspacePreferences.end();)if(WorkspacePersistentWorld(it->first.first)==world && it->first.second==name)it=m_workspacePreferences.erase(it);else ++it;
   auto apply=[&](CWorkspacePane* pane){std::vector<WorkspacePaneLayout> layouts;pane->GetLayouts(layouts,false);for(const auto& item:layouts)if(WorkspacePersistentWorld(item.connectionId)==world && item.name==name){m_workspacePreferences[std::make_pair(item.connectionId,name)]=preferences;pane->SetPreferences(item.connectionId,name,preferences);}};
   apply(&m_workspacePane);for(auto* pane:m_workspaceSplits)apply(pane);return true;

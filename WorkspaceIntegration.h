@@ -29,6 +29,7 @@ void WorkspaceReviewInput(const CString& connectionId,const std::wstring& comman
 bool WorkspaceSendHumanInput(const CString& connectionId,const std::wstring& command);
 bool WorkspaceSelectSharedInput(CWorkspacePane& pane,bool focus);
 bool WorkspaceIsConnectionLive(const CString& connectionId);
+bool WorkspaceWorldAppearance(const CString& connectionId,workspace_spawn::Appearance& appearance);
 std::string WorkspaceWorldName(const CString& connectionId);
 std::wstring WorkspaceHumanInputError(const CString& connectionId);
 bool WorkspaceSendEditorRead(const std::string& endpoint,const std::string& command);

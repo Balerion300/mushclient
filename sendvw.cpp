@@ -19,6 +19,7 @@
 #include "mainfrm.h"
 #include "childfrm.h"
 #include "workspace/WorkspaceViewLease.h"
+#include "workspace/WorkspaceSpellContext.h"
 #include <imm.h>
 #pragma comment(lib,"imm32.lib")
 #include "dialogs\GlobalChangeDlg.h"
@@ -341,7 +342,7 @@ void CSendView::SubmitMainInput()
 		GetEditCtrl().GetWindowText(strText);
 
     // spell check on send?
-    if (pDoc->m_bSpellCheckOnSend)
+    if (pDoc->m_bSpellCheckOnSend && !workspace_spell::HandlesInput(m_hWnd))
       {
             // look for scripting prefix
       if (pDoc->m_bEnableScripts &&            // providing scripting active
@@ -1208,6 +1209,7 @@ void CSendView::OnChange()
   NotifyPluginCommandChanged ();
   if(!lease.IsLive())return;
   UpdateWrap();
+
 }   // end of CSendView::OnChange
 
 
@@ -1258,6 +1260,7 @@ void CSendView::OnInitialUpdate()
 
   UpdateWrap();
 
+  workspace_spell::Attach(m_hWnd,[this]{return workspace_spell::ForDocument(GetDocument());});
 }   // end of CSendView::OnInitialUpdate
 
 void CSendView::OnContextMenu(CWnd*, CPoint point)
@@ -1590,6 +1593,7 @@ void CSendView::OnFilePrintWorld()
 
 void CSendView::OnDestroy() 
 {
+  workspace_spell::Detach(m_hWnd);
 
 	CMUSHclientDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);

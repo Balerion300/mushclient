@@ -342,3 +342,31 @@ steady bounded responsiveness after the UI changes; it is not a sustained-use,
 physical typing, foreground paint or statistically established speed-gain claim.
 Reproduce with the preceding command and label `modern-ui`. No memory analysis
 was reopened. Raw evidence remains private Temp data outside the package.
+
+## October 16 spelling and inherited appearance sample
+
+Release `1496b2879c07d05c9f04b7ecd763a5dc7ed41407e056de5efa821f14a6b7e0f7`
+completed a quiet 30-second actual-client sample on a verified private Windows
+desktop, followed by a ten-second drain. The fixture offered 80 text lines per
+second with four configured split spawns, Fixedsys, mentions/following-image
+settings and periodically replaced fictional unsent Main prose to exercise
+debounced spelling. No user input, installed profile or game connection was used.
+All builds and other fixtures were idle. The new `--isolated-desktop` flag proves
+the private desktop before launching the copied client; it never switches to it.
+
+All 299 offered batches completed, comprising 2,750 offered lines plus local
+echoes. Output receipt p95 was 46.92 ms (maximum 155.03 ms); scripted Execute/echo
+p95 was 17.55 ms (maximum 22.79 ms). GUI timer-gap p95 was 81.61 ms. No TCP
+backpressure or client exit occurred. This short run covered the plain-text
+phase only, with no image traffic. It is not a physical key-to-pixel measure,
+a sustained soak, or a controlled before/after speed comparison.
+
+Separately, the standalone final spelling fixture measured 100 native print-client
+repaints in about 62 ms and a burst of 250 native text changes plus spelling
+refresh in 15–16 ms total. These are synthetic totals, not per-character latency.
+Native analysis and dictionary I/O remain off the input thread.
+
+Reproduce using `performance_client.py --seconds 30 --rate 80 --routes 4
+--font Fixedsys --spawn-features --split-spawns --blocked-images --spell-drafts
+--isolated-desktop --label spelling-ux`. Sanitized configuration, receipt and
+desktop proof remain outside Git in Temp `mush-perf-spelling-ux-a1b3cr50`.

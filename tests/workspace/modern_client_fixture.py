@@ -37,6 +37,7 @@ dest.mkdir(exist_ok=True)
 for name in ('locale', 'pennmush-reference'):
     source = a.runtime/name if name == 'locale' else ROOT/'third_party'/name
     shutil.copytree(source, dest/name)
+shutil.copytree(ROOT/'spelling/packs',dest/'spelling/packs')
 for source in (a.exe, a.runtime/'lua5.1.dll', ROOT/'third_party/scintilla/bin/Scintilla.dll', ROOT/'WinRel/MUSHclientAgent.exe'):
     shutil.copy2(source, dest/source.name)
 

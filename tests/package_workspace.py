@@ -24,7 +24,8 @@ for source in a.distribution.rglob('*'):
     if not source.is_file(): continue
     name = source.name.lower()
     if (name in private_names or name.startswith('mushclient_prefs.sqlite') or name.endswith(('.mcl', '.mcl.bak'))
-            or name.startswith('.env.') or 'editor-state' in source.parts):
+            or name.startswith('.env.') or 'editor-state' in source.parts
+            or ('spelling' in source.parts and (name=='personal.txt' or name.startswith('game-')))):
         raise SystemExit('Distribution contains private world/runtime state; use the clean official runtime base.')
 
 dest.mkdir(parents=True)
@@ -48,6 +49,7 @@ shutil.copy2(ROOT/'docs/VALYRIA_BRANDING.md',notices/'VALYRIA_BRANDING.md')
 for name in ('LICENSE.MIT','PYTHON-LICENSE.txt','PYINSTALLER-COPYING.txt'):
     shutil.copy2(ROOT/'agent_companion/vendor'/name,notices/('JSON-LICENSE.txt' if name=='LICENSE.MIT' else name))
 shutil.copytree(ROOT/'third_party/pennmush-reference',dest/'pennmush-reference')
+shutil.copytree(ROOT/'spelling/packs',dest/'spelling/packs')
 for name in ('WORKSPACE_MODERNIZATION_PLAN.md','WORKSPACE_TESTS.md','PENN_IDE.md',
              'AGENT_WORKSPACE_CONTRACT.md','AGENT_REVIEW_PANE.md','AGENT_INTEGRATION_AUDIT.md','BUILD_WORKSPACE.md','INLINE_IMAGES.md','STABILITY_TESTS.md','PERFORMANCE_TESTS.md'):
     shutil.copy2(ROOT/'docs'/name,dest/name)
@@ -55,6 +57,7 @@ for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md','SCRIPTED_LOGGING
     source=ROOT/'docs'/name
     if not source.is_file():raise SystemExit('Missing workspace guide: '+name)
     shutil.copy2(source,dest/name)
+shutil.copy2(ROOT/'docs/INLINE_SPELLING.md',dest/'INLINE_SPELLING.md')
 # Sources/examples for the explicitly configured external runner, never credentials.
 (dest/'agent-examples').mkdir()
 for name in ('runner.py','companion.py','tools.json'):
