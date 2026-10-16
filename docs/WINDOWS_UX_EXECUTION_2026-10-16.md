@@ -137,3 +137,22 @@ Exact receipts, per-phase early/late comparisons, image-receipt limitations and
 conditions are in WINDOWS_PERFORMANCE_UX_ACCEPTANCE_2026-10-16.md. Earlier runs
 with incorrect hidden-frame behavior or lost follow are diagnostic baselines,
 not final all-visible acceptance. No temporary diagnostic code remains.
+
+## Installed personal test candidate
+
+The clean portable package identifies source `939f881f3a990cc4789c60e8318c9f3b9368b743`
+and contains 292 files. All 291 checksum entries and ZIP integrity were verified.
+An additional seven close/Exit checks passed against the final full package on a
+private desktop (`mush-modern-acceptance-kjbgomhe`).
+
+Installed `C:/MUSH/MUSHClient-New/MUSHclient.exe` matches the accepted D7670F9E
+SHA256 above. The installer verified 343 existing non-managed files unchanged by
+hash, including settings, worlds/plugins, personal/game dictionaries, logs and
+editor state. It wrote 41 runtime/guide files, retained missing-dependency
+installation behavior from the clean package, and did not overwrite existing
+custom scripts/plugins. No personal data was copied into the shareable package.
+
+Rollback runtime files and the local preservation/installation receipts are at
+`C:/MUSH/Build-Backups/before-workspace-ux-20261016-225012`. The installed client
+was not launched, and the older running client was left untouched. BUILD-INFO.txt
+in the test folder identifies the latest executable and the Size/keyboard controls.
