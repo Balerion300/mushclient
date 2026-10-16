@@ -13,7 +13,7 @@ class ProcessInfo(ctypes.Structure):
     _fields_ = [('hProcess',wintypes.HANDLE),('hThread',wintypes.HANDLE),('dwProcessId',wintypes.DWORD),('dwThreadId',wintypes.DWORD)]
 
 class PrivateDesktopProcess:
-    def __init__(self, args, desktop, cwd, env):
+    def __init__(self, args, desktop, cwd, env, show=False):
         assert desktop.startswith('ValyriaQA-')
         self.api = ctypes.WinDLL('kernel32', use_last_error=True)
         self.api.CreateProcessW.argtypes = [wintypes.LPCWSTR,wintypes.LPWSTR,ctypes.c_void_p,ctypes.c_void_p,wintypes.BOOL,wintypes.DWORD,ctypes.c_void_p,wintypes.LPCWSTR,ctypes.POINTER(StartupInfo),ctypes.POINTER(ProcessInfo)]
@@ -24,7 +24,7 @@ class PrivateDesktopProcess:
         startup, info = StartupInfo(), ProcessInfo()
         startup.cb = ctypes.sizeof(startup)
         startup.lpDesktop = desktop
-        startup.dwFlags, startup.wShowWindow = 1, 0
+        startup.dwFlags, startup.wShowWindow = 1, (1 if show else 0)
         command = ctypes.create_unicode_buffer(subprocess.list2cmdline(args))
         block = ctypes.create_unicode_buffer('\0'.join(k+'='+v for k,v in sorted(env.items()))+'\0\0')
         if not self.api.CreateProcessW(None,command,None,None,False,0x400,block,str(cwd),ctypes.byref(startup),ctypes.byref(info)):

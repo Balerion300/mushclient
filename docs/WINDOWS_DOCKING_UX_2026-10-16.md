@@ -20,3 +20,15 @@ Coverage includes all five labeled hit targets; disabled targets; projected nati
 Saved divider ratios restored at 600/600, 400/400, 550/549, and 450/449 (requested/observed in thousandths). Existing nested forest round trips therefore required no format change.
 
 This is native API fixture acceptance. Physical pointer dragging across mixed-DPI monitors, screen-reader behavior, and subjective real-display light/dark polish still require interactive acceptance. No user world, credential, connection, or desktop was used.
+
+## Final resize regression
+
+A subsequent real-client benchmark exposed a startup/resize follow concern. The native fixture reproduced a defect: shrinking a plain transcript viewport at the live end left RichEdit at the old scroll offset, silently disabling follow. The original code restored the view only when an inline image was actually resized. The same path skipped height-only resize restoration.
+
+The corrected code restores the saved live-end or reading anchor on every transcript viewport resize, retaining pending batch state and image-adjusted offsets. The expanded native regression now passes both bottom-follow and scrolled selection/reading-anchor checks, along with the entire preceding docking/layout suite.
+
+Failing baseline: `C:/Users/Elio/AppData/Local/Temp/mushclient-dock-layout-03ea0e9002524c128f1dc5d5656180bb`.
+Passing correction: `C:/Users/Elio/AppData/Local/Temp/mushclient-dock-layout-159de7f72692447f87fbe27f3893c671`.
+
+Appearance acceptance also passed on private desktops: 34 native appearance checks and 27 shared style-component checks, covering light/dark, red/blue accent, high contrast, native keyboard/accessibility geometry, frame/system menus, content identity and selection, and status resize affordance.
+Evidence: `C:/Users/Elio/AppData/Local/Temp/mushclient-appearance-84efd9b46eb54240a44330db91383e83` and `C:/Users/Elio/AppData/Local/Temp/mushclient-style-components-7bd50db2896a4b50b2348a20be15e459`.

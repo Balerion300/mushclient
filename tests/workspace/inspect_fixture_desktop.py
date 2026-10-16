@@ -30,6 +30,8 @@ user.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 user.SendMessageW.argtypes=[wintypes.HWND,wintypes.UINT,wintypes.WPARAM,wintypes.LPARAM]
 user.SendMessageW.restype=wintypes.LPARAM
 user.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user.GetWindowRect.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.RECT)]
+user.IsWindowVisible.argtypes=[wintypes.HWND]
 rows = []
 def inspect(hwnd, parameter):
     pid = wintypes.DWORD()
@@ -40,7 +42,8 @@ def inspect(hwnd, parameter):
         # Standard WM_GETTEXT is marshaled by Windows for this owned candidate.
         user.SendMessageW(hwnd,0x000d,len(text),ctypes.cast(text,ctypes.c_void_p).value)
         user.GetClassNameW(hwnd, kind, len(kind))
-        rows.append({'hwnd':int(hwnd), 'class':kind.value, 'text':text.value})
+        rect=wintypes.RECT();user.GetWindowRect(hwnd,ctypes.byref(rect))
+        rows.append({'hwnd':int(hwnd), 'class':kind.value, 'text':text.value, 'visible':bool(user.IsWindowVisible(hwnd)), 'bounds':[rect.left,rect.top,rect.right,rect.bottom]})
     return True
 child = callback_type(inspect)
 def top(hwnd, parameter):

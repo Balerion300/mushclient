@@ -464,10 +464,11 @@ void CWorkspacePane::LayoutChildren()
     {
     Transcript& transcript=*m_transcripts[i];
     RefreshAppearance(transcript);
-    const ViewState view=SaveView(transcript.text);
+    const ViewState view=transcript.batchPending?transcript.batchView:SaveView(transcript.text);
     transcript.text.MoveWindow(body);
     CRect viewport;transcript.text.GetClientRect(viewport);
     if(viewport.Width()!=transcript.renderedWidth)ReflowImages(transcript,view);
+    else RestoreView(transcript.text,view); // Height-only resize also changes the live-end scroll position.
     m_transcripts[i]->text.ShowWindow((int)i==m_tabs.GetCurSel()?SW_SHOW:SW_HIDE);
     }
 }
@@ -599,12 +600,12 @@ void CWorkspacePane::Rebuild(Transcript& transcript)
 void CWorkspacePane::ReflowImages(Transcript& transcript,ViewState view)
 {
   if(transcript.paused || transcript.deferred || m_renderBatchDepth ||
-     transcript.renderedEnds.size()!=transcript.records.size())return;
+     transcript.renderedEnds.size()!=transcript.records.size()){RestoreView(transcript.text,view);return;}
   CRect viewport;transcript.text.GetClientRect(viewport);
   const int previous=max(1,min(512,transcript.renderedWidth-12));
   const int available=max(1,min(512,viewport.Width()-12));
   transcript.renderedWidth=viewport.Width();
-  if(previous==available)return;
+  if(previous==available){RestoreView(transcript.text,view);return;}
   bool changed=false;
   for(size_t index=0;index<transcript.records.size();++index){
     const WorkspaceRecord& record=transcript.records[index];
@@ -615,7 +616,10 @@ void CWorkspacePane::ReflowImages(Transcript& transcript,ViewState view)
     const auto adjust=[&](long position){return position>=last?position+delta:(position>first?min(position,transcript.renderedEnds[index]):position);};
     view.start=adjust(view.start);view.end=adjust(view.end);view.anchor=adjust(view.anchor);
   }
-  if(changed){transcript.text.SetRedraw(TRUE);RestoreView(transcript.text,view);transcript.text.Invalidate();}
+  if(changed){transcript.text.SetRedraw(TRUE);transcript.text.Invalidate();}
+  // RichEdit can keep its former scroll offset when the viewport shrinks.
+  // Restore follow/reading position even when there were no images to resize.
+  RestoreView(transcript.text,view);
 }
 void CWorkspacePane::RefreshDeferred()
 {

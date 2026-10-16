@@ -170,7 +170,7 @@ if a.isolated_desktop:
         finally:
             if proof.poll() is None:proof.terminate();proof.wait(timeout=3)
             proof.close()
-        client=PrivateDesktopProcess([str(dest/a.exe.name),'/noregister'],desktop_name,dest,os.environ.copy())
+        client=PrivateDesktopProcess([str(dest/a.exe.name),'/noregister'],desktop_name,dest,os.environ.copy(),show=a.visible)
     except BaseException:
         desktop_api.CloseDesktop(desktop_handle);raise
 else:client=subprocess.Popen([str(dest/a.exe.name),'/noregister'],cwd=dest,startupinfo=startup)

@@ -20,6 +20,7 @@ public:
   CRichEditCtrl& Text(){return m_transcripts[0]->text;}
   long End(size_t index){return m_transcripts[0]->renderedEnds[index];}
   void Tick(){OnTimer(1);}
+  bool Following(){return ShouldFollow(Text());}
 };
 bool Check(std::ofstream& log,const char* label,bool ok){log<<(ok?"PASS ":"FAIL ")<<label<<"\n";return ok;}
 BOOL CALLBACK FindDropPreview(HWND window,LPARAM result){wchar_t title[80]={};GetWindowTextW(window,title,80);if(!wcscmp(title,L"Workspace drop preview")){*(HWND*)result=window;return FALSE;}return TRUE;}
@@ -190,6 +191,13 @@ class DockApp:public CWinApp {
   ok=Check(log,"selecting a scrolled-back pane retains unseen output and mention badges",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==1 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==1)&&ok;
   panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);panes[0]->Tick();
   ok=Check(log,"returning to live output clears badges without requiring new traffic",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==0 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==0)&&ok;
+  panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);
+  const bool followingBefore=panes[0]->Following();CRect originalFrame;frame->GetWindowRect(originalFrame);
+  frame->SetWindowPos(NULL,0,0,originalFrame.Width()-250,originalFrame.Height()-300,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);frame->AdjustDockingLayout();
+  ok=Check(log,"resizing a plain pane from live-end keeps automatic follow enabled",followingBefore && panes[0]->Following())&&ok;
+  panes[0]->Text().SetSel(panes[0]->End(149),panes[0]->End(149)+12);panes[0]->Text().SendMessage(EM_SCROLLCARET);const Surface scrolledResize=Save(*panes[0]);
+  frame->SetWindowPos(NULL,0,0,originalFrame.Width(),originalFrame.Height(),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);frame->AdjustDockingLayout();
+  ok=Check(log,"resizing a scrolled plain pane preserves reading anchor and selection",Same(*panes[0],scrolledResize) && SameReading(*panes[0],scrolledResize) && !panes[0]->Following())&&ok;
   log<<(ok?"PASS":"FAIL")<<" fictional native dock layout regression; native API simulation, not physical mixed-DPI mouse acceptance\n";
   frame->DestroyWindow();for(auto* pane:panes)delete pane;result_=ok?0:1;return FALSE;
  }
