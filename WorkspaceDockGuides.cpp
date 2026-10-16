@@ -68,7 +68,7 @@ class DropGuides:public CSmartDockingGroupGuidesManager {
   CSmartDockingManager* engine;
 public:
   DropGuides():engine(creatingGuides){}
-  bool Native()const{return workspace_style::Colors().highContrast || host.Width()<workspace_style::Scale(preview.GetSafeHwnd(),460) || host.Height()<workspace_style::Scale(preview.GetSafeHwnd(),200) || !preview.GetSafeHwnd();}
+  bool Native()const{return workspace_style::Colors().highContrast || host.Width()<workspace_style::Scale(preview.GetSafeHwnd(),300) || host.Height()<workspace_style::Scale(preview.GetSafeHwnd(),200) || !preview.GetSafeHwnd();}
   CSmartDockingGroupGuide* Original(Place place){return CSmartDockingGroupGuidesManager::GetGuide(place);}
   void SyncNative(){for(int i=0;i<5;++i)Original((Place)(Left+i))->SetVisible(own[i].IsVisible(),FALSE);}
   bool Enabled(Place place)const {
