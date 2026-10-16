@@ -8,6 +8,7 @@
 #include <afxtabbedpane.h>
 #pragma pop_macro("Translate")
 #include "workspace/WorkspaceInputPolicy.h"
+#include "workspace/WorkspaceSharedHistory.h"
 #include "workspace/WorkspaceSpawnPolicy.h"
 namespace workspace_spell { struct Context; }
 
@@ -119,6 +120,8 @@ public:
   typedef std::function<void(const CString&,const CString&,const std::deque<WorkspaceRecord>&)> PruneHandler;
   void SetPruneHandler(const PruneHandler& handler) { m_pruneHandler=handler; }
   void SetInputHandler(const InputHandler& handler) { m_inputHandler=handler; }
+  void SetFullInputHandler(const InputHandler& handler) { m_fullInputHandler=handler; }
+  bool SharedInputIsFullCommand() const;
   void SetSpellingContextProvider(std::function<workspace_spell::Context(const CString&)> provider){m_spellingContext=provider;}
   typedef std::function<bool(const CString&,workspace_spawn::Appearance&)> AppearanceHandler;
   void SetAppearanceHandler(const AppearanceHandler& handler) {m_appearanceHandler=handler;}
@@ -170,6 +173,7 @@ protected:
     std::wstring foldedMention;
     int renderedWidth,connectionState;
     COLORREF surfaceForeground,surfaceBackground;
+    ~Transcript(){workspace_history::Forget((std::uintptr_t)this);}
     Transcript():deferredRemoved(0),retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1),surfaceForeground(RGB(225,225,225)),surfaceBackground(RGB(25,25,28)){}
   };
   std::vector<Transcript*> m_transcripts;
@@ -177,7 +181,7 @@ protected:
   HWND m_toolWindow;
   CString m_toolTitle;
   ActionHandler m_actionHandler;
-  InputHandler m_inputHandler;
+  InputHandler m_inputHandler,m_fullInputHandler;
   std::function<workspace_spell::Context(const CString&)> m_spellingContext;
   AppearanceHandler m_appearanceHandler;
   SharedInputHandler m_sharedInputHandler;

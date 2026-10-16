@@ -3,6 +3,7 @@
 #include "workspace/WorkspaceNativeControl.h"
 #include "workspace/WorkspaceComposerSplitter.h"
 #include "WorkspacePane.h"
+#include "workspace/WorkspaceSharedHistory.h"
 #include "pcre/pcre.h"
 #include "WorkspaceResources.h"
 #include "WorkspaceStyle.h"
@@ -130,7 +131,7 @@ int CWorkspacePane::OnCreate(LPCREATESTRUCT cs)
   if (CDockablePane::OnCreate(cs)==-1) return -1;
   if (!m_tabs.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP, CRect(0,0,1,1), this, 1)) return -1;
   m_tabs.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
-  HWND input=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
+  HWND input=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL,
     0,0,1,1,m_hWnd,(HMENU)2,AfxGetInstanceHandle(),NULL);
   if(!input || !workspace_native_control::Attach(m_input,input)) return -1;
   ::SendMessageW(input,EM_SETLIMITTEXT,16384,0);
@@ -746,6 +747,7 @@ bool CWorkspacePane::MoveSelectedTo(CWorkspacePane& target)
   copied->surfaceForeground=original->surfaceForeground;copied->surfaceBackground=original->surfaceBackground;copied->text.SetBackgroundColor(FALSE,copied->surfaceBackground);
   for(size_t i=0;i<target.m_transcripts.size();++i)if(target.m_transcripts[i]==copied)target.UpdateTabLabel(i);
   target.m_selectedInput=-1;target.LayoutChildren();target.Rebuild(*copied);
+  workspace_history::Transfer((std::uintptr_t)original,(std::uintptr_t)copied);
   m_tabs.DeleteItem(selected); original->text.DestroyWindow(); delete original;
   m_transcripts.erase(m_transcripts.begin()+selected);m_selectedInput=-1;
   if (!m_transcripts.empty()) m_tabs.SetCurSel(min(selected,(int)m_transcripts.size()-1));
@@ -824,7 +826,9 @@ void CWorkspacePane::SaveInputDraft()
   const int count=::GetWindowTextLengthW(m_input.m_hWnd);
   std::wstring text(min(count,16384)+1,L'\0');
   ::GetWindowTextW(m_input.m_hWnd,&text[0],(int)text.size());text.resize(wcslen(text.c_str()));
-  m_transcripts[m_selectedInput]->inputDraft=text;
+  auto* transcript=m_transcripts[m_selectedInput];
+  if(transcript->inputDraft!=text)workspace_history::For((LPCTSTR)transcript->connectionId).Edited((std::uintptr_t)transcript,text.empty());
+  transcript->inputDraft=text;
 }
 bool CWorkspacePane::HasUnsentInput(const CString& id) const
 {
@@ -852,6 +856,11 @@ std::wstring CWorkspacePane::SharedInputDestination() const {
   CString id,name;if(!SharedInputIdentity(id,name))return L"";
   const std::wstring channel=name=="Output"?L"Main":std::wstring(CA2W(name,CP_UTF8));
   return L"Input target: "+m_characterLabel+(m_gameLabel.empty()?L"":L" / "+m_gameLabel)+L" / "+channel;
+}
+bool CWorkspacePane::SharedInputIsFullCommand() const {
+  const int selected=m_tabs.GetCurSel();if(selected<0 || selected>=(int)m_transcripts.size())return false;
+  const auto* transcript=m_transcripts[selected];
+  return workspace_history::For((LPCTSTR)transcript->connectionId).Full((std::uintptr_t)transcript);
 }
 bool CWorkspacePane::SelectSharedInput(bool focus){
   if(!m_sharedInputHandler)return false;
@@ -924,10 +933,12 @@ BOOL CWorkspacePane::PreTranslateMessage(MSG* message)
     {
     SaveInputDraft();const int selected=m_tabs.GetCurSel();if(selected<0 || selected>=(int)m_transcripts.size())return TRUE;
     Transcript& transcript=*m_transcripts[selected];const std::string raw=WorkspaceUtf8(transcript.inputDraft);
-    const std::string text=message->wParam==VK_UP?transcript.history.Up(raw):transcript.history.Down(raw);
+    auto& history=workspace_history::For((LPCTSTR)transcript.connectionId);
+    const std::string text=history.Recall((std::uintptr_t)&transcript,message->wParam==VK_UP,raw);
     const int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),(int)text.size(),NULL,0);
     std::wstring wide(count,L'\0');if(count)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),(int)text.size(),&wide[0],count);
-    transcript.inputDraft=wide;::SetWindowTextW(m_input.m_hWnd,wide.c_str());m_input.SetSel(-1,-1);return TRUE;
+    transcript.inputDraft=wide;::SetWindowTextW(m_input.m_hWnd,wide.c_str());m_input.SetSel(-1,-1);
+    if(m_sharedInputHandler)SelectSharedInput(false);return TRUE;
     }
   if(message->hwnd==m_input.m_hWnd && message->message==WM_KEYDOWN && message->wParam==VK_RETURN)
     { OnReviewInput();return TRUE; }
@@ -940,25 +951,29 @@ void CWorkspacePane::OnReviewInput()
   const Transcript& transcript=*m_transcripts[selected];
   if(transcript.inputDraft.empty()) return;
   const CString identity=transcript.connectionId;
-  const std::wstring command=transcript.inputPrefix+transcript.inputDraft;
+  const bool full=workspace_history::For((LPCTSTR)transcript.connectionId).Full((std::uintptr_t)&transcript);
+  const std::wstring prefix=full?L"":transcript.inputPrefix;
+  const std::wstring command=prefix+transcript.inputDraft;
   const HWND window=GetSafeHwnd();
   const CString name=transcript.name;
   const std::wstring draft=transcript.inputDraft;
   const std::string id=(LPCTSTR)identity;
-  const workspace_input::PreparedInput prepared=workspace_input::PrepareHumanInput(id,id,!m_connectionHandler || m_connectionHandler(identity),WorkspaceUtf8(transcript.inputPrefix),WorkspaceUtf8(draft));
+  const workspace_input::PreparedInput prepared=workspace_input::PrepareHumanInput(id,id,!m_connectionHandler || m_connectionHandler(identity),WorkspaceUtf8(prefix),WorkspaceUtf8(draft));
   if(!prepared.ok) { AfxMessageBox(prepared.error.c_str());return; }
-  const InputHandler callback=m_inputHandler;
+  const InputHandler callback=full && m_fullInputHandler?m_fullInputHandler:m_inputHandler;
   bool submitted;{WorkspaceApplicationResources application;submitted=callback(identity,command);}
   // Alias/script callbacks can close the original world and destroy this pane.
   if(!::IsWindow(window) || CWnd::FromHandlePermanent(window)!=this)return;
   Transcript* current=Find(identity,name);if(!current)return;
-  current->history.Sent(WorkspaceUtf8(draft),submitted);
+  // Actual transport callbacks record canonical alias-expanded lines. Native test
+  // fixtures without a full-input callback still exercise shared command history.
+  if(submitted && !m_fullInputHandler)workspace_history::For(id).Sent(WorkspaceUtf8(command));
   std::wstring status=submitted?L"Submitted":L"Not submitted";
   if(!submitted && m_inputErrorHandler){const std::wstring error=m_inputErrorHandler(identity);if(!error.empty())status+=L": "+error;}
   ::SetWindowTextW(m_inputStatus.m_hWnd,status.c_str());
   LayoutChildren();
   if(submitted && current->inputDraft==draft)
-    {current->inputDraft.clear();::SetWindowTextW(m_input.m_hWnd,L"");}
+    {current->inputDraft.clear();workspace_history::For(id).Edited((std::uintptr_t)current,true);::SetWindowTextW(m_input.m_hWnd,L"");if(m_sharedInputHandler)SelectSharedInput(false);}
 
 }
 

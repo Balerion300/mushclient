@@ -18,6 +18,8 @@
 #include "sendvw.h"
 #include "mainfrm.h"
 #include "childfrm.h"
+#include "WorkspaceIntegration.h"
+#include "workspace/WorkspaceSharedHistory.h"
 #include "workspace/WorkspaceViewLease.h"
 #include "workspace/WorkspaceSpellContext.h"
 #include <imm.h>
@@ -366,7 +368,8 @@ void CSendView::SubmitMainInput()
 
     // tell each plugin what we have received
     // the plugin callback OnPluginCommandEntered gets a chance to attack the entire command
-    pDoc->SendToAllPluginCallbacksRtn (ON_PLUGIN_COMMAND_ENTERED, strText);
+    if(!workspace_history::For((LPCTSTR)WorkspaceConnectionId(pDoc)).Full((std::uintptr_t)m_hWnd))
+      pDoc->SendToAllPluginCallbacksRtn (ON_PLUGIN_COMMAND_ENTERED, strText);
     if(!lease.IsLive() || pDoc->m_bWorldClosing)return;
 
     // special string to indicate command should be discarded
@@ -393,8 +396,30 @@ void CSendView::SubmitMainInput()
 }
 
 
+bool CSendView::RecallSharedHistory(bool up)
+{
+  CMUSHclientDoc* doc=GetDocument();const CString id=WorkspaceConnectionId(doc);
+  if(id.IsEmpty())return false;
+  auto& history=workspace_history::For((LPCTSTR)id);if(history.commands.empty())return false;
+  CString encoded;GetEditCtrl().GetWindowText(encoded);const UINT cp=doc->m_bUTF_8?CP_UTF8:CP_ACP;
+  int count=MultiByteToWideChar(cp,0,encoded,encoded.GetLength(),NULL,0);
+  std::wstring wide(count,L'\0');if(count)MultiByteToWideChar(cp,0,encoded,encoded.GetLength(),&wide[0],count);
+  count=WideCharToMultiByte(CP_UTF8,0,wide.data(),(int)wide.size(),NULL,0,NULL,NULL);
+  std::string raw(count,'\0');if(count)WideCharToMultiByte(CP_UTF8,0,wide.data(),(int)wide.size(),&raw[0],count,NULL,NULL);
+  const auto recalled=history.Recall((std::uintptr_t)m_hWnd,up,raw);
+  count=MultiByteToWideChar(CP_UTF8,0,recalled.data(),(int)recalled.size(),NULL,0);
+  wide.assign(count,L'\0');if(count)MultiByteToWideChar(CP_UTF8,0,recalled.data(),(int)recalled.size(),&wide[0],count);
+  count=WideCharToMultiByte(cp,0,wide.data(),(int)wide.size(),NULL,0,NULL,NULL);
+  std::string text(count,'\0');if(count)WideCharToMultiByte(cp,0,wide.data(),(int)wide.size(),&text[0],count,NULL,NULL);
+  m_sharedHistoryWriting=true;SetCommand(text.c_str());m_sharedHistoryWriting=false;
+  GetEditCtrl().SetSel(-1,-1);
+  if(m_owner_frame)m_owner_frame->m_wndSplitter.SetMainHistoryMode(history.Full((std::uintptr_t)m_hWnd));
+  return true;
+}
+
 void CSendView::OnKeysNextcommand() 
 {
+  if(RecallSharedHistory(false))return;
 	CMUSHclientDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);
 
@@ -473,6 +498,7 @@ void CSendView::OnKeysNextcommand()
 
 void CSendView::OnKeysPrevcommand() 
 {
+  if(RecallSharedHistory(true))return;
 	CMUSHclientDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);
 
@@ -617,6 +643,18 @@ void CSendView::SendCommand (const CString strOriginalCommand,
 	CMUSHclientDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);
 
+  const CString historyId=WorkspaceConnectionId(pDoc);
+  pDoc->m_bOmitFromCommandHistory=false;
+  workspace_history::Capture historyCapture(pDoc,(LPCTSTR)historyId,pDoc->m_bNoEcho);
+  auto& sharedHistory=workspace_history::For((LPCTSTR)historyId);
+  if(sharedHistory.Full((std::uintptr_t)m_hWnd)) {
+    const auto sent=pDoc->m_nTotalLinesSent;
+    pDoc->SendMsg(strFullCommand,pDoc->m_display_my_input,false,pDoc->LoggingInput());
+    if(!lease.IsLive())return;
+    historyCapture.keep=pDoc->m_nTotalLinesSent>sent && !pDoc->m_bOmitFromCommandHistory && !pDoc->m_bNoEcho;
+    if(pDoc->m_nTotalLinesSent>sent){sharedHistory.Edited((std::uintptr_t)m_hWnd,true);SetCommand("");}
+    return;
+  }
   pDoc->m_bOmitFromCommandHistory = false;    // don't omit it yet
 
   // auto-say only applies when you actually type something, so I removed it 
@@ -734,8 +772,10 @@ void CSendView::SendCommand (const CString strOriginalCommand,
 
   if(!lease.IsLive())return;
 
+  historyCapture.keep=bKeepInHistory && !pDoc->m_bOmitFromCommandHistory && !pDoc->m_bNoEcho;
+
   // put original command in command history (we might have stripped auto-say prefix)
-  if (bKeepInHistory && !pDoc->m_bOmitFromCommandHistory)
+  if (bKeepInHistory && !pDoc->m_bOmitFromCommandHistory && !pDoc->m_bNoEcho)
     AddToCommandHistory (strOriginalCommand);
 
   // history starts at bottom of list again
@@ -1204,6 +1244,11 @@ void CSendView::OnChange()
   WorkspaceViewLease lease(this);
 
 	m_bChanged = true;
+  if(!m_sharedHistoryWriting){
+    auto& history=workspace_history::For((LPCTSTR)WorkspaceConnectionId(GetDocument()));
+    history.Edited((std::uintptr_t)m_hWnd,GetEditCtrl().GetWindowTextLength()==0);
+    if(m_owner_frame)m_owner_frame->m_wndSplitter.SetMainHistoryMode(history.Full((std::uintptr_t)m_hWnd));
+  }
   AdjustCommandWindowSize ();
 
   NotifyPluginCommandChanged ();
@@ -1593,6 +1638,7 @@ void CSendView::OnFilePrintWorld()
 
 void CSendView::OnDestroy() 
 {
+  workspace_history::Forget((std::uintptr_t)m_hWnd);
   workspace_spell::Detach(m_hWnd);
 
 	CMUSHclientDoc* pDoc = GetDocument();
@@ -1821,6 +1867,7 @@ pCmdUI->Enable (!m_msgList.IsEmpty ());
 
 void CSendView::OnAltDownarrow() 
 {
+  if(RecallSharedHistory(false))return;
 	CMUSHclientDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);
 
@@ -1900,6 +1947,7 @@ void CSendView::OnAltDownarrow()
 
 void CSendView::OnAltUparrow() 
 {
+  if(RecallSharedHistory(true))return;
 	CMUSHclientDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);
 
@@ -2189,6 +2237,7 @@ void CSendView::OnDisplayClearCommandHistory()
                     return;
 
   // OK, do it ...
+  workspace_history::For((LPCTSTR)WorkspaceConnectionId(GetDocument())).Clear();
 	m_msgList.RemoveAll ();
   m_HistoryPosition = NULL;
   m_inputcount = 0;
@@ -2202,7 +2251,7 @@ void CSendView::OnDisplayClearCommandHistory()
 
 void CSendView::OnUpdateDisplayClearCommandHistory(CCmdUI* pCmdUI) 
 {
-  pCmdUI->Enable (!m_msgList.IsEmpty ());	
+  pCmdUI->Enable (!m_msgList.IsEmpty () || !workspace_history::For((LPCTSTR)WorkspaceConnectionId(GetDocument())).commands.empty());
 }
 
 
@@ -2931,6 +2980,8 @@ void CSendView::AdjustCommandWindowSize (void)
   {
 	CMUSHclientDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);
+
+  if(m_owner_frame && m_owner_frame->m_wndSplitter.HeightMode()>=0){m_owner_frame->m_wndSplitter.UpdateInputHeight();return;}
 
   // do nothing if not wanted
   if (!pDoc->m_bAutoResizeCommandWindow)

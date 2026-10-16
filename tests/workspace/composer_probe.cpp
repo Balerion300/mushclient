@@ -73,7 +73,7 @@ class ComposerApp:public CWinApp{
   const auto keys=[&](MSG* message)->BOOL{if(message->wParam==VK_UP){++channelKeys;return TRUE;}return FALSE;};
   check("channel Unicode editor borrows shared Main slot",a->splitter.UseChannelEditor(channel,channelHome.m_hWnd,L"Input target: Alpha / Public",L"+pub ",submitChannel,keys) && ::GetParent(channel)==a->splitter.m_hWnd && a->splitter.CurrentInput()==channel);
   wchar_t channelText[100]={},prefix[100]={};::GetWindowTextW(channel,channelText,100);::GetWindowTextW(::GetDlgItem(a->splitter.m_hWnd,0x7b22),prefix,100);
-  check("borrow retains Unicode draft selection and exact trailing-space prefix",::IsWindowUnicode(channel) && wcscmp(channelText,L"Unicode \x03bb \xd83d\xdc09 draft")==0 && ::SendMessageW(channel,EM_GETSEL,0,0)==channelSelection && wcscmp(prefix,L"Prefix: \x201c+pub \x201d")==0);
+  check("borrow retains Unicode draft selection and exact trailing-space prefix",::IsWindowUnicode(channel) && wcscmp(channelText,L"Unicode \x03bb \xd83d\xdc09 draft")==0 && ::SendMessageW(channel,EM_GETSEL,0,0)==channelSelection && wcscmp(prefix,L"Prefix: +pub ")==0);
   const int mainBefore=a->sent;::SendMessage(::GetDlgItem(a->splitter.m_hWnd,0x7b20),BM_CLICK,0,0);
   check("shared Send dispatches channel only, never Main or another character",channelSent==1 && a->sent==mainBefore && b->sent==0);
   MSG key={};key.hwnd=channel;key.message=WM_SYSKEYDOWN;key.wParam=VK_UP;
@@ -114,6 +114,14 @@ class ComposerApp:public CWinApp{
   check("second host can borrow same editor after explicit release",b->splitter.UseChannelEditor(channel,channelHome.m_hWnd,L"Input target: Beta / Test",L"page Mira=",submitChannel,keys));
   b->DestroyWindow();check("lease rejects closed original view without dereferencing it",!closed.IsLive());
   check("closing host returns live channel editor before destroying original views",::IsWindow(channel) && ::GetParent(channel)==channelHome.m_hWnd && !workspace_composer::BorrowedEditors().count(channel));
+  a->splitter.SetInputHeightMode(2);int fixedHeight=0,minimumHeight=0;a->splitter.GetRowInfo(1,fixedHeight,minimumHeight);
+  ::SetWindowText(original,"one\r\ntwo\r\nthree\r\nfour");a->splitter.UpdateInputHeight();int afterText=0;a->splitter.GetRowInfo(1,afterText,minimumHeight);
+  check("fixed line height stays fixed while draft grows",fixedHeight==afterText && a->splitter.HeightMode()==2);
+  a->splitter.SetInputHeightMode(0);int expanded=0;a->splitter.GetRowInfo(1,expanded,minimumHeight);
+  ::SetWindowText(original,"one");a->splitter.UpdateInputHeight();int compact=0;a->splitter.GetRowInfo(1,compact,minimumHeight);
+  check("auto height grows and shrinks with native Main line count",expanded>compact && a->splitter.HeightMode()==0);
+  a->splitter.SetInputHeightMode(-1);::SetWindowText(original,"one\r\ntwo\r\nthree");a->splitter.UpdateInputHeight();int customHeight=0;a->splitter.GetRowInfo(1,customHeight,minimumHeight);
+  check("custom mode leaves manual height untouched",customHeight==compact);
   a->DestroyWindow();DeleteObject(custom);out<<(ok?"PASS":"FAIL")<<" composer geometry and original-view lifetime; native API fixture, no transport or physical IME claim\n";result_=ok?0:1;return FALSE;
  }
  int ExitInstance()override{CWinApp::ExitInstance();return result_;}

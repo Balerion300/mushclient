@@ -1353,6 +1353,7 @@ CString str = strText;
 
 // send it
 
+   WorkspaceRecordSentInput(this,strText);
    SendPacket (str, str.GetLength ());
 
 } // end of CMUSHclientDoc::DoSendMsg

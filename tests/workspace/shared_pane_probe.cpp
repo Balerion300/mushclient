@@ -28,7 +28,17 @@ class HiddenSharedApp:public CWinApp {
   wchar_t draft[256]={};::GetWindowTextW(pages.SharedInputWindow(),draft,256);
   check("native submission uses original connection and exact Unicode prefix once",target=="alpha" && sent==L"+pub hello \x03bb\xd83d\xdc09" && !::GetWindowTextLengthW(publicPane.SharedInputWindow()) && wcscmp(draft,L"private draft")==0);
   MSG key={};key.hwnd=publicPane.SharedInputWindow();key.message=WM_SYSKEYDOWN;key.wParam=VK_UP;
-  check("Alt Up recalls only channel history",publicPane.PreTranslateMessage(&key));::GetWindowTextW(key.hwnd,draft,256);check("history excludes applied prefix",wcscmp(draft,L"hello \x03bb\xd83d\xdc09")==0);
+  check("Alt Up recalls canonical shared history",publicPane.PreTranslateMessage(&key));::GetWindowTextW(key.hwnd,draft,256);check("history contains original applied prefix",wcscmp(draft,L"+pub hello \x03bb\xd83d\xdc09")==0);
+  CWorkspacePane moved;
+  check("hidden destination for moving recalled draft creates",moved.Create(&frame,ID_WORKSPACE_BAR+2));
+  moved.SetSharedInputHandler(select);moved.SetInputHandler(send);moved.SetFullInputHandler(send);moved.SetConnectionHandler([](const CString&){return true;});
+  check("recalled draft moves to a new transcript identity",publicPane.MoveSelectedTo(moved) && moved.SharedInputIsFullCommand());
+  moved.SubmitSharedInput();check("moved recalled command retains one original prefix",sent==L"+pub hello \x03bb\xd83d\xdc09");
+  check("transcript can return after send",moved.MoveSelectedTo(publicPane));
+  key.hwnd=publicPane.SharedInputWindow();publicPane.PreTranslateMessage(&key);
+  publicPane.SetFullInputHandler(send);publicPane.SubmitSharedInput();
+  check("recalled canonical send bypasses channel prefix",sent==L"+pub hello \x03bb\xd83d\xdc09");
+  ::SetWindowTextW(publicPane.SharedInputWindow(),L"rejected draft");
   key.hwnd=pages.SharedInputWindow();pages.PreTranslateMessage(&key);::GetWindowTextW(key.hwnd,draft,256);check("other character history remains independent",wcscmp(draft,L"private draft")==0);
   accept=false;publicPane.SetInputErrorHandler([](const CString&){return std::wstring(L"Fictional plugin declined command");});publicPane.SubmitSharedInput();
   check("rejected command retains draft and visible feedback",::GetWindowTextLengthW(publicPane.SharedInputWindow())>0 && (::GetWindowLong(publicPane.GetDlgItem(8)->m_hWnd,GWL_STYLE)&WS_VISIBLE));

@@ -34,7 +34,10 @@ inline void ForEachOriginalFrame(CDocument& document,const std::function<void(CF
 // Adds chrome as siblings of the original command CView. The splitter's pane
 // ID, parent, HWND, text buffer and all CEditView behavior remain unchanged.
 class CWorkspaceComposerSplitter : public CSplitterWnd {
-  HWND editor_=NULL,label_=NULL,send_=NULL,prefix_=NULL;
+  HWND editor_=NULL,label_=NULL,send_=NULL,prefix_=NULL,size_=NULL;
+  std::function<void(int)> heightPolicy_;
+  int heightMode_=-1;
+  bool heightInitialized_=false,mainHistory_=false;
   HWND borrowed_=NULL,home_=NULL;
   std::wstring mainLabel_,mainPrefix_=L"None (full command)",channelLabel_,channelPrefix_;
   bool connected_=false;
@@ -51,12 +54,21 @@ class CWorkspaceComposerSplitter : public CSplitterWnd {
   }
   void UpdateDestination(){
     if(label_)::SetWindowTextW(label_,(borrowed_?channelLabel_:mainLabel_).c_str());
-    if(prefix_)::SetWindowTextW(prefix_,(L"Prefix: "+(borrowed_?channelPrefix_:mainPrefix_)).c_str());
+    if(prefix_)::SetWindowTextW(prefix_,(L"Prefix: "+(borrowed_?channelPrefix_:(mainHistory_?L"History: full command (aliases bypassed)":mainPrefix_))).c_str());
     if(send_)::EnableWindow(send_,connected_);
   }
 protected:
   LRESULT WindowProc(UINT message,WPARAM wp,LPARAM lp) override {
     if(message==WM_DESTROY)ReleaseChannelEditor();
+    if(message==WM_COMMAND && LOWORD(wp)==LabelId+2 && HIWORD(wp)==BN_CLICKED){
+      HMENU menu=::CreatePopupMenu();const int lines[]={0,1,2,3,6,10,-1};
+      const wchar_t* names[]={L"Auto-grow (1 to 10 lines)",L"1 line",L"2 lines",L"3 lines",L"6 lines",L"10 lines",L"Custom (drag divider)"};
+      for(int i=0;i<7;++i)::AppendMenuW(menu,MF_STRING|(heightMode_==lines[i]?MF_CHECKED:0),0x7c00+i,names[i]);
+      RECT rect;::GetWindowRect(size_,&rect);const int choice=::TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,rect.left,rect.bottom,0,m_hWnd,NULL);::DestroyMenu(menu);
+      if(choice>=0x7c00 && choice<0x7c07){SetInputHeightMode(lines[choice-0x7c00]);}
+      return 0;
+    }
+    if(message==WM_COMMAND && HIWORD(wp)==EN_CHANGE && (HWND)lp==CurrentInput())UpdateInputHeight();
     if(message==WM_COMMAND && LOWORD(wp)==SendId && HIWORD(wp)==BN_CLICKED && (HWND)lp==send_){
       // Copy before dispatch: a plugin can close this entire frame synchronously.
       const auto submit=borrowed_?channelSubmit_:submit_;
@@ -119,13 +131,36 @@ public:
     label_=::CreateWindowExW(0,L"STATIC",L"Main input",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE|SS_ENDELLIPSIS|SS_NOPREFIX,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)LabelId,AfxGetInstanceHandle(),NULL);
     prefix_=::CreateWindowExW(0,L"STATIC",L"Prefix: None (full command)",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_CENTERIMAGE|SS_ENDELLIPSIS|SS_NOPREFIX,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(LabelId+1),AfxGetInstanceHandle(),NULL);
     send_=::CreateWindowExW(0,L"BUTTON",L"Send",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)SendId,AfxGetInstanceHandle(),NULL);
-    if(!label_ || !send_ || !prefix_)return false;
+    size_=::CreateWindowExW(0,L"BUTTON",L"Size",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,0,0,1,1,m_hWnd,(HMENU)(UINT_PTR)(LabelId+2),AfxGetInstanceHandle(),NULL);
+    if(!label_ || !send_ || !prefix_ || !size_)return false;
     ModifyStyleEx(0,WS_EX_CONTROLPARENT);
     workspace_style::ApplySurface(m_hWnd);
+    workspace_style::StyleButton(size_,workspace_style::Icon::Settings,false,L"Input height: auto-grow, fixed lines, or drag the divider.");
     workspace_style::StyleControl(label_);
     workspace_style::StyleControl(prefix_);
     workspace_style::StyleButton(send_,workspace_style::Icon::Send,true,L"Send to the displayed character and channel. Enter sends from the editor.");
     RecalcLayout();return true;
+  }
+  void SetHeightPolicy(const std::function<void(int)>& apply){heightPolicy_=apply;}
+  int HeightMode()const{return heightMode_;}
+  void SetMainHistoryMode(bool full){mainHistory_=full;UpdateDestination();}
+  void InitializeHeightMode(int mode){if(!heightInitialized_)SetInputHeightMode(mode,false);}
+  void SetInputHeightMode(int mode,bool notify=true){
+    if(mode<-1 || mode>10)return;
+    heightInitialized_=true;heightMode_=mode;const auto apply=heightPolicy_;if(notify && apply)apply(mode);
+    if(size_)::SetWindowTextW(size_,mode==0?L"Auto":mode<0?L"Size":(std::to_wstring(mode)+L" lines").c_str());
+    UpdateInputHeight();
+  }
+  void UpdateInputHeight(){
+    if(heightMode_<0 || layingOut_ || !OriginalEditor())return;
+    const HWND input=CurrentInput();if(!input || !::IsWindow(input))return;
+    int lines=heightMode_?heightMode_:max(1,min(10,(int)::SendMessageW(input,EM_GETLINECOUNT,0,0)));
+    HDC dc=::GetDC(input);if(!dc)return;const auto font=(HFONT)::SendMessageW(input,WM_GETFONT,0,0);const auto old=font?::SelectObject(dc,font):NULL;
+    TEXTMETRICW metric={};::GetTextMetricsW(dc,&metric);if(old)::SelectObject(dc,old);::ReleaseDC(input,dc);
+    const int body=lines*max(1,(int)metric.tmHeight)+workspace_style::Scale(m_hWnd,8);
+    requestedInputHeight_=body;CRect area;GetClientRect(&area);const int total=RowHeightForInput(body);
+    int previous,minimum;GetRowInfo(row_,previous,minimum);if(previous==total)return;
+    SetRowInfo(0,max(20,area.Height()-total-7),20);SetRowInfo(row_,total,ComposerOverhead()+9);RecalcLayout();
   }
   int ComposerOverhead() const {return label_?workspace_style::Scale(m_hWnd,48):0;}
   int RowHeightForInput(int height) const {return height>0?height+ComposerOverhead():0;}
@@ -147,8 +182,8 @@ public:
       borrowed_=editor;home_=home;workspace_composer::BorrowedEditors()[editor]=this;
       ::SetPropW(editor,L"Valyria.SharedComposerHost",m_hWnd);
     }
-    channelLabel_=label;channelPrefix_=prefix.empty()?L"None (full command)":L"\x201c"+prefix+L"\x201d";
-    channelSubmit_=submit;channelKeys_=keys;UpdateDestination();RecalcLayout();return true;
+    channelLabel_=label;channelPrefix_=prefix.empty()?L"None (full command)":prefix;
+    channelSubmit_=submit;channelKeys_=keys;UpdateDestination();RecalcLayout();UpdateInputHeight();return true;
   }
   void ReleaseChannelEditor(){
     if(!borrowed_)return;const HWND editor=borrowed_,home=home_;
@@ -173,14 +208,15 @@ public:
     layingOut_=true;CSplitterWnd::RecalcLayout();
     if(OriginalEditor() && label_ && send_){
       RECT native;::GetWindowRect(editor_,&native);::MapWindowPoints(NULL,m_hWnd,(POINT*)&native,2);CRect area(native);
-      const int pad=workspace_style::Scale(m_hWnd,8),button=workspace_style::Scale(m_hWnd,84),height=workspace_style::Scale(m_hWnd,32),overhead=ComposerOverhead();
+      const int pad=workspace_style::Scale(m_hWnd,8),button=workspace_style::Scale(m_hWnd,84),sizeWidth=workspace_style::Scale(m_hWnd,54),height=workspace_style::Scale(m_hWnd,32),overhead=ComposerOverhead();
       const bool visible=area.Height()>overhead;
-      ::ShowWindow(label_,visible?SW_SHOW:SW_HIDE);::ShowWindow(prefix_,visible?SW_SHOW:SW_HIDE);::ShowWindow(send_,visible?SW_SHOW:SW_HIDE);
+      ::ShowWindow(label_,visible?SW_SHOW:SW_HIDE);::ShowWindow(prefix_,visible?SW_SHOW:SW_HIDE);::ShowWindow(send_,visible?SW_SHOW:SW_HIDE);::ShowWindow(size_,visible?SW_SHOW:SW_HIDE);
       if(borrowed_)::ShowWindow(editor_,SW_HIDE);
       if(!visible && borrowed_ && ::IsWindow(borrowed_))::ShowWindow(borrowed_,SW_HIDE);
       if(visible){
-        ::MoveWindow(label_,area.left+pad,area.top+pad,max(1,area.Width()-button-3*pad),height/2,TRUE);
-        ::MoveWindow(prefix_,area.left+pad,area.top+pad+height/2,max(1,area.Width()-button-3*pad),height/2,TRUE);
+        ::MoveWindow(label_,area.left+pad,area.top+pad,max(1,area.Width()-button-sizeWidth-4*pad),height/2,TRUE);
+        ::MoveWindow(prefix_,area.left+pad,area.top+pad+height/2,max(1,area.Width()-button-sizeWidth-4*pad),height/2,TRUE);
+        ::MoveWindow(size_,max(area.left,area.right-button-sizeWidth-2*pad),area.top+pad,min(sizeWidth,area.Width()),height,TRUE);
         ::MoveWindow(send_,max(area.left,area.right-button-pad),area.top+pad,min(button,area.Width()),height,TRUE);
         ::MoveWindow(editor_,area.left+pad,area.top+overhead,max(1,area.Width()-2*pad),max(1,area.Height()-overhead),TRUE);
         if(borrowed_ && ::IsWindow(borrowed_)){

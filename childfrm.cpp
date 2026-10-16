@@ -84,6 +84,12 @@ BOOL CChildFrame::OnCreateClient( LPCREATESTRUCT lpcs,
     if(!m_wndSplitter.AttachComposer(COMMAND_PANE,originalInput,[originalInput,bottomview](){
       if(::IsWindow(originalInput) && CWnd::FromHandlePermanent(originalInput)==bottomview)bottomview->SubmitMainInput();
     }))return FALSE;
+    m_wndSplitter.SetHeightPolicy([originalInput,bottomview](int mode){
+      if(::IsWindow(originalInput) && CWnd::FromHandlePermanent(originalInput)==bottomview){
+        CMUSHclientDoc* doc=bottomview->GetDocument();doc->m_bAutoResizeCommandWindow=false;
+        if(!doc->m_strWorldID.IsEmpty())App.db_write_int("worlds",(LPCTSTR)CFormat("%s:Composer height mode",(LPCTSTR)doc->m_strWorldID),mode);
+      }
+    });
     bottomview->m_owner_frame = this;
 		SetActiveView((CView*) bottomview);
 
@@ -184,6 +190,11 @@ void CChildFrame::FixUpSplitterBar (void)
      // otherwise, allow for a 2-line command area
     cyCurBottom = iDefaultHeight;
 
+   if(m_pDoc && m_pDoc->m_bLoaded && !m_pDoc->m_mush_name.IsEmpty() && m_pDoc->m_InputFontHeight>0){
+     const int fallback=m_pDoc->m_bAutoResizeCommandWindow?0:-1;
+     m_wndSplitter.InitializeHeightMode(App.db_get_int("worlds",(LPCTSTR)CFormat("%s:Composer height mode",(LPCTSTR)m_pDoc->m_strWorldID),fallback));
+   }
+
    // Read persisted/default body height once. MDI activation/fullscreen can
    // resize this original frame without a user splitter change.
    cyCurBottom=m_wndSplitter.RestoreInputHeight(cyCurBottom,
@@ -220,6 +231,7 @@ void CChildFrame::FixUpSplitterBar (void)
 
    // recalculate it all
    m_wndSplitter.RecalcLayout ();
+   m_wndSplitter.UpdateInputHeight();
 
   }
 

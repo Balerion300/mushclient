@@ -7,6 +7,7 @@
 #include "WorkspaceIntegration.h"
 #include "workspace/PennEditorWindow.h"
 #include "workspace/WorkspaceInputEncoding.h"
+#include "workspace/WorkspaceSharedHistory.h"
 #include "scripting/errors.h"
 #include <map>
 #include <regex>
@@ -83,6 +84,7 @@ void WorkspaceCloseDocument(CMUSHclientDoc* doc)
   if(App.m_pMainWnd && Frame.GetSafeHwnd())Frame.ClearWorkspaceImageAssociation(it->second.id);
   PennEditorInvalidateEndpoint((LPCTSTR)it->second.id);
   humanInputErrors.erase(it->second.id);
+  workspace_history::Sessions().erase((LPCTSTR)it->second.id);
   const std::string panePrefix=std::string((LPCTSTR)it->second.id)+"/pane/";
   for(const auto& w:agentStore.humanWindows())
     if(w.id.compare(0,panePrefix.size(),panePrefix)==0)agentStore.expireWindow(w.id);
@@ -360,7 +362,7 @@ bool WorkspaceSelectSharedInput(CWorkspacePane& pane,bool focus)
     child->m_wndSplitter.ReleaseChannelEditor();
     if(focus)::SetFocus(child->m_wndSplitter.CurrentInput());return true;
   }
-  const bool borrowed=child->m_wndSplitter.UseChannelEditor(input,owner,pane.SharedInputDestination(),pane.InputPrefix(id,name),
+  const bool borrowed=child->m_wndSplitter.UseChannelEditor(input,owner,pane.SharedInputDestination(),pane.SharedInputIsFullCommand()?L"History: full command (prefix bypassed)":pane.InputPrefix(id,name),
     [owner,input,id,name](){
       auto* current=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(owner));CString activeId,activeName;
       if(current && current->SharedInputWindow()==input && current->SharedInputIdentity(activeId,activeName) && activeId==id && activeName==name)current->SubmitSharedInput();},
@@ -403,6 +405,8 @@ bool WorkspaceSendHumanInput(const CString& connectionId,const std::wstring& com
   try {
     // Execute on the captured document, never the currently focused world.
     // Preserve its alias/script/command handling and the main input draft.
+    doc->m_bOmitFromCommandHistory=false;
+    workspace_history::Capture historyCapture(doc,(LPCTSTR)connectionId,doc->m_bNoEcho);
     CString entered(encoded.c_str());
     doc->SendToAllPluginCallbacksRtn(ON_PLUGIN_COMMAND_ENTERED,entered);
     if(liveDocument(connectionId)!=doc)return false;
@@ -414,12 +418,33 @@ bool WorkspaceSendHumanInput(const CString& connectionId,const std::wstring& com
     // Command callbacks may close a world. Do not dereference it afterward.
     if(!liveDocument(connectionId))return false;
     if(result!=eOK)return reject(L"Original world did not accept the command; draft preserved.");
+    historyCapture.keep=!doc->m_bOmitFromCommandHistory && !doc->m_bNoEcho;
     humanInputErrors.erase(connectionId);
     return true; // Accepted locally; this is not a server execution receipt.
   }catch(CException* error){error->Delete();}
   catch(...){ }
   if(!liveDocument(connectionId))return false;
   return reject(L"Submission interrupted; check world output before retrying.");
+}
+void WorkspaceRecordSentInput(CMUSHclientDoc* doc,const CString& encoded)
+{
+  if(!workspace_history::Capture::Active())return;
+  workspace_history::Sent(doc,utf8(wide(encoded,encoded.GetLength(),doc->m_bUTF_8)));
+}
+bool WorkspaceSendFullHumanInput(const CString& connectionId,const std::wstring& command)
+{
+  CMUSHclientDoc* doc=liveDocument(connectionId);
+  if(!doc || doc->m_iConnectPhase!=eConnectConnectedToMud || command.empty())return false;
+  std::string encoded;if(!encodeCommand(doc,utf8(command),encoded))return false;
+  for(wchar_t c:command)if(c<32 || c==127)return false;
+  if(encoded.size()>4096)return false;
+  doc->m_bOmitFromCommandHistory=false;
+  const auto sent=doc->m_nTotalLinesSent;
+  workspace_history::Capture capture(doc,(LPCTSTR)connectionId,doc->m_bNoEcho);
+  // Canonical recalled commands bypass aliases/auto-say; send plugins still apply.
+  doc->SendMsg(encoded.c_str(),doc->m_display_my_input,false,doc->LoggingInput());
+  const bool ok=liveDocument(connectionId)==doc && doc->m_nTotalLinesSent>sent;
+  capture.keep=ok && !doc->m_bOmitFromCommandHistory && !doc->m_bNoEcho;return ok;
 }
 bool WorkspaceSendEditorRead(const std::string& endpoint,const std::string& command)
 {
