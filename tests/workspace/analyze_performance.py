@@ -38,5 +38,32 @@ summary['phases']={phase:{kind:distribution([(float(r['now'])-float(r['sent']))*
 for phase,details in summary['phases'].items():
     intervals=[(r['cpu']-previous['cpu'],r['time']-previous['time']) for previous,r in zip(resources,resources[1:]) if previous['phase']==phase and r['phase']==phase]
     if intervals:details['cpu_one_core_percent']=100*sum(x for x,_ in intervals)/sum(y for _,y in intervals)
+# Compare like-for-like traffic phases rather than calling normal retained
+# history/image-cache growth a leak or comparing an idle phase with image load.
+began=min((r['time'] for r in sent),default=0)
+phase_windows={}
+for phase in ('plain','styled','images','idle'):
+    groups={}
+    for item in sent:
+        if item['phase']==phase:groups.setdefault(int((item['time']-began)//120),[]).append(item)
+    if not groups:continue
+    snapshots=[]
+    for cycle,items in sorted(groups.items()):
+        ids={item['sequence'] for item in items}
+        start=min(item['time'] for item in items);finish=max(item['time'] for item in items)
+        samples=[r for r in resources if r['phase']==phase and start<=r['time']<=finish]
+        snapshot={'cycle':cycle,'output':distribution([(float(r['now'])-float(r['sent']))*1000 for r in rows if r['kind']=='output' and int(r['sequence']) in ids]),
+                  'script_execute_echo':distribution([(float(r['now'])-float(r['sent']))*1000 for r in rows if r['kind']=='input' and int(r['sequence']) in ids])}
+        if samples:snapshot['resource_mean']={key:statistics.mean(r[key] for r in samples) for key in ('private','working_set','gdi','user','handles')}
+        snapshots.append(snapshot)
+    phase_windows[phase]=snapshots
+summary['phase_cycles']=phase_windows
+steady=[r for r in resources if r['elapsed']>=5 and r['phase']!='drain']
+if steady:
+    keys=('private','working_set','gdi','user','handles')
+    summary['resource_first_after_warmup']={key:steady[0][key] for key in keys}
+    summary['resource_final_active']={key:steady[-1][key] for key in keys}
+    summary['resource_final_drain']={key:resources[-1][key] for key in keys}
+summary['measurement_limits']='Completed-line and scripted Execute/echo timing on a private desktop; not physical typing, screen-paint, or long-duration leak proof.'
 (a.directory/'summary.json').write_text(json.dumps(summary,indent=2))
 print(json.dumps(summary,indent=2))
