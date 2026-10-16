@@ -9,7 +9,8 @@ struct PreparedInput {
   std::string command, error;
 };
 // resolvedEndpoint is the transport's resolved original connection identity,
-// never the currently focused world. Prefix is concatenated exactly as entered.
+// never the currently focused world. Bare command prefixes add one separator;
+// richer syntax (poses, equals signs and supplied whitespace) stays literal.
 PreparedInput PrepareHumanInput(const std::string &originalEndpoint,
                                 const std::string &resolvedEndpoint,
                                 bool connected, const std::string &prefix,

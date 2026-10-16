@@ -1,4 +1,5 @@
 #include "WorkspaceInputPolicy.h"
+#include <cctype>
 #include <algorithm>
 
 namespace workspace_input {
@@ -45,6 +46,16 @@ bool Content(const std::string &text) {
   return text.find_first_not_of(' ') != std::string::npos;
 }
 } // namespace
+// Match the web client's bare-command prefix policy without a regex per send.
+static bool PrefixSeparator(const std::string& prefix,const std::string& draft){
+  if(prefix.empty() || draft.empty() || std::isspace((unsigned char)draft[0]))return false;
+  size_t i=(prefix[0]=='+' || prefix[0]=='@')?1:0;
+  auto alpha=[](unsigned char c){return (c>='A'&&c<='Z') || (c>='a'&&c<='z');};
+  auto name=[&](unsigned char c){return alpha(c) || (c>='0'&&c<='9') || c=='_' || c=='-';};
+  if(i>=prefix.size() || !alpha(prefix[i++]))return false;
+  for(;i<prefix.size();++i){if(prefix[i]=='/'){if(i+1==prefix.size() || !name(prefix[i+1]))return false;}else if(!name(prefix[i]))return false;}
+  return true;
+}
 PreparedInput PrepareHumanInput(const std::string &original,
                                 const std::string &resolved, bool connected,
                                 const std::string &prefix,
@@ -69,7 +80,8 @@ PreparedInput PrepareHumanInput(const std::string &original,
     return result;
   }
   const size_t limit = std::min<size_t>(maxBytes, 65536);
-  if (!limit || prefix.size() > limit || draft.size() > limit - prefix.size()) {
+  const size_t separator=PrefixSeparator(prefix,draft)?1:0;
+  if (!limit || prefix.size() > limit || draft.size() > limit - prefix.size() || separator>limit-prefix.size()-draft.size()) {
     result.error = "The prefix and message exceed the command byte limit. "
                    "Shorten the draft; it will not be split.";
     return result;
@@ -84,7 +96,7 @@ PreparedInput PrepareHumanInput(const std::string &original,
                    "control characters; the draft was kept.";
     return result;
   }
-  result.command = prefix + draft;
+  result.command = prefix + (separator?" ":"") + draft;
   result.ok = true;
   return result;
 }

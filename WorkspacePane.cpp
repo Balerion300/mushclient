@@ -953,13 +953,15 @@ void CWorkspacePane::OnReviewInput()
   const CString identity=transcript.connectionId;
   const bool full=workspace_history::For((LPCTSTR)transcript.connectionId).Full((std::uintptr_t)&transcript);
   const std::wstring prefix=full?L"":transcript.inputPrefix;
-  const std::wstring command=prefix+transcript.inputDraft;
+  std::wstring command;
   const HWND window=GetSafeHwnd();
   const CString name=transcript.name;
   const std::wstring draft=transcript.inputDraft;
   const std::string id=(LPCTSTR)identity;
   const workspace_input::PreparedInput prepared=workspace_input::PrepareHumanInput(id,id,!m_connectionHandler || m_connectionHandler(identity),WorkspaceUtf8(prefix),WorkspaceUtf8(draft));
   if(!prepared.ok) { AfxMessageBox(prepared.error.c_str());return; }
+  const int commandLength=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,prepared.command.data(),(int)prepared.command.size(),NULL,0);
+  command.resize(commandLength);if(commandLength)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,prepared.command.data(),(int)prepared.command.size(),&command[0],commandLength);
   const InputHandler callback=full && m_fullInputHandler?m_fullInputHandler:m_inputHandler;
   bool submitted;{WorkspaceApplicationResources application;submitted=callback(identity,command);}
   // Alias/script callbacks can close the original world and destroy this pane.
