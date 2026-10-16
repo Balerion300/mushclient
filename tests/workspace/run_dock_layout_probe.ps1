@@ -30,12 +30,10 @@ $taskCmd=Join-Path $taskTemporary 'build.cmd'
 Set-Content -LiteralPath $taskCmd -Encoding ASCII -Value @('@echo off',('call "'+$taskVsRoot+'\VC\Auxiliary\Build\vcvars32.bat" >nul'),('set LIB='+$taskMfcLib+';%LIB%'),('cd /d "'+$taskTemporary+'"'),('rc /nologo /i "'+$taskCompilerRoot+'\atlmfc\include" /fo framework.res framework.rc'),'if errorlevel 1 exit /b %errorlevel%',('cl @"'+$taskRsp+'"'))
 & cmd.exe /d /c $taskCmd
 if($LASTEXITCODE -ne 0){throw ('Dock layout fixture compilation failed; '+$taskTemporary)}
-$taskProcess=Start-Process -FilePath (Join-Path $taskTemporary 'dock-layout-probe.exe') -WorkingDirectory $taskTemporary -WindowStyle Hidden -PassThru
-try {
-  if(-not $taskProcess.WaitForExit($TimeoutSeconds*1000)){throw ('Dock layout fixture timed out; '+$taskTemporary)}
-  Get-Content -LiteralPath (Join-Path $taskTemporary 'dock-layout-results.txt')
-  Write-Output ('Evidence: '+$taskTemporary)
-  if($taskProcess.ExitCode -ne 0){throw ('Dock layout fixture failed: '+$taskProcess.ExitCode)}
-} finally {
-  if(-not $taskProcess.HasExited){Stop-Process -Id $taskProcess.Id -Force}
-}
+# A hidden process can still show native child frames. Execute the fixture on a
+# verified disposable desktop; never switch to it or touch the user's workspace.
+& python (Join-Path $PSScriptRoot 'run_private_desktop_probe.py') --exe (Join-Path $taskTemporary 'dock-layout-probe.exe') --cwd $taskTemporary --timeout $TimeoutSeconds
+$taskExit=$LASTEXITCODE
+Get-Content -LiteralPath (Join-Path $taskTemporary 'dock-layout-results.txt')
+Write-Output ('Evidence: '+$taskTemporary)
+if($taskExit -ne 0){throw ('Dock layout private-desktop fixture failed: '+$taskExit)}

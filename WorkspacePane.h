@@ -211,6 +211,7 @@ protected:
   virtual void GetMinSize(CSize& size) const { size=MinimumSize(); }
   void SaveInputDraft();
   void UpdateTabLabel(size_t index);
+  void MarkVisibleTranscriptRead();
   long RenderRecord(Transcript& transcript, const WorkspaceRecord& record,long insertAt=-1,bool track=true);
   void Rebuild(Transcript& transcript);
   void ReflowImages(Transcript& transcript,ViewState view);

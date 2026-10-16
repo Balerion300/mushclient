@@ -19,6 +19,7 @@ public:
   }
   CRichEditCtrl& Text(){return m_transcripts[0]->text;}
   long End(size_t index){return m_transcripts[0]->renderedEnds[index];}
+  void Tick(){OnTimer(1);}
 };
 bool Check(std::ofstream& log,const char* label,bool ok){log<<(ok?"PASS ":"FAIL ")<<label<<"\n";return ok;}
 BOOL CALLBACK FindDropPreview(HWND window,LPARAM result){wchar_t title[80]={};GetWindowTextW(window,title,80);if(!wcscmp(title,L"Workspace drop preview")){*(HWND*)result=window;return FALSE;}return TRUE;}
@@ -80,10 +81,16 @@ class DockApp:public CWinApp {
   const CPoint points[]={CPoint(515,600),CPoint(1485,600),CPoint(1000,215),CPoint(1000,985),CPoint(1070,635)};
   bool regions=true;for(int i=0;i<5;++i){guides->OnMouseMove(points[i]);regions=regions && guides->GetHighlightedGuideNo()==Marker::sdCLEFT+i;}
   ok=Check(log,"whole pane edge regions and offset center select all five native drop operations",regions)&&ok;
+  const int chipStep=workspace_style::Scale(frame->GetSafeHwnd(),144),verticalStep=workspace_style::Scale(frame->GetSafeHwnd(),40);
+  const CPoint chipPoints[]={CPoint(1000-chipStep,600),CPoint(1000+chipStep,600),CPoint(1000,600-verticalStep),CPoint(1000,600+verticalStep),CPoint(1000,600)};
+  bool chipTargets=true;for(int i=0;i<5;++i){guides->OnMouseMove(chipPoints[i]);chipTargets=chipTargets && guides->GetHighlightedGuideNo()==Marker::sdCLEFT+i;}
+  ok=Check(log,"each visible placement label is the exact drop target it advertises",chipTargets)&&ok;
   guides->MoveCentralGroup(host,0);guides->OnMouseMove(points[4]);
   ok=Check(log,"center join is unavailable when the native target cannot accept tabs",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
   guides->MoveCentralGroup(host,0,CBRS_ALIGN_LEFT|CBRS_ALIGN_TOP|CBRS_ALIGN_BOTTOM);guides->OnMouseMove(points[1]);
   ok=Check(log,"native disabled alignment also disables the enlarged region",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
+  guides->OnMouseMove(chipPoints[1]);
+  ok=Check(log,"disabled placement chip never falls through to Join tabs",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
   guides->MoveCentralGroup(host,1);guides->OnMouseMove(points[0]);guides->ShowPlaceAt(CRect(500,200,1100,1000));COLORREF sample=0;
   ok=Check(log,"preview follows native projected split width rather than assuming half",CaptureDropPreview(550,&sample) && sample==workspace_style::Colors().hover)&&ok;guides->HidePlace();
   guides->MoveCentralGroup(host,1);guides->OnMouseMove(points[2]);
@@ -174,6 +181,15 @@ class DockApp:public CWinApp {
   wchar_t detachedDraft[128]={};::GetWindowTextW(composer,detachedDraft,128);
   ok=Check(log,"Arrange Detach retains original output and unsent draft",Same(*panes[0],placementSurface) && !wcscmp(detachedDraft,L"unsent fictional draft \u03bb"))&&ok;
   ok=Check(log,"Arrange Join returns visible detached pane to original tab target",panes[0]->ArrangeBeside(*panes[1],CWorkspacePane::Placement::Join) && panes[0]->IsWindowVisible() && panes[0]->GetParentTabbedPane()==panes[1]->GetParentTabbedPane() && Same(*panes[0],placementSurface))&&ok;
+  panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);panes[0]->Tick();
+  workspace_spawn::Preferences activity;activity.mention=L"fictional";panes[0]->SetPreferences(entries[0].key.world.c_str(),entries[0].key.name.c_str(),activity);
+  WorkspaceRecord activityRecord;activityRecord.connectionId=entries[0].key.world.c_str();activityRecord.serverOutput=true;WorkspaceRun activityRun;activityRun.text=L"fictional activity";activityRecord.runs.push_back(activityRun);activityRecord.sequence=401;
+  panes[0]->AppendRecord(entries[0].key.name.c_str(),activityRecord);
+  ok=Check(log,"visible live output has no unread or mention badge",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==0 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==0)&&ok;
+  panes[0]->Text().SetSel(0,0);panes[0]->Text().SendMessage(EM_SCROLLCARET);activityRecord.sequence=402;panes[0]->AppendRecord(entries[0].key.name.c_str(),activityRecord);panes[0]->FocusTranscript(0);panes[0]->Tick();
+  ok=Check(log,"selecting a scrolled-back pane retains unseen output and mention badges",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==1 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==1)&&ok;
+  panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);panes[0]->Tick();
+  ok=Check(log,"returning to live output clears badges without requiring new traffic",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==0 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==0)&&ok;
   log<<(ok?"PASS":"FAIL")<<" fictional native dock layout regression; native API simulation, not physical mixed-DPI mouse acceptance\n";
   frame->DestroyWindow();for(auto* pane:panes)delete pane;result_=ok?0:1;return FALSE;
  }

@@ -209,8 +209,7 @@ bool CWorkspacePane::OpenTranscript(const CString& id, const CString& name)
     }
   for (size_t i=0; i<m_transcripts.size(); ++i)
     if (m_transcripts[i]==transcript) m_tabs.SetCurSel((int)i);
-  if(!transcript->paused){transcript->unread=0;transcript->mentions=0;for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]==transcript)UpdateTabLabel(i);}
-  LayoutChildren();
+  LayoutChildren();MarkVisibleTranscriptRead();
   return true;
 }
 namespace {
@@ -486,15 +485,12 @@ void CWorkspacePane::OnSetFocus(CWnd* oldWindow)
 {
   RefreshDeferred();
   CDockablePane::OnSetFocus(oldWindow);
-  if(!m_transcripts.empty() && !m_transcripts[0]->paused){m_transcripts[0]->unread=0;m_transcripts[0]->mentions=0;UpdateTabLabel(0);}
+  MarkVisibleTranscriptRead();
 }
 void CWorkspacePane::OnTabChanged(NMHDR*,LRESULT* result)
 {
   SaveInputDraft();
-  const int selected=m_tabs.GetCurSel();
-  if(selected>=0 && selected<(int)m_transcripts.size() && !m_transcripts[selected]->paused)
-    {m_transcripts[selected]->unread=0;m_transcripts[selected]->mentions=0;UpdateTabLabel(selected);}
-  LayoutChildren(); *result=0;if(m_sharedInputHandler)SelectSharedInput();
+  LayoutChildren();MarkVisibleTranscriptRead(); *result=0;if(m_sharedInputHandler)SelectSharedInput();
 }
 
 
@@ -682,6 +678,7 @@ void CWorkspacePane::OnTimer(UINT_PTR timer)
 {
   if (timer!=1) { CDockablePane::OnTimer(timer); return; }
   if(m_labelDirty){m_labelDirty=false;for(size_t i=0;i<m_transcripts.size();++i)UpdateTabLabel(i);}
+  MarkVisibleTranscriptRead();
   for (size_t i=0;i<m_transcripts.size();++i)
     {
     Transcript& transcript=*m_transcripts[i];
@@ -1059,6 +1056,17 @@ void CWorkspacePane::OnPause()
   if(!transcript.paused) {transcript.unread=0;transcript.mentions=0;UpdateTabLabel(selected);RefreshDeferred();}
 }
 
+void CWorkspacePane::MarkVisibleTranscriptRead()
+{
+  const int index=m_tabs.GetCurSel();
+  if(index<0 || index>=(int)m_transcripts.size() || !IsWindowVisible())return;
+  if(auto* group=GetParentTabbedPane())if(group->GetUnderlyingWindow() && group->GetUnderlyingWindow()->GetActiveWnd()!=this)return;
+  Transcript& transcript=*m_transcripts[index];
+  // Selecting a pane to type does not mean its unseen output was read. Keep
+  // the badge while scrolled back; clear it when the reader reaches live output.
+  if(transcript.paused || transcript.deferred || !ShouldFollow(transcript.text))return;
+  if(transcript.unread || transcript.mentions){transcript.unread=0;transcript.mentions=0;UpdateTabLabel(index);}
+}
 void CWorkspacePane::UpdateTabLabel(size_t index)
 {
   WorkspaceModernResources resources;
@@ -1076,8 +1084,7 @@ bool CWorkspacePane::FocusTranscript(size_t index)
 {
   if(index>=m_transcripts.size())return false;SaveInputDraft();m_tabs.SetCurSel((int)index);
   Transcript& transcript=*m_transcripts[index];
-  if(!transcript.paused){transcript.unread=0;transcript.mentions=0;UpdateTabLabel(index);}
-  LayoutChildren();if(m_sharedInputHandler)return SelectSharedInput();transcript.text.SetFocus();return true;
+  LayoutChildren();MarkVisibleTranscriptRead();if(m_sharedInputHandler)return SelectSharedInput();transcript.text.SetFocus();return true;
 }
 void CWorkspacePane::SetPresentationIdentity(const std::wstring& game,const std::wstring& character)
 {
@@ -1120,13 +1127,14 @@ void CWorkspacePane::ShowPlacementMenu()
   const HWND original=m_hWnd;CString identity,name;if(!m_transcripts.empty()){identity=m_transcripts[0]->connectionId;name=m_transcripts[0]->name;}
   struct Move {HWND target;Placement placement;};std::vector<Move> choices;
   CMenu menu;menu.CreatePopupMenu();
-  menu.AppendMenu(MF_STRING,1,"Detach into native window");
+  menu.AppendMenu(MF_STRING,1,"Open as separate window");
   if(auto* group=GetParentTabbedPane()){
     const auto* tabs=group->GetUnderlyingWindow();const int index=tabs->GetTabFromHwnd(m_hWnd);
     menu.AppendMenu(MF_STRING|(index>0?0:MF_GRAYED),2,"Move tab left");
     menu.AppendMenu(MF_STRING|(index>=0 && index<tabs->GetTabsNum()-1?0:MF_GRAYED),3,"Move tab right");
   }
   menu.AppendMenu(MF_SEPARATOR);
+  menu.AppendMenu(MF_STRING|MF_GRAYED,0,"Join tabs or split beside...");
   for(HWND window:valyriaChannelWindows){auto* target=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(window));if(!target || target==this || !::IsWindow(window) || target->IsEmpty())continue;
     CString title;target->GetWindowText(title);CMenu child;child.CreatePopupMenu();
     const Placement placements[]={Placement::Join,Placement::Left,Placement::Right,Placement::Above,Placement::Below};
