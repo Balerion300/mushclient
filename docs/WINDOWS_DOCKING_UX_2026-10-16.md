@@ -32,3 +32,14 @@ Passing correction: `C:/Users/Elio/AppData/Local/Temp/mushclient-dock-layout-159
 
 Appearance acceptance also passed on private desktops: 34 native appearance checks and 27 shared style-component checks, covering light/dark, red/blue accent, high contrast, native keyboard/accessibility geometry, frame/system menus, content identity and selection, and status resize affordance.
 Evidence: `C:/Users/Elio/AppData/Local/Temp/mushclient-appearance-84efd9b46eb54240a44330db91383e83` and `C:/Users/Elio/AppData/Local/Temp/mushclient-style-components-7bd50db2896a4b50b2348a20be15e459`.
+
+## Cold-start follow diagnosis
+
+The full optimized client exposed a second defect that direct component fixtures initially missed. With four newly restored panes and immediate incoming traffic, RichEdit could still report its default scrollbar range of 0..100 and a page size of zero after the first batch. The caret correctly equaled the precise UTF-16 text length, the pane and selected tab were visible, and no inactive tab group was involved. The old predicate interpreted the uninitialized range as manual scrollback, stopping follow and adding unread badges. A slower Debug startup did not reproduce it.
+
+Temporary metadata-only tracing of the actual optimized client proved this state; it was guarded by an explicit environment variable and the disposable ValyriaQA desktop name. All instrumentation was removed before the product fix. No text, commands, credentials, or user profiles were traced.
+
+The follow predicate now treats a zero native page size as uninitialized metrics, after requiring an unselected caret at the exact text end. Genuine earlier caret positions, selections, and measured scrollback continue to stop follow. The native regression covers the cold placeholder metrics and the negative earlier-caret case, four empty restored Fixedsys splits, sustained batched Unicode output, and live inherited appearance changes during a batch.
+
+Optimized diagnostic trace: `C:/Users/Elio/AppData/Local/Temp/valyria-follow-release-ac9edc38767b436a9a5f920fa5cf577e.txt`.
+Passing expanded regression: `C:/Users/Elio/AppData/Local/Temp/mushclient-dock-layout-8cdfd24a693041209b21c30856a774a1`.

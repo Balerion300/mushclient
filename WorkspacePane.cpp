@@ -1237,6 +1237,10 @@ bool CWorkspacePane::ShouldFollow(const CRichEditCtrl& control)
   if(!length)return true; // A new control can still have the default scrollbar range.
   SCROLLINFO scroll;memset(&scroll,0,sizeof(scroll));scroll.cbSize=sizeof(scroll);scroll.fMask=SIF_RANGE|SIF_PAGE|SIF_POS;
   if(!::GetScrollInfo(control.m_hWnd,SB_VERT,&scroll))return true;
+  // A cold RichEdit can retain its default 0..100 range with no page until
+  // its first layout/paint. An end caret still means follow in that state;
+  // treating the placeholder range as scrollback permanently freezes output.
+  if(!scroll.nPage)return true;
   const int bottom=max(scroll.nMin,scroll.nMax-(int)max(1U,scroll.nPage)+1);
   return scroll.nPos>=bottom-1;
 }
