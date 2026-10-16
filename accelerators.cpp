@@ -251,6 +251,7 @@ tCommandIDMapping CommandIDs [] = {
 { ID_EDIT_SENDTOCOMMANDWINDOW,          "SendToCommandWindow"       },
 { ID_EDIT_SENDTOIMMEDIATE,              "SendToScript"     },
 { ID_EDIT_SENDTOWORLD,                  "SendToWorld"               },
+{ ID_WORKSPACE_SUBMIT_MAIN,             "SubmitMainInput"           },
 { ID_GAME_SOUTH,                        "South"                     },
 { ID_EDIT_SPELLCHECK,                   "SpellCheck"                },
 { ID_TEST_START,                        "Start"                     },

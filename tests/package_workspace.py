@@ -24,7 +24,8 @@ for source in a.distribution.rglob('*'):
     if not source.is_file(): continue
     name = source.name.lower()
     if (name in private_names or name.startswith('mushclient_prefs.sqlite') or name.endswith(('.mcl', '.mcl.bak'))
-            or name.startswith('.env.') or 'editor-state' in source.parts):
+            or name.startswith('.env.') or 'editor-state' in source.parts
+            or ('spelling' in source.parts and (name=='personal.txt' or name.startswith('game-')))):
         raise SystemExit('Distribution contains private world/runtime state; use the clean official runtime base.')
 
 dest.mkdir(parents=True)
@@ -48,13 +49,20 @@ shutil.copy2(ROOT/'docs/VALYRIA_BRANDING.md',notices/'VALYRIA_BRANDING.md')
 for name in ('LICENSE.MIT','PYTHON-LICENSE.txt','PYINSTALLER-COPYING.txt'):
     shutil.copy2(ROOT/'agent_companion/vendor'/name,notices/('JSON-LICENSE.txt' if name=='LICENSE.MIT' else name))
 shutil.copytree(ROOT/'third_party/pennmush-reference',dest/'pennmush-reference')
+shutil.copytree(ROOT/'spelling/packs',dest/'spelling/packs')
 for name in ('WORKSPACE_MODERNIZATION_PLAN.md','WORKSPACE_TESTS.md','PENN_IDE.md',
              'AGENT_WORKSPACE_CONTRACT.md','AGENT_REVIEW_PANE.md','AGENT_INTEGRATION_AUDIT.md','BUILD_WORKSPACE.md','INLINE_IMAGES.md','STABILITY_TESTS.md','PERFORMANCE_TESTS.md'):
     shutil.copy2(ROOT/'docs'/name,dest/name)
-for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md','SCRIPTED_LOGGING.md','WORKSPACE_DOCK_LAYOUT.md','MODERN_NATIVE_UI.md','NATIVE_CHROME_STYLE.md','WORKSPACE_SHELL.md','NATIVE_WORKFLOW_UI.md','MODERN_WINDOWS_EXPLORATION.md','SPAWN_DOCKING_UX.md'):
+for name in ('SPAWN_WORKSPACE_MIGRATION.md','SPAWN_WINDOWS.md','SCRIPTED_LOGGING.md','WORKSPACE_DOCK_LAYOUT.md','MODERN_NATIVE_UI.md','NATIVE_CHROME_STYLE.md','WORKSPACE_SHELL.md','NATIVE_WORKFLOW_UI.md','MODERN_WINDOWS_EXPLORATION.md','SPAWN_DOCKING_UX.md','NATIVE_VALYRIA_UI.md'):
     source=ROOT/'docs'/name
     if not source.is_file():raise SystemExit('Missing workspace guide: '+name)
     shutil.copy2(source,dest/name)
+shutil.copy2(ROOT/'docs/INLINE_SPELLING.md',dest/'INLINE_SPELLING.md')
+for name in ('WINDOWS_UX_EXECUTION_2026-10-16.md', 'WINDOWS_INPUT_UX_2026-10-16.md',
+             'WINDOWS_CHANNELS_UX_2026-10-16.md', 'WINDOWS_DOCKING_UX_2026-10-16.md',
+             'WINDOWS_PERFORMANCE_UX_ACCEPTANCE_2026-10-16.md',
+             'CROSS_PLATFORM_AND_PROFILE_PORTABILITY.md'):
+    shutil.copy2(ROOT/'docs'/name,dest/name)
 # Sources/examples for the explicitly configured external runner, never credentials.
 (dest/'agent-examples').mkdir()
 for name in ('runner.py','companion.py','tools.json'):
@@ -71,7 +79,12 @@ shutil.copy2(ROOT/'plugins/examples/Blood_of_Dragons_Log_Names.xml',dest/'worlds
     'MUSHclient workspace modernization - full portable Windows preview\n\n'
     'Extract the entire ZIP into a writable folder. Open Start MUSHclient.cmd.\n'
     'Keep the DLLs and folders beside the executable; Lua is included.\n'
-    'Open a copy of your world file for testing. The package has fresh preferences.\n'
+    'Choose New connection to create local server settings, or Open saved profile for an existing world file.\n'
+    'The game asks for your account after connecting. Use copies of existing profiles for testing.\n'
+    'Tools > Spelling dictionaries opens personal, game and bundled vocabulary; see INLINE_SPELLING.md.\n'
+    'Output channels filter received text locally; they do not join server channels.\n'
+    'The game rail switches to a character and scrolls; All open connections stays visible.\n'
+    'Unsent Main and channel writing prompts before world close or exit; Cancel keeps it open.\n'
     'Use the Workspace menu for dockable transcripts, route management, the PennMUSH\n'
     'editor, explicit agent access, conversations, review/captures and scene direction.\n'
     'Agent access starts disabled and has no automatic game-send capability.\n'

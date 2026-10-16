@@ -1,12 +1,26 @@
 #include "stdafx.h"
+#include "workspace/WorkspaceSpell.h"
+#include "workspace/WorkspaceNativeControl.h"
+#include "workspace/WorkspaceComposerSplitter.h"
 #include "WorkspacePane.h"
+#include "workspace/WorkspaceSharedHistory.h"
 #include "pcre/pcre.h"
 #include "WorkspaceResources.h"
+#include "WorkspaceStyle.h"
+#include "workspace/WorkspaceFocus.h"
+#include "workspace/WorkspaceDockActions.h"
+#include <set>
+#include <atlconv.h>
 #include <afxmultipaneframewnd.h>
 #include <richole.h>
 #include <afxpanedivider.h>
 #include <afxpanecontainermanager.h>
 #include <afxpanecontainer.h>
+
+namespace {
+std::set<HWND> valyriaChannelWindows;
+
+}
 
 // RichEdit requests independent structured storage for each imported picture.
 class WorkspaceOleCallback : public IRichEditOleCallback
@@ -41,9 +55,12 @@ public:
 class WorkspaceNativeFloat : public CMultiPaneFrameWnd
 {
  DECLARE_DYNCREATE(WorkspaceNativeFloat)
+ WorkspaceFocusState focus_;
 protected:
  virtual LRESULT WindowProc(UINT message,WPARAM wp,LPARAM lp)
- {if(WorkspaceFrameworkResourceMessage(message,lp)){WorkspaceModernResources resources;return CMultiPaneFrameWnd::WindowProc(message,wp,lp);}return CMultiPaneFrameWnd::WindowProc(message,wp,lp);}
+ {focus_.Before(m_hWnd,message,wp);LRESULT result;
+  if(WorkspaceFrameworkResourceMessage(message,lp)){WorkspaceModernResources resources;result=CMultiPaneFrameWnd::WindowProc(message,wp,lp);}else result=CMultiPaneFrameWnd::WindowProc(message,wp,lp);
+  focus_.After(message,wp);return result;}
 };
 IMPLEMENT_DYNCREATE(WorkspaceNativeFloat,CMultiPaneFrameWnd)
 class WorkspaceNativeTabs : public CTabbedPane
@@ -66,10 +83,13 @@ BEGIN_MESSAGE_MAP(CWorkspacePane, CDockablePane)
   ON_BN_CLICKED(3, OnReviewInput)
   ON_BN_CLICKED(5, OnFindNext)
   ON_BN_CLICKED(6, OnPause)
+  ON_BN_CLICKED(10, OnArrange)
+  ON_BN_CLICKED(11, OnFindToggle)
   ON_NOTIFY_RANGE(EN_LINK, 100, 131, OnLink)
   ON_WM_SIZE()
   ON_WM_PAINT()
   ON_WM_SETFOCUS()
+  ON_WM_LBUTTONUP()
   ON_WM_SHOWWINDOW()
   ON_NOTIFY(TCN_SELCHANGE, 1, OnTabChanged)
 END_MESSAGE_MAP()
@@ -78,6 +98,7 @@ CWorkspacePane::CWorkspacePane() : m_floatSize(500,350), m_dockWidth(360),
   m_dockHeight(250), m_resizing(false), m_resizeOriginal(0), m_toolWindow(NULL), m_selectedInput(-1), m_labelDirty(false), m_renderBatchDepth(0) {}
 CWorkspacePane::~CWorkspacePane()
 {
+  valyriaChannelWindows.erase(m_hWnd);
   for (size_t i=0; i<m_transcripts.size(); ++i) delete m_transcripts[i];
 }
 BOOL CWorkspacePane::Create(CFrameWnd* frame,UINT barId)
@@ -88,7 +109,7 @@ BOOL CWorkspacePane::Create(CFrameWnd* frame,UINT barId)
   const BOOL created=CDockablePane::Create("Transcripts",frame,CRect(0,0,360,350),TRUE,barId,WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|CBRS_RIGHT|CBRS_FLOAT_MULTI);
   // CreateEx selects its default classes. Install our resource-aware hosts
   // afterwards so tab detachment and later floating keep using them.
-  if(created){SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));}
+  if(created){SetTabbedPaneRTC(RUNTIME_CLASS(WorkspaceNativeTabs));SetMiniFrameRTC(RUNTIME_CLASS(WorkspaceNativeFloat));valyriaChannelWindows.insert(m_hWnd);}
   return created;
 }
 CDockablePane* CWorkspacePane::AttachToTabWnd(CDockablePane* target,AFX_DOCK_METHOD method,BOOL active,CDockablePane** group)
@@ -97,6 +118,10 @@ BOOL CWorkspacePane::FloatPane(CRect bounds,AFX_DOCK_METHOD method,bool show)
 {return CDockablePane::FloatPane(bounds,method,show);}
 LRESULT CWorkspacePane::WindowProc(UINT message,WPARAM wp,LPARAM lp)
 {
+  if(message==WM_DESTROY){workspace_spell::Detach(m_input.GetSafeHwnd());workspace_composer::ReleaseEditor(m_input.GetSafeHwnd());}
+  if(message==WM_COMMAND && LOWORD(wp)==2 && (HIWORD(wp)==EN_SETFOCUS || HIWORD(wp)==EN_KILLFOCUS))WorkspaceFocusState::Trace("channel-input",m_hWnd,message,wp);
+  if(message==WM_NCDESTROY)valyriaChannelWindows.erase(m_hWnd);
+  if(message==WM_THEMECHANGED && m_tabs.GetSafeHwnd())LayoutChildren();
   if(WorkspaceFrameworkResourceMessage(message,lp))
     {WorkspaceModernResources resources;return CDockablePane::WindowProc(message,wp,lp);}
   return CDockablePane::WindowProc(message,wp,lp);
@@ -106,22 +131,34 @@ int CWorkspacePane::OnCreate(LPCREATESTRUCT cs)
   if (CDockablePane::OnCreate(cs)==-1) return -1;
   if (!m_tabs.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP, CRect(0,0,1,1), this, 1)) return -1;
   m_tabs.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
-  HWND input=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
+  HWND input=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL,
     0,0,1,1,m_hWnd,(HMENU)2,AfxGetInstanceHandle(),NULL);
-  if(!input || !m_input.Attach(input)) return -1;
+  if(!input || !workspace_native_control::Attach(m_input,input)) return -1;
   ::SendMessageW(input,EM_SETLIMITTEXT,16384,0);
   ::SendMessageW(input,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
+  workspace_spell::Attach(input,[this]{const int selected=m_tabs.GetCurSel();return m_spellingContext && selected>=0 && selected<(int)m_transcripts.size()?m_spellingContext(m_transcripts[selected]->connectionId):workspace_spell::Context();});
   if(!m_reviewInput.Create("Send",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,3)) return -1;
   m_reviewInput.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   HWND search=::CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
     0,0,1,1,m_hWnd,(HMENU)4,AfxGetInstanceHandle(),NULL);
-  if(!search || !m_search.Attach(search))return -1;
+  if(!search || !workspace_native_control::Attach(m_search,search))return -1;
   ::SendMessageW(search,EM_SETLIMITTEXT,1024,0);::SendMessageW(search,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
   if(!m_findNext.Create("Find next",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,5) ||
      !m_pause.Create("Pause",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,CRect(0,0,1,1),this,6))return -1;
   m_findNext.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   m_pause.SetFont(CFont::FromHandle((HFONT)GetStockObject(DEFAULT_GUI_FONT)));
   m_inputStatus.Create("",WS_CHILD|WS_VISIBLE,CRect(0,0,1,1),this,8);
+  m_destination.Create("Destination",WS_CHILD|WS_VISIBLE|SS_NOPREFIX,CRect(0,0,1,1),this,9);
+  if(!m_arrange.Create("Arrange",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,10) ||
+     !m_findToggle.Create("Find",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,CRect(0,0,1,1),this,11))return -1;
+  workspace_style::ApplySurface(m_hWnd);
+  for(HWND control:{m_input.m_hWnd,m_search.m_hWnd,m_inputStatus.m_hWnd,m_destination.m_hWnd,m_pause.m_hWnd})workspace_style::StyleControl(control);
+  workspace_style::StyleButton(m_reviewInput.m_hWnd,workspace_style::Icon::Send,true,L"Send to this channel's original character connection");
+  workspace_style::StyleButton(m_arrange.m_hWnd,workspace_style::Icon::Channels,false,L"Join, split, detach or reorder this channel (Ctrl+Shift+M)");
+  workspace_style::StyleButton(m_findToggle.m_hWnd,workspace_style::Icon::Find,false,L"Find in this channel (Ctrl+F)");
+  workspace_style::StyleButton(m_findNext.m_hWnd,workspace_style::Icon::Find);
+  workspace_style::StyleControl(m_tabs.m_hWnd);
+  m_tabs.SetItemSize(CSize(workspace_style::Scale(m_hWnd,110),workspace_style::Scale(m_hWnd,40)));
   SetTimer(1,500,NULL);
   return 0;
 }
@@ -153,26 +190,27 @@ bool CWorkspacePane::OpenTranscript(const CString& id, const CString& name)
       WS_CHILD | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP | ES_MULTILINE |
       ES_READONLY | ES_AUTOVSCROLL | ES_NOHIDESEL, 0,0,1,1,m_hWnd,
       (HMENU)(UINT_PTR)controlId,AfxGetInstanceHandle(),NULL);
-    if (!textWindow || !transcript->text.Attach(textWindow))
+    if (!textWindow || !workspace_native_control::Attach(transcript->text,textWindow))
       { if (textWindow) ::DestroyWindow(textWindow); delete transcript; return false; }
+    if(!SetWindowSubclass(textWindow,TranscriptInputProc,1,(DWORD_PTR)m_hWnd)){::DestroyWindow(textWindow);delete transcript;return false;}
     WorkspaceOleCallback* oleCallback=new WorkspaceOleCallback;
     ::SendMessageW(textWindow,EM_SETOLECALLBACK,0,(LPARAM)oleCallback);oleCallback->Release();
-    transcript->text.SetBackgroundColor(FALSE,RGB(25,25,28));
+    transcript->text.SetBackgroundColor(FALSE,transcript->appearance.background);
     transcript->text.LimitText(4*1024*1024);
     transcript->text.SendMessage(EM_SETUNDOLIMIT,0,0); // Read-only output has no editable undo history.
     transcript->text.SetEventMask(transcript->text.GetEventMask()|ENM_LINK);
     CHARFORMAT2W format; memset(&format,0,sizeof(format)); format.cbSize=sizeof(format);
-    format.dwMask=CFM_FACE|CFM_SIZE; format.yHeight=200;
-    wcscpy_s(format.szFaceName, L"Consolas");
+    format.dwMask=CFM_FACE|CFM_SIZE|CFM_COLOR|CFM_BACKCOLOR; format.yHeight=200;
+    format.crTextColor=transcript->appearance.foreground;format.crBackColor=transcript->appearance.background;
+    wcscpy_s(format.szFaceName,transcript->appearance.face.c_str());
     ::SendMessageW(textWindow,EM_SETCHARFORMAT,0,(LPARAM)&format);
     CString label=name+" ["+id.Left(8)+"]";
     m_tabs.InsertItem((int)m_transcripts.size(),label);
-    m_transcripts.push_back(transcript);SetWindowText(label);
+    m_transcripts.push_back(transcript);SetWindowText(label);RefreshAppearance(*transcript);
     }
   for (size_t i=0; i<m_transcripts.size(); ++i)
     if (m_transcripts[i]==transcript) m_tabs.SetCurSel((int)i);
-  if(!transcript->paused){transcript->unread=0;transcript->mentions=0;for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]==transcript)UpdateTabLabel(i);}
-  LayoutChildren();
+  LayoutChildren();MarkVisibleTranscriptRead();
   return true;
 }
 namespace {
@@ -207,7 +245,7 @@ long WorkspaceRtfText(std::ostringstream& out,const std::wstring& text)
 long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord& record,long insertAt,bool track)
 {
   CRichEditCtrl& control=transcript.text;
-  if(record.hasSurfaceColors && track){
+  if(record.hasSurfaceColors && track && !transcript.appearanceKnown){
     if(transcript.surfaceBackground!=record.surfaceBackground)
       control.SetBackgroundColor(FALSE,record.surfaceBackground);
     transcript.surfaceForeground=record.surfaceForeground;
@@ -222,13 +260,14 @@ long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord&
     {
     // Stream one formatted paragraph rather than forcing RichEdit layout and
     // precise-length queries separately for every style run.
-    std::ostringstream out;out<<"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Consolas;}}{\\colortbl;";
-    for(const auto& run:record.runs)for(COLORREF color:{run.foreground,run.background})
+    std::ostringstream out;out<<"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fcharset"<<transcript.appearance.charset<<' ';
+    WorkspaceRtfText(out,transcript.appearance.face);out<<";}}{\\colortbl;";
+    for(const auto& run:record.runs)for(COLORREF color:{run.defaultForeground?transcript.surfaceForeground:run.foreground,run.defaultBackground?transcript.surfaceBackground:run.background})
       out<<"\\red"<<(int)GetRValue(color)<<"\\green"<<(int)GetGValue(color)<<"\\blue"<<(int)GetBValue(color)<<';';
-    out<<"}\\plain\\f0\\fs20\\uc0 ";
+    out<<"}\\plain\\f0\\fs"<<transcript.appearance.pointSize*2<<"\\uc0 ";
     long position=origin;std::vector<LinkRange> links;
     for(size_t i=0;i<record.runs.size();++i){
-      const WorkspaceRun& run=record.runs[i];out<<"\\cf"<<i*2+1<<"\\highlight"<<i*2+2<<(run.bold?"\\b ":"\\b0 ")<<(run.italic?"\\i ":"\\i0 ")<<(run.underline?"\\ul ":"\\ulnone ");
+      const WorkspaceRun& run=record.runs[i];out<<"\\cf"<<i*2+1<<"\\highlight"<<i*2+2<<((run.bold || transcript.appearance.weight>=700)?"\\b ":"\\b0 ")<<(run.italic?"\\i ":"\\i0 ")<<(run.underline?"\\ul ":"\\ulnone ");
       const long first=position;position+=WorkspaceRtfText(out,run.text);
       if(!run.action.IsEmpty()){LinkRange link;link.first=first;link.last=position;link.type=run.actionType;link.action=run.action;links.push_back(link);}
     }
@@ -242,10 +281,10 @@ long CWorkspacePane::RenderRecord(Transcript& transcript, const WorkspaceRecord&
   WorkspaceSelect(control,end,end);
   CHARFORMAT2W paragraph;memset(&paragraph,0,sizeof(paragraph));paragraph.cbSize=sizeof(paragraph);
   paragraph.dwMask=CFM_COLOR|CFM_BACKCOLOR|CFM_BOLD|CFM_ITALIC|CFM_UNDERLINE|CFM_LINK;
-  paragraph.crTextColor=record.hasSurfaceColors?record.surfaceForeground:transcript.surfaceForeground;
-  paragraph.crBackColor=record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground;
+  paragraph.crTextColor=transcript.appearanceKnown?transcript.surfaceForeground:(record.hasSurfaceColors?record.surfaceForeground:transcript.surfaceForeground);
+  paragraph.crBackColor=transcript.appearanceKnown?transcript.surfaceBackground:(record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground);
   if(record.bleedBackground){
-    if(!record.runs.empty())paragraph.crBackColor=record.runs.back().background;
+    if(!record.runs.empty())paragraph.crBackColor=record.runs.back().defaultBackground?transcript.surfaceBackground:record.runs.back().background;
     else {CHARFORMAT2W inherited;memset(&inherited,0,sizeof(inherited));inherited.cbSize=sizeof(inherited);
       // RichEdit's insertion style can reset at the document end. Read the
       // preceding paragraph mark when intentionally bleeding an empty line.
@@ -360,6 +399,7 @@ bool CWorkspacePane::AppendRecord(const CString& name, const WorkspaceRecord& re
 void CWorkspacePane::CloseConnection(const CString& id)
 {
   SaveInputDraft();
+  if(Find(id,m_transcripts.empty()?CString():m_transcripts[0]->name))workspace_composer::ReleaseEditor(m_input.GetSafeHwnd());
   for (size_t i=m_transcripts.size(); i>0; --i)
     if (m_transcripts[i-1]->connectionId==id)
       {
@@ -377,17 +417,31 @@ void CWorkspacePane::LayoutChildren()
   if (m_toolWindow && ::IsWindow(m_toolWindow))
     { CRect bounds; GetClientRect(bounds); bounds.DeflateRect(6,6,6,6);
       ::MoveWindow(m_toolWindow,bounds.left,bounds.top,max(1,bounds.Width()),max(1,bounds.Height()),TRUE); return; }
-  CRect rect; GetClientRect(rect); rect.DeflateRect(6,6,6,6);
-  CRect inputRect=rect; inputRect.top=max(inputRect.top,inputRect.bottom-25);
-  m_reviewInput.MoveWindow(max(inputRect.left,inputRect.right-115),inputRect.top,115,25);
-  m_input.MoveWindow(inputRect.left,inputRect.top,max(1,inputRect.Width()-120),25);
-  m_inputStatus.MoveWindow(rect.left,max(rect.top,inputRect.top-20),max(1,rect.Width()),18);
-  rect.bottom=max(rect.top,rect.bottom-51);
-  CRect searchRect=rect;searchRect.bottom=searchRect.top+24;
-  m_search.MoveWindow(searchRect.left,searchRect.top,max(1,searchRect.Width()-155),24);
-  m_findNext.MoveWindow(max(searchRect.left,searchRect.right-150),searchRect.top,85,24);
-  m_pause.MoveWindow(max(searchRect.left,searchRect.right-60),searchRect.top,60,24);
-  rect.top=min(rect.bottom,rect.top+28);
+  const auto S=[&](int value){return workspace_style::Scale(m_hWnd,value);};
+  CRect rect; GetClientRect(rect); rect.DeflateRect(S(10),S(8),S(10),S(8));
+  const bool shared=!!m_sharedInputHandler;
+  const int inputHeight=S(34),sendWidth=S(84),gap=S(6);
+  CRect inputRect=rect;inputRect.top=max(inputRect.top,inputRect.bottom-inputHeight);
+  m_reviewInput.ShowWindow(shared?SW_HIDE:SW_SHOWNA);
+  m_destination.ShowWindow(shared?SW_HIDE:SW_SHOWNA);
+  if(::GetParent(m_input.m_hWnd)==m_hWnd)m_input.ShowWindow(shared?SW_HIDE:SW_SHOWNA);
+  if(!shared){m_reviewInput.MoveWindow(max(inputRect.left,inputRect.right-sendWidth),inputRect.top,sendWidth,inputHeight);
+  m_input.MoveWindow(inputRect.left,inputRect.top,max(1,inputRect.Width()-sendWidth-gap),inputHeight);}
+  m_destination.MoveWindow(rect.left,max(rect.top,inputRect.top-S(23)),max(1,rect.Width()),S(20));
+  // Submission feedback has a separate accessible label; only reserves a row
+  // when it contains a status. The stable destination is always visible.
+  const bool hasStatus=m_inputStatus.GetWindowTextLength()>0;
+  m_inputStatus.ShowWindow(hasStatus?SW_SHOWNA:SW_HIDE);
+  if(hasStatus)m_inputStatus.MoveWindow(rect.left,max(rect.top,inputRect.top-S(43)),max(1,rect.Width()),S(18));
+  if(!shared)rect.bottom=max(rect.top,inputRect.top-S(hasStatus?49:29));
+  else if(hasStatus){m_inputStatus.MoveWindow(rect.left,max(rect.top,rect.bottom-S(18)),max(1,rect.Width()),S(18));rect.bottom=max(rect.top,rect.bottom-S(24));}
+  const bool compact=rect.Width()<S(244);
+  m_findToggle.MoveWindow(rect.left,rect.top,S(72),S(30));
+  m_arrange.MoveWindow(rect.left+S(78),rect.top,max(S(72),min(S(96),rect.Width()-S(78))),S(30));
+  m_pause.MoveWindow(compact?rect.left:rect.right-S(64),rect.top+(compact?S(36):0),S(64),S(30));
+  rect.top=min(rect.bottom,rect.top+S(compact?72:36));
+  m_search.ShowWindow(m_searchVisible?SW_SHOW:SW_HIDE);m_findNext.ShowWindow(m_searchVisible?SW_SHOW:SW_HIDE);
+  if(m_searchVisible){m_search.MoveWindow(rect.left,rect.top,max(1,rect.Width()-S(100)),S(30));m_findNext.MoveWindow(max(rect.left,rect.right-S(94)),rect.top,S(94),S(30));rect.top=min(rect.bottom,rect.top+S(36));}
   const int selected=m_tabs.GetCurSel();
   m_pause.SetCheck(selected>=0 && selected<(int)m_transcripts.size() && m_transcripts[selected]->paused?BST_CHECKED:BST_UNCHECKED);
   m_pause.EnableWindow(selected>=0);m_findNext.EnableWindow(selected>=0);
@@ -396,16 +450,25 @@ void CWorkspacePane::LayoutChildren()
       const wchar_t* draft=selected>=0 && selected<(int)m_transcripts.size()?m_transcripts[selected]->inputDraft.c_str():L"";
       ::SetWindowTextW(m_input.m_hWnd,draft); }
   m_input.EnableWindow(selected>=0);m_reviewInput.EnableWindow(selected>=0);
+  if(selected>=0 && selected<(int)m_transcripts.size()){
+    const auto& transcript=*m_transcripts[selected];
+    const std::wstring channel=transcript.name=="Output"?L"Main":std::wstring(CA2W(transcript.name,CP_UTF8));
+    const std::wstring owner=m_characterLabel.empty()?std::wstring(CA2W(transcript.connectionId,CP_UTF8)):m_characterLabel;
+    const std::wstring destination=L"To "+owner+(m_gameLabel.empty()?L"":L" / "+m_gameLabel)+L" / "+channel;
+    wchar_t old[1024]={};::GetWindowTextW(m_destination.m_hWnd,old,1024);if(destination!=old)::SetWindowTextW(m_destination.m_hWnd,destination.c_str());
+  }
   m_tabs.MoveWindow(rect);
   CRect body=rect; if(m_transcripts.size()>1)m_tabs.AdjustRect(FALSE,body);
   m_tabs.ShowWindow(m_transcripts.size()>1?SW_SHOW:SW_HIDE);
   for (size_t i=0; i<m_transcripts.size(); ++i)
     {
     Transcript& transcript=*m_transcripts[i];
-    const ViewState view=SaveView(transcript.text);
+    RefreshAppearance(transcript);
+    const ViewState view=transcript.batchPending?transcript.batchView:SaveView(transcript.text);
     transcript.text.MoveWindow(body);
     CRect viewport;transcript.text.GetClientRect(viewport);
     if(viewport.Width()!=transcript.renderedWidth)ReflowImages(transcript,view);
+    else RestoreView(transcript.text,view); // Height-only resize also changes the live-end scroll position.
     m_transcripts[i]->text.ShowWindow((int)i==m_tabs.GetCurSel()?SW_SHOW:SW_HIDE);
     }
 }
@@ -416,22 +479,20 @@ void CWorkspacePane::OnSize(UINT type,int cx,int cy)
 void CWorkspacePane::OnPaint()
 {
   CPaintDC dc(this); CRect rect; GetClientRect(rect);
-  dc.FillSolidRect(rect,GetSysColor(COLOR_BTNFACE));
+  dc.FillSolidRect(rect,workspace_style::Colors(m_hWnd).surface);
+  if(workspace_composer::BorrowedEditors().count(m_input.GetSafeHwnd())){const auto color=workspace_style::Colors(m_hWnd).accent;dc.Draw3dRect(rect,color,color);}
 
 }
 void CWorkspacePane::OnSetFocus(CWnd* oldWindow)
 {
   RefreshDeferred();
   CDockablePane::OnSetFocus(oldWindow);
-  if(!m_transcripts.empty() && !m_transcripts[0]->paused){m_transcripts[0]->unread=0;m_transcripts[0]->mentions=0;UpdateTabLabel(0);}
+  MarkVisibleTranscriptRead();
 }
 void CWorkspacePane::OnTabChanged(NMHDR*,LRESULT* result)
 {
   SaveInputDraft();
-  const int selected=m_tabs.GetCurSel();
-  if(selected>=0 && selected<(int)m_transcripts.size() && !m_transcripts[selected]->paused)
-    {m_transcripts[selected]->unread=0;m_transcripts[selected]->mentions=0;UpdateTabLabel(selected);}
-  LayoutChildren(); *result=0;
+  LayoutChildren();MarkVisibleTranscriptRead(); *result=0;if(m_sharedInputHandler)SelectSharedInput();
 }
 
 
@@ -464,7 +525,7 @@ long CWorkspacePane::RenderImage(Transcript& transcript, const WorkspaceRecord& 
   if (!bitmap || !pixels) {if(bitmap)DeleteObject(bitmap);return insertAt;}
   CDC dc; dc.CreateCompatibleDC(NULL);
   HGDIOBJ old=::SelectObject(dc.m_hDC,bitmap);
-  dc.FillSolidRect(0,0,width,height,record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground);
+  dc.FillSolidRect(0,0,width,height,transcript.appearanceKnown?transcript.surfaceBackground:(record.hasSurfaceColors?record.surfaceBackground:transcript.surfaceBackground));
   record.image->Draw(&dc,CRect(0,0,width,height));
   GdiFlush(); // synchronize DIB bits before they are consumed by the metafile
   ::SelectObject(dc.m_hDC,old);
@@ -539,12 +600,12 @@ void CWorkspacePane::Rebuild(Transcript& transcript)
 void CWorkspacePane::ReflowImages(Transcript& transcript,ViewState view)
 {
   if(transcript.paused || transcript.deferred || m_renderBatchDepth ||
-     transcript.renderedEnds.size()!=transcript.records.size())return;
+     transcript.renderedEnds.size()!=transcript.records.size()){RestoreView(transcript.text,view);return;}
   CRect viewport;transcript.text.GetClientRect(viewport);
   const int previous=max(1,min(512,transcript.renderedWidth-12));
   const int available=max(1,min(512,viewport.Width()-12));
   transcript.renderedWidth=viewport.Width();
-  if(previous==available)return;
+  if(previous==available){RestoreView(transcript.text,view);return;}
   bool changed=false;
   for(size_t index=0;index<transcript.records.size();++index){
     const WorkspaceRecord& record=transcript.records[index];
@@ -555,7 +616,10 @@ void CWorkspacePane::ReflowImages(Transcript& transcript,ViewState view)
     const auto adjust=[&](long position){return position>=last?position+delta:(position>first?min(position,transcript.renderedEnds[index]):position);};
     view.start=adjust(view.start);view.end=adjust(view.end);view.anchor=adjust(view.anchor);
   }
-  if(changed){transcript.text.SetRedraw(TRUE);RestoreView(transcript.text,view);transcript.text.Invalidate();}
+  if(changed){transcript.text.SetRedraw(TRUE);transcript.text.Invalidate();}
+  // RichEdit can keep its former scroll offset when the viewport shrinks.
+  // Restore follow/reading position even when there were no images to resize.
+  RestoreView(transcript.text,view);
 }
 void CWorkspacePane::RefreshDeferred()
 {
@@ -619,10 +683,12 @@ void CWorkspacePane::OnTimer(UINT_PTR timer)
 {
   if (timer!=1) { CDockablePane::OnTimer(timer); return; }
   if(m_labelDirty){m_labelDirty=false;for(size_t i=0;i<m_transcripts.size();++i)UpdateTabLabel(i);}
+  MarkVisibleTranscriptRead();
   for (size_t i=0;i<m_transcripts.size();++i)
     {
     Transcript& transcript=*m_transcripts[i];
-    if(m_connectionHandler){const bool live=m_connectionHandler(transcript.connectionId);m_reviewInput.EnableWindow(live);if(transcript.connectionState!=(live?1:0)){m_inputStatus.SetWindowText(live?"Ready":"Disconnected - draft retained");transcript.connectionState=live?1:0;}}
+    RefreshAppearance(transcript);
+    if(m_connectionHandler){const bool live=m_connectionHandler(transcript.connectionId);m_reviewInput.EnableWindow(live);if(transcript.connectionState!=(live?1:0)){m_inputStatus.SetWindowText(live?"Ready":"Disconnected - draft retained");transcript.connectionState=live?1:0;LayoutChildren();m_reviewInput.EnableWindow(live);}}
     if(transcript.paused || transcript.deferred || m_renderBatchDepth)continue;
     CRect viewport;transcript.text.GetClientRect(viewport);
     if(viewport.Width()!=transcript.renderedWidth)ReflowImages(transcript,SaveView(transcript.text));
@@ -674,13 +740,18 @@ bool CWorkspacePane::MoveSelectedTo(CWorkspacePane& target)
   const int selected=m_tabs.GetCurSel();
   if (selected<0 || selected>=(int)m_transcripts.size() || &target==this) return false;
   SaveInputDraft();
+  workspace_composer::ReleaseEditor(m_input.GetSafeHwnd());
   Transcript* original=m_transcripts[selected];
   if (!target.OpenTranscript(original->connectionId,original->name)) return false;
   Transcript* copied=target.Find(original->connectionId,original->name);
   copied->records=original->records; copied->inputDraft=original->inputDraft;copied->inputPrefix=original->inputPrefix;copied->unread=original->unread;
   copied->retainedBytes=original->retainedBytes;
+  copied->preferences=original->preferences;copied->foldedMention=original->foldedMention;copied->history=original->history;
+  copied->worldAppearance=original->worldAppearance;copied->appearance=original->appearance;copied->appearanceKnown=original->appearanceKnown;
+  copied->surfaceForeground=original->surfaceForeground;copied->surfaceBackground=original->surfaceBackground;copied->text.SetBackgroundColor(FALSE,copied->surfaceBackground);
   for(size_t i=0;i<target.m_transcripts.size();++i)if(target.m_transcripts[i]==copied)target.UpdateTabLabel(i);
   target.m_selectedInput=-1;target.LayoutChildren();target.Rebuild(*copied);
+  workspace_history::Transfer((std::uintptr_t)original,(std::uintptr_t)copied);
   m_tabs.DeleteItem(selected); original->text.DestroyWindow(); delete original;
   m_transcripts.erase(m_transcripts.begin()+selected);m_selectedInput=-1;
   if (!m_transcripts.empty()) m_tabs.SetCurSel(min(selected,(int)m_transcripts.size()-1));
@@ -710,7 +781,7 @@ bool CWorkspacePane::HostTool(HWND toolWindow,const CString& title)
   ::SetWindowPos(toolWindow,NULL,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED);
   const CSize minimum=MinimumSize();m_floatSize.cx=max(minimum.cx,m_floatSize.cx);m_floatSize.cy=max(minimum.cy,m_floatSize.cy);
   m_dockWidth=max(minimum.cx,m_dockWidth);m_dockHeight=max(minimum.cy,m_dockHeight);
-  m_tabs.ShowWindow(SW_HIDE);m_input.ShowWindow(SW_HIDE);m_reviewInput.ShowWindow(SW_HIDE);m_search.ShowWindow(SW_HIDE);m_findNext.ShowWindow(SW_HIDE);m_pause.ShowWindow(SW_HIDE);m_inputStatus.ShowWindow(SW_HIDE); LayoutChildren(); Invalidate(); return true;
+  m_tabs.ShowWindow(SW_HIDE);m_input.ShowWindow(SW_HIDE);m_reviewInput.ShowWindow(SW_HIDE);m_search.ShowWindow(SW_HIDE);m_findNext.ShowWindow(SW_HIDE);m_pause.ShowWindow(SW_HIDE);m_inputStatus.ShowWindow(SW_HIDE);m_destination.ShowWindow(SW_HIDE);m_arrange.ShowWindow(SW_HIDE);m_findToggle.ShowWindow(SW_HIDE); LayoutChildren(); Invalidate(); return true;
 }
 
 namespace {
@@ -759,28 +830,119 @@ void CWorkspacePane::SaveInputDraft()
   const int count=::GetWindowTextLengthW(m_input.m_hWnd);
   std::wstring text(min(count,16384)+1,L'\0');
   ::GetWindowTextW(m_input.m_hWnd,&text[0],(int)text.size());text.resize(wcslen(text.c_str()));
-  m_transcripts[m_selectedInput]->inputDraft=text;
+  auto* transcript=m_transcripts[m_selectedInput];
+  if(transcript->inputDraft!=text)workspace_history::For((LPCTSTR)transcript->connectionId).Edited((std::uintptr_t)transcript,text.empty());
+  transcript->inputDraft=text;
+}
+bool CWorkspacePane::HasUnsentInput(const CString& id) const
+{
+
+  for(size_t i=0;i<m_transcripts.size();++i)if(m_transcripts[i]->connectionId==id){
+    if((int)i==m_selectedInput && ::IsWindow(m_input.GetSafeHwnd())){
+      if(::GetWindowTextLengthW(m_input.GetSafeHwnd())>0)return true;
+    }else if(!m_transcripts[i]->inputDraft.empty())return true;
+  }
+  return false;
 }
 bool CWorkspacePane::SetInputPrefix(const CString& id,const CString& name,const std::wstring& prefix)
 {
   Transcript* transcript=Find(id,name);
   if(!transcript || prefix.size()>1024) return false;
-  transcript->inputPrefix=prefix;return true;
+  transcript->inputPrefix=prefix;
+  if(m_sharedInputHandler && workspace_composer::BorrowedEditors().count(m_input.GetSafeHwnd()))SelectSharedInput(false);
+  return true;
+}
+bool CWorkspacePane::SharedInputIdentity(CString& id,CString& name) const {
+  const int selected=m_tabs.GetCurSel();if(selected<0 || selected>=(int)m_transcripts.size())return false;
+  id=m_transcripts[selected]->connectionId;name=m_transcripts[selected]->name;return true;
+}
+std::wstring CWorkspacePane::SharedInputDestination() const {
+  CString id,name;if(!SharedInputIdentity(id,name))return L"";
+  const std::wstring channel=name=="Output"?L"Main":std::wstring(CA2W(name,CP_UTF8));
+  return L"Input target: "+m_characterLabel+(m_gameLabel.empty()?L"":L" / "+m_gameLabel)+L" / "+channel;
+}
+bool CWorkspacePane::SharedInputIsFullCommand() const {
+  const int selected=m_tabs.GetCurSel();if(selected<0 || selected>=(int)m_transcripts.size())return false;
+  const auto* transcript=m_transcripts[selected];
+  return workspace_history::For((LPCTSTR)transcript->connectionId).Full((std::uintptr_t)transcript);
+}
+bool CWorkspacePane::SelectSharedInput(bool focus){
+  if(!m_sharedInputHandler)return false;
+  SaveInputDraft();const auto handler=m_sharedInputHandler;
+  return handler(*this,focus);
+}
+void CWorkspacePane::OnLButtonUp(UINT flags,CPoint point){
+  const HWND owner=GetSafeHwnd();
+  CDockablePane::OnLButtonUp(flags,point);
+  if(!::IsWindow(owner) || CWnd::FromHandlePermanent(owner)!=this)return;
+  if(!(flags&(MK_CONTROL|MK_SHIFT)))SelectSharedInput();
+}
+LRESULT CALLBACK CWorkspacePane::TranscriptInputProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR data){
+  const HWND parent=(HWND)data;
+  auto* pane=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(parent));
+  if(message==WM_NCDESTROY){RemoveWindowSubclass(window,TranscriptInputProc,id);return DefSubclassProc(window,message,wp,lp);}
+  if(pane && pane->m_sharedInputHandler){
+    const CPoint point((short)LOWORD(lp),(short)HIWORD(lp));
+    if(message==WM_LBUTTONDOWN){pane->m_inputPointerStart=point;pane->m_inputPointerCancelled=false;}
+    if(message==WM_LBUTTONDBLCLK)pane->m_inputPointerCancelled=true;
+    if(message==WM_MOUSEMOVE && (wp&MK_LBUTTON) &&
+       (abs(point.x-pane->m_inputPointerStart.x)>GetSystemMetrics(SM_CXDRAG) || abs(point.y-pane->m_inputPointerStart.y)>GetSystemMetrics(SM_CYDRAG)))pane->m_inputPointerCancelled=true;
+    if(message==WM_CANCELMODE)pane->m_inputPointerCancelled=true;
+  }
+  const LRESULT result=DefSubclassProc(window,message,wp,lp);
+  // RichEdit can invoke a hyperlink/plugin callback while processing mouse up.
+  // Validate native ownership again before touching the original pane.
+  if(message!=WM_LBUTTONUP || !pane || !::IsWindow(window) || ::GetParent(window)!=parent ||
+     CWnd::FromHandlePermanent(parent)!=pane || !pane->m_sharedInputHandler || pane->m_inputPointerCancelled ||
+     (wp&(MK_CONTROL|MK_SHIFT)) || (GetKeyState(VK_MENU)&0x8000))return result;
+  pane->m_inputPointerCancelled=true;
+  CHARRANGE selection={};::SendMessageW(window,EM_EXGETSEL,0,(LPARAM)&selection);
+  if(selection.cpMin!=selection.cpMax)return result;
+  POINTL point={(short)LOWORD(lp),(short)HIWORD(lp)};
+  const long character=(long)::SendMessageW(window,EM_CHARFROMPOS,0,(LPARAM)&point);
+  for(auto* transcript:pane->m_transcripts)if(transcript->text.GetSafeHwnd()==window)
+    for(const auto& link:transcript->links)if(character>=link.first && character<link.last)return result;
+  pane->SelectSharedInput();return result;
 }
 BOOL CWorkspacePane::PreTranslateMessage(MSG* message)
 {
+  if(message->hwnd==m_input.GetSafeHwnd() && workspace_composer::CompositionActive(message->hwnd))return FALSE;
+  if(m_sharedInputHandler){
+    bool output=false;for(auto* transcript:m_transcripts)if(transcript->text.GetSafeHwnd()==message->hwnd)output=true;
+    if(output && ((message->message==WM_CHAR && message->wParam>=32) ||
+       ((message->message==WM_KEYDOWN || message->message==WM_SYSKEYDOWN) && (message->wParam==VK_UP || message->wParam==VK_DOWN || message->wParam==VK_RETURN)))){
+      if(!(GetKeyState(VK_CONTROL)&0x8000) && !(GetKeyState(VK_SHIFT)&0x8000)){
+        const HWND owner=GetSafeHwnd(),input=m_input.GetSafeHwnd();
+        const bool selected=SelectSharedInput();
+        // Selecting a world can run plugins that close or replace this pane.
+        if(!::IsWindow(owner) || CWnd::FromHandlePermanent(owner)!=this)return TRUE;
+        if(!selected || m_input.GetSafeHwnd()!=input)return TRUE;
+        if(message->wParam==VK_RETURN && message->message!=WM_CHAR)return TRUE;
+        MSG redirected=*message;redirected.hwnd=m_input.GetSafeHwnd();
+        if(redirected.message==WM_CHAR){::SendMessageW(redirected.hwnd,redirected.message,redirected.wParam,redirected.lParam);return TRUE;}
+        return PreTranslateMessage(&redirected);
+      }
+    }
+  }
+  if(message->message==WM_KEYDOWN && message->wParam=='M' && (GetKeyState(VK_CONTROL)&0x8000) && (GetKeyState(VK_SHIFT)&0x8000))
+    {ShowPlacementMenu();return TRUE;}
   if(message->message==WM_KEYDOWN && message->wParam=='F' && (GetKeyState(VK_CONTROL)&0x8000))
-    { m_search.SetFocus();return TRUE; }
+    { FocusSearch();return TRUE; }
+  if(message->message==WM_KEYDOWN && message->wParam==VK_ESCAPE && m_searchVisible)
+    {m_searchVisible=false;LayoutChildren();m_input.SetFocus();return TRUE;}
   if(message->hwnd==m_search.m_hWnd && message->message==WM_KEYDOWN && message->wParam==VK_RETURN)
     { OnFindNext();return TRUE; }
-  if(message->hwnd==m_input.m_hWnd && message->message==WM_KEYDOWN && (message->wParam==VK_UP || message->wParam==VK_DOWN))
+  if(message->hwnd==m_input.m_hWnd && (message->message==WM_KEYDOWN || message->message==WM_SYSKEYDOWN) && (message->wParam==VK_UP || message->wParam==VK_DOWN) &&
+     !(GetKeyState(VK_CONTROL)&0x8000) && !(GetKeyState(VK_SHIFT)&0x8000))
     {
     SaveInputDraft();const int selected=m_tabs.GetCurSel();if(selected<0 || selected>=(int)m_transcripts.size())return TRUE;
     Transcript& transcript=*m_transcripts[selected];const std::string raw=WorkspaceUtf8(transcript.inputDraft);
-    const std::string text=message->wParam==VK_UP?transcript.history.Up(raw):transcript.history.Down(raw);
+    auto& history=workspace_history::For((LPCTSTR)transcript.connectionId);
+    const std::string text=history.Recall((std::uintptr_t)&transcript,message->wParam==VK_UP,raw);
     const int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),(int)text.size(),NULL,0);
     std::wstring wide(count,L'\0');if(count)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),(int)text.size(),&wide[0],count);
-    transcript.inputDraft=wide;::SetWindowTextW(m_input.m_hWnd,wide.c_str());m_input.SetSel(-1,-1);return TRUE;
+    transcript.inputDraft=wide;::SetWindowTextW(m_input.m_hWnd,wide.c_str());m_input.SetSel(-1,-1);
+    if(m_sharedInputHandler)SelectSharedInput(false);return TRUE;
     }
   if(message->hwnd==m_input.m_hWnd && message->message==WM_KEYDOWN && message->wParam==VK_RETURN)
     { OnReviewInput();return TRUE; }
@@ -793,24 +955,31 @@ void CWorkspacePane::OnReviewInput()
   const Transcript& transcript=*m_transcripts[selected];
   if(transcript.inputDraft.empty()) return;
   const CString identity=transcript.connectionId;
-  const std::wstring command=transcript.inputPrefix+transcript.inputDraft;
+  const bool full=workspace_history::For((LPCTSTR)transcript.connectionId).Full((std::uintptr_t)&transcript);
+  const std::wstring prefix=full?L"":transcript.inputPrefix;
+  std::wstring command;
   const HWND window=GetSafeHwnd();
   const CString name=transcript.name;
   const std::wstring draft=transcript.inputDraft;
   const std::string id=(LPCTSTR)identity;
-  const workspace_input::PreparedInput prepared=workspace_input::PrepareHumanInput(id,id,!m_connectionHandler || m_connectionHandler(identity),WorkspaceUtf8(transcript.inputPrefix),WorkspaceUtf8(draft));
+  const workspace_input::PreparedInput prepared=workspace_input::PrepareHumanInput(id,id,!m_connectionHandler || m_connectionHandler(identity),WorkspaceUtf8(prefix),WorkspaceUtf8(draft));
   if(!prepared.ok) { AfxMessageBox(prepared.error.c_str());return; }
-  const InputHandler callback=m_inputHandler;
+  const int commandLength=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,prepared.command.data(),(int)prepared.command.size(),NULL,0);
+  command.resize(commandLength);if(commandLength)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,prepared.command.data(),(int)prepared.command.size(),&command[0],commandLength);
+  const InputHandler callback=full && m_fullInputHandler?m_fullInputHandler:m_inputHandler;
   bool submitted;{WorkspaceApplicationResources application;submitted=callback(identity,command);}
   // Alias/script callbacks can close the original world and destroy this pane.
   if(!::IsWindow(window) || CWnd::FromHandlePermanent(window)!=this)return;
   Transcript* current=Find(identity,name);if(!current)return;
-  current->history.Sent(WorkspaceUtf8(draft),submitted);
+  // Actual transport callbacks record canonical alias-expanded lines. Native test
+  // fixtures without a full-input callback still exercise shared command history.
+  if(submitted && !m_fullInputHandler)workspace_history::For(id).Sent(WorkspaceUtf8(command));
   std::wstring status=submitted?L"Submitted":L"Not submitted";
   if(!submitted && m_inputErrorHandler){const std::wstring error=m_inputErrorHandler(identity);if(!error.empty())status+=L": "+error;}
   ::SetWindowTextW(m_inputStatus.m_hWnd,status.c_str());
+  LayoutChildren();
   if(submitted && current->inputDraft==draft)
-    {current->inputDraft.clear();::SetWindowTextW(m_input.m_hWnd,L"");}
+    {current->inputDraft.clear();workspace_history::For(id).Edited((std::uintptr_t)current,true);::SetWindowTextW(m_input.m_hWnd,L"");if(m_sharedInputHandler)SelectSharedInput(false);}
 
 }
 
@@ -908,12 +1077,24 @@ void CWorkspacePane::OnPause()
   if(!transcript.paused) {transcript.unread=0;transcript.mentions=0;UpdateTabLabel(selected);RefreshDeferred();}
 }
 
+void CWorkspacePane::MarkVisibleTranscriptRead()
+{
+  const int index=m_tabs.GetCurSel();
+  if(index<0 || index>=(int)m_transcripts.size() || !IsWindowVisible())return;
+  if(auto* group=GetParentTabbedPane())if(group->GetUnderlyingWindow() && group->GetUnderlyingWindow()->GetActiveWnd()!=this)return;
+  Transcript& transcript=*m_transcripts[index];
+  // Selecting a pane to type does not mean its unseen output was read. Keep
+  // the badge while scrolled back; clear it when the reader reaches live output.
+  if(transcript.paused || transcript.deferred || !ShouldFollow(transcript.text))return;
+  if(transcript.unread || transcript.mentions){transcript.unread=0;transcript.mentions=0;UpdateTabLabel(index);}
+}
 void CWorkspacePane::UpdateTabLabel(size_t index)
 {
   WorkspaceModernResources resources;
   if(index>=m_transcripts.size())return;
   const Transcript& transcript=*m_transcripts[index];
   CString label=transcript.name+" ["+transcript.connectionId.Left(8)+"]";
+  if(!m_characterLabel.empty()){label=(transcript.name=="Output"?CString("Main"):transcript.name);label+=" - ";label+=CW2A(m_characterLabel.c_str(),CP_UTF8);}
   if(transcript.unread) {CString count;count.Format(" (%u)",transcript.unread);label+=count;}
   if(transcript.mentions){CString count;count.Format(" [mentions: %u]",transcript.mentions);label+=count;}
   TCITEM item;memset(&item,0,sizeof(item));item.mask=TCIF_TEXT;item.pszText=const_cast<char*>((LPCTSTR)label);
@@ -924,8 +1105,71 @@ bool CWorkspacePane::FocusTranscript(size_t index)
 {
   if(index>=m_transcripts.size())return false;SaveInputDraft();m_tabs.SetCurSel((int)index);
   Transcript& transcript=*m_transcripts[index];
-  if(!transcript.paused){transcript.unread=0;transcript.mentions=0;UpdateTabLabel(index);}
-  LayoutChildren();transcript.text.SetFocus();return true;
+  LayoutChildren();MarkVisibleTranscriptRead();if(m_sharedInputHandler)return SelectSharedInput();transcript.text.SetFocus();return true;
+}
+void CWorkspacePane::SetPresentationIdentity(const std::wstring& game,const std::wstring& character)
+{
+  if(m_gameLabel==game && m_characterLabel==character)return;
+  m_gameLabel=game;m_characterLabel=character;
+  for(size_t i=0;i<m_transcripts.size();++i)UpdateTabLabel(i);
+  LayoutChildren();
+}
+bool CWorkspacePane::ArrangeBeside(CWorkspacePane& target,Placement placement)
+{
+  if(&target==this || !::IsWindow(target.m_hWnd) || !::IsWindow(m_hWnd))return false;
+  const HWND sourceWindow=m_hWnd,targetWindow=target.m_hWnd;
+  SaveInputDraft();
+  WorkspaceModernResources resources;
+  if(placement==Placement::Join && GetParentTabbedPane() && GetParentTabbedPane()==target.GetParentTabbedPane())return true;
+  // Native detach owns recent-dock metadata and preserves the pane, input and
+  // RichEdit HWNDs. Never copy/replay transcript records during arrangement.
+  if(IsAutoHideMode())SetAutoHideMode(FALSE,CBRS_ALIGN_ANY);
+  if(auto* group=GetParentTabbedPane())if(!group->DetachPane(this,TRUE))return false;
+  if(!::IsWindow(sourceWindow) || CWnd::FromHandlePermanent(sourceWindow)!=this || !::IsWindow(targetWindow) || CWnd::FromHandlePermanent(targetWindow)!=&target)return false;
+  BOOL moved=FALSE;
+  if(placement==Placement::Join)moved=AttachToTabWnd(&target,DM_SHOW,TRUE)!=NULL;
+  else {
+    CDockablePane* anchor=target.GetParentTabbedPane()?static_cast<CDockablePane*>(target.GetParentTabbedPane()):&target;
+    const DWORD align=placement==Placement::Left?CBRS_ALIGN_LEFT:placement==Placement::Right?CBRS_ALIGN_RIGHT:placement==Placement::Above?CBRS_ALIGN_TOP:CBRS_ALIGN_BOTTOM;
+    CRect desired;anchor->GetWindowRect(desired);if(align==CBRS_ALIGN_LEFT)desired.right=desired.CenterPoint().x;else if(align==CBRS_ALIGN_RIGHT)desired.left=desired.CenterPoint().x;else if(align==CBRS_ALIGN_TOP)desired.bottom=desired.CenterPoint().y;else desired.top=desired.CenterPoint().y;
+    moved=DockToWindow(anchor,align,desired);
+  }
+  if(moved){ShowPane(TRUE,FALSE,TRUE);if(auto* frame=DYNAMIC_DOWNCAST(CFrameWnd,GetDockSiteFrameWnd()))frame->RecalcLayout();}
+  return moved!=FALSE;
+}
+bool CWorkspacePane::DetachToWindow()
+{
+  SaveInputDraft();
+  CRect floating;GetWindowRect(floating);floating.right=floating.left+max(workspace_style::Scale(m_hWnd,440),floating.Width());floating.bottom=floating.top+max(workspace_style::Scale(m_hWnd,320),floating.Height());
+  return FloatWorkspacePaneVisible(*this,floating)!=FALSE;
+}
+void CWorkspacePane::ShowPlacementMenu()
+{
+  const HWND original=m_hWnd;CString identity,name;if(!m_transcripts.empty()){identity=m_transcripts[0]->connectionId;name=m_transcripts[0]->name;}
+  struct Move {HWND target;Placement placement;};std::vector<Move> choices;
+  CMenu menu;menu.CreatePopupMenu();
+  menu.AppendMenu(MF_STRING,1,"Open as separate window");
+  if(auto* group=GetParentTabbedPane()){
+    const auto* tabs=group->GetUnderlyingWindow();const int index=tabs->GetTabFromHwnd(m_hWnd);
+    menu.AppendMenu(MF_STRING|(index>0?0:MF_GRAYED),2,"Move tab left");
+    menu.AppendMenu(MF_STRING|(index>=0 && index<tabs->GetTabsNum()-1?0:MF_GRAYED),3,"Move tab right");
+  }
+  menu.AppendMenu(MF_SEPARATOR);
+  menu.AppendMenu(MF_STRING|MF_GRAYED,0,"Join tabs or split beside...");
+  for(HWND window:valyriaChannelWindows){auto* target=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(window));if(!target || target==this || !::IsWindow(window) || target->IsEmpty())continue;
+    CString title;target->GetWindowText(title);CMenu child;child.CreatePopupMenu();
+    const Placement placements[]={Placement::Join,Placement::Left,Placement::Right,Placement::Above,Placement::Below};
+    const char* labels[]={"Join tabs","Place left","Place right","Place above","Place below"};
+    for(int i=0;i<5;++i){choices.push_back({window,placements[i]});child.AppendMenu(MF_STRING,(UINT)(100+choices.size()-1),labels[i]);}
+    menu.AppendMenu(MF_POPUP,(UINT_PTR)child.Detach(),title);
+  }
+  CRect bounds;m_arrange.GetWindowRect(bounds);if(bounds.IsRectEmpty())GetWindowRect(bounds);
+  const UINT command=menu.TrackPopupMenu(TPM_RETURNCMD|TPM_NONOTIFY|TPM_LEFTALIGN,bounds.left,bounds.bottom,this);
+  if(!command || !::IsWindow(original) || CWnd::FromHandlePermanent(original)!=this || (!identity.IsEmpty()&&!HasTranscript(identity,name)))return;
+  WorkspaceModernResources resources;
+  if(command==1){DetachToWindow();return;}
+  if(command==2 || command==3){if(auto* group=GetParentTabbedPane()){auto* tabs=group->GetUnderlyingWindow();const int index=tabs->GetTabFromHwnd(m_hWnd),next=index+(command==2?-1:1);if(index>=0 && next>=0 && next<tabs->GetTabsNum())tabs->SwapTabs(index,next);}return;}
+  if(command>=100 && command-100<choices.size()){const Move move=choices[command-100];auto* target=DYNAMIC_DOWNCAST(CWorkspacePane,CWnd::FromHandlePermanent(move.target));if(target && ::IsWindow(move.target))ArrangeBeside(*target,move.placement);}
 }
 unsigned int CWorkspacePane::UnreadCount(const CString& id,const CString& name) const
 {
@@ -941,7 +1185,28 @@ bool CWorkspacePane::SetPreferences(const CString& id,const CString& name,const 
 {
   auto* transcript=Find(id,name);if(!transcript || !workspace_spawn::Valid(preferences))return false;
   if(transcript->preferences.mention!=preferences.mention)transcript->mentions=0;
-  transcript->preferences=preferences;transcript->foldedMention=MentionFold(preferences.mention);m_labelDirty=true;return true;
+  transcript->preferences=preferences;transcript->foldedMention=MentionFold(preferences.mention);m_labelDirty=true;RefreshAppearance(*transcript);return true;
+}
+bool CWorkspacePane::GetAppearance(const CString& id,const CString& name,workspace_spawn::Appearance& appearance) const
+{
+  for(auto* transcript:m_transcripts)if(transcript->connectionId==id && transcript->name==name){appearance=transcript->appearance;return true;}return false;
+}
+void CWorkspacePane::RefreshAppearance(Transcript& transcript)
+{
+  workspace_spawn::Appearance inherited=transcript.worldAppearance;
+  const bool supplied=m_appearanceHandler && m_appearanceHandler(transcript.connectionId,inherited) && workspace_spawn::ValidAppearance(inherited);
+  if(supplied)transcript.worldAppearance=inherited;
+  const auto chosen=transcript.preferences.appearanceOverride?transcript.preferences.appearance:transcript.worldAppearance;
+  if(chosen==transcript.appearance && (transcript.appearanceKnown || (!supplied && !transcript.preferences.appearanceOverride)))return;
+  transcript.appearance=chosen;transcript.appearanceKnown=supplied || transcript.appearanceKnown || transcript.preferences.appearanceOverride;
+  transcript.surfaceForeground=chosen.foreground;transcript.surfaceBackground=chosen.background;
+  auto& control=transcript.text;const auto view=SaveView(control);control.SetRedraw(FALSE);control.SetBackgroundColor(FALSE,chosen.background);
+  CHARFORMAT2W format={};format.cbSize=sizeof(format);format.dwMask=CFM_FACE|CFM_SIZE|CFM_CHARSET;format.yHeight=chosen.pointSize*20;format.bCharSet=(BYTE)chosen.charset;wcscpy_s(format.szFaceName,chosen.face.c_str());
+  ::SendMessageW(control.m_hWnd,EM_SETCHARFORMAT,SCF_ALL,(LPARAM)&format);
+  // Frozen panes retain the frozen text, rather than exposing newly buffered output.
+  if(!transcript.paused && !transcript.deferred)Rebuild(transcript);
+  if(transcript.records.empty()){format.dwMask|=CFM_COLOR|CFM_BACKCOLOR;format.crTextColor=chosen.foreground;format.crBackColor=chosen.background;::SendMessageW(control.m_hWnd,EM_SETCHARFORMAT,SCF_DEFAULT,(LPARAM)&format);}
+  RestoreView(control,view);control.SetRedraw(TRUE);control.Invalidate();
 }
 std::wstring CWorkspacePane::InputPrefix(const CString& id,const CString& name) const
 {
@@ -972,6 +1237,10 @@ bool CWorkspacePane::ShouldFollow(const CRichEditCtrl& control)
   if(!length)return true; // A new control can still have the default scrollbar range.
   SCROLLINFO scroll;memset(&scroll,0,sizeof(scroll));scroll.cbSize=sizeof(scroll);scroll.fMask=SIF_RANGE|SIF_PAGE|SIF_POS;
   if(!::GetScrollInfo(control.m_hWnd,SB_VERT,&scroll))return true;
+  // A cold RichEdit can retain its default 0..100 range with no page until
+  // its first layout/paint. An end caret still means follow in that state;
+  // treating the placeholder range as scrollback permanently freezes output.
+  if(!scroll.nPage)return true;
   const int bottom=max(scroll.nMin,scroll.nMax-(int)max(1U,scroll.nPage)+1);
   return scroll.nPos>=bottom-1;
 }

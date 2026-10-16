@@ -50,6 +50,7 @@ void CMySplitterWnd::OnLButtonUp(UINT nFlags, CPoint point)
     int cyCur,
         cyMin;
     GetRowInfo (COMMAND_PANE, cyCur, cyMin);
+    cyCur=InputHeightFromRow(cyCur);
 
     // snap to boundary stuff (version 4.16)
     if (((GetKeyState (VK_LCONTROL) & 0x8000) != 0 ||
@@ -76,6 +77,7 @@ void CMySplitterWnd::OnLButtonUp(UINT nFlags, CPoint point)
         cyCur = 0;  // zero lines is still zero
       } // end of ctrl key held down
 
+    RememberInputHeight(cyCur);
     if (!(m_pDoc->m_mush_name.IsEmpty ()))
       App.db_write_int ("worlds", (LPCTSTR) CFormat ("%s:%s", (LPCTSTR) m_pDoc->m_mush_name, "Bottom Height"), cyCur);
 

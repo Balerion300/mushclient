@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import argparse
+p=argparse.ArgumentParser();p.add_argument('--build-only',action='store_true');args=p.parse_args()
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tests'))
 from run_native_tests import compiler_environment
@@ -23,6 +25,9 @@ subprocess.run([str(compiler),'/nologo','/MT','/EHsc','/std:c++14','/D_WIN32_WIN
     '/I'+str(ROOT),'/I'+str(ROOT/'luacom'),'/I'+str(ROOT/'openssl/include'),'/I'+str(out),
     *[str(ROOT/s) for s in sources],'/Fe:'+str(out/'workflow-forms.exe'),'/Fo:'+str(out)+os.sep,
     '/link','/SUBSYSTEM:WINDOWS','Oleacc.lib'],cwd=out,env=env,check=True)
+if args.build_only:
+    print('Built only: '+str(out),flush=True)
+    sys.exit(0)
 process=subprocess.Popen([str(out/'workflow-forms.exe')],cwd=out)
 try: process.wait(timeout=45)
 except subprocess.TimeoutExpired:

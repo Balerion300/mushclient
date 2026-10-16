@@ -19,6 +19,10 @@ public:
   }
   CRichEditCtrl& Text(){return m_transcripts[0]->text;}
   long End(size_t index){return m_transcripts[0]->renderedEnds[index];}
+  void Tick(){OnTimer(1);}
+  bool Following(){return ShouldFollow(Text());}
+  void Diagnostics(std::ofstream& log){long first,last;Text().GetSel(first,last);SCROLLINFO scroll={sizeof(scroll)};scroll.fMask=SIF_RANGE|SIF_PAGE|SIF_POS;::GetScrollInfo(Text().m_hWnd,SB_VERT,&scroll);auto* group=GetParentTabbedPane();log<<" follow="<<Following()<<" visible="<<IsWindowVisible()<<" tab="<<m_tabs.GetCurSel()<<" caret="<<first<<","<<last<<" length="<<TextLength(Text())<<" scroll="<<scroll.nPos<<"/"<<scroll.nMax<<" page="<<scroll.nPage<<" group="<<(void*)group<<" groupActive="<<(group&&group->GetUnderlyingWindow()?(void*)group->GetUnderlyingWindow()->GetActiveWnd():NULL)<<" self="<<(void*)this<<"\n";}
+
 };
 bool Check(std::ofstream& log,const char* label,bool ok){log<<(ok?"PASS ":"FAIL ")<<label<<"\n";return ok;}
 BOOL CALLBACK FindDropPreview(HWND window,LPARAM result){wchar_t title[80]={};GetWindowTextW(window,title,80);if(!wcscmp(title,L"Workspace drop preview")){*(HWND*)result=window;return FALSE;}return TRUE;}
@@ -80,10 +84,16 @@ class DockApp:public CWinApp {
   const CPoint points[]={CPoint(515,600),CPoint(1485,600),CPoint(1000,215),CPoint(1000,985),CPoint(1070,635)};
   bool regions=true;for(int i=0;i<5;++i){guides->OnMouseMove(points[i]);regions=regions && guides->GetHighlightedGuideNo()==Marker::sdCLEFT+i;}
   ok=Check(log,"whole pane edge regions and offset center select all five native drop operations",regions)&&ok;
+  const int chipStep=workspace_style::Scale(frame->GetSafeHwnd(),144),verticalStep=workspace_style::Scale(frame->GetSafeHwnd(),40);
+  const CPoint chipPoints[]={CPoint(1000-chipStep,600),CPoint(1000+chipStep,600),CPoint(1000,600-verticalStep),CPoint(1000,600+verticalStep),CPoint(1000,600)};
+  bool chipTargets=true;for(int i=0;i<5;++i){guides->OnMouseMove(chipPoints[i]);chipTargets=chipTargets && guides->GetHighlightedGuideNo()==Marker::sdCLEFT+i;}
+  ok=Check(log,"each visible placement label is the exact drop target it advertises",chipTargets)&&ok;
   guides->MoveCentralGroup(host,0);guides->OnMouseMove(points[4]);
   ok=Check(log,"center join is unavailable when the native target cannot accept tabs",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
   guides->MoveCentralGroup(host,0,CBRS_ALIGN_LEFT|CBRS_ALIGN_TOP|CBRS_ALIGN_BOTTOM);guides->OnMouseMove(points[1]);
   ok=Check(log,"native disabled alignment also disables the enlarged region",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
+  guides->OnMouseMove(chipPoints[1]);
+  ok=Check(log,"disabled placement chip never falls through to Join tabs",guides->GetHighlightedGuideNo()==Marker::sdNONE)&&ok;
   guides->MoveCentralGroup(host,1);guides->OnMouseMove(points[0]);guides->ShowPlaceAt(CRect(500,200,1100,1000));COLORREF sample=0;
   ok=Check(log,"preview follows native projected split width rather than assuming half",CaptureDropPreview(550,&sample) && sample==workspace_style::Colors().hover)&&ok;guides->HidePlace();
   guides->MoveCentralGroup(host,1);guides->OnMouseMove(points[2]);
@@ -155,6 +165,69 @@ class DockApp:public CWinApp {
   const auto hiddenCapture=wd::Capture(entries);bool explicitHidden=false,explicitAutoHide=false;
   for(const auto& r:hiddenCapture.roots){const auto keys=wd::Keys(hiddenCapture,r.node);if(keys.count(entries[5].key))explicitHidden=!r.visible && !r.autoHide;if(keys.count(entries[7].key))explicitAutoHide=r.autoHide && panes[7]->IsAutoHideMode() && panes[8]->IsAutoHideMode();}
   ok=Check(log,"hidden floating roots and native auto-hide buttons retain distinct semantics",explicitHidden && explicitAutoHide)&&ok;
+  for(auto* pane:panes){wd::Detach(pane);frame->DockPane(pane);pane->ShowPane(TRUE,FALSE,FALSE);}
+  const HWND composer=panes[0]->GetDlgItem(2)->GetSafeHwnd();
+  ::SetWindowTextW(composer,L"unsent fictional draft \u03bb");
+  const Surface placementSurface=Save(*panes[0]);
+  bool placement=true;
+  for(const auto edge:{CWorkspacePane::Placement::Left,CWorkspacePane::Placement::Right,CWorkspacePane::Placement::Above,CWorkspacePane::Placement::Below,CWorkspacePane::Placement::Join}){
+    placement=panes[0]->ArrangeBeside(*panes[1],edge)&&placement;
+    wchar_t draft[128]={};::GetWindowTextW(composer,draft,128);
+    placement=Same(*panes[0],placementSurface) && composer==panes[0]->GetDlgItem(2)->GetSafeHwnd() && !wcscmp(draft,L"unsent fictional draft \u03bb") && placement;
+  }
+  ok=Check(log,"accessible placement joins and all four splits preserve original output HWND/text/selection and unsent composer",placement)&&ok;
+  ok=Check(log,"placement rejects the same physical pane",!panes[0]->ArrangeBeside(*panes[0],CWorkspacePane::Placement::Join))&&ok;
+  const bool commandDetached=panes[0]->DetachToWindow();auto* detachedHost=panes[0]->GetParentMiniFrame();
+  ok=Check(log,"Arrange Detach command shows both original pane and native floating host",commandDetached && detachedHost && detachedHost->IsWindowVisible() && panes[0]->IsWindowVisible())&&ok;
+  if(detachedHost){CRect shown;detachedHost->GetWindowRect(shown);MONITORINFO monitor={sizeof(monitor)};GetMonitorInfo(MonitorFromRect(shown,MONITOR_DEFAULTTONEAREST),&monitor);
+    ok=Check(log,"Arrange Detach host lies inside its current monitor work area",shown.Width()>0 && shown.Height()>0 && shown.left>=monitor.rcWork.left && shown.top>=monitor.rcWork.top && shown.right<=monitor.rcWork.right && shown.bottom<=monitor.rcWork.bottom)&&ok;}
+  wchar_t detachedDraft[128]={};::GetWindowTextW(composer,detachedDraft,128);
+  ok=Check(log,"Arrange Detach retains original output and unsent draft",Same(*panes[0],placementSurface) && !wcscmp(detachedDraft,L"unsent fictional draft \u03bb"))&&ok;
+  ok=Check(log,"Arrange Join returns visible detached pane to original tab target",panes[0]->ArrangeBeside(*panes[1],CWorkspacePane::Placement::Join) && panes[0]->IsWindowVisible() && panes[0]->GetParentTabbedPane()==panes[1]->GetParentTabbedPane() && Same(*panes[0],placementSurface))&&ok;
+  panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);panes[0]->Tick();
+  workspace_spawn::Preferences activity;activity.mention=L"fictional";panes[0]->SetPreferences(entries[0].key.world.c_str(),entries[0].key.name.c_str(),activity);
+  WorkspaceRecord activityRecord;activityRecord.connectionId=entries[0].key.world.c_str();activityRecord.serverOutput=true;WorkspaceRun activityRun;activityRun.text=L"fictional activity";activityRecord.runs.push_back(activityRun);activityRecord.sequence=401;
+  panes[0]->AppendRecord(entries[0].key.name.c_str(),activityRecord);
+  ok=Check(log,"visible live output has no unread or mention badge",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==0 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==0)&&ok;
+  panes[0]->Text().SetSel(0,0);panes[0]->Text().SendMessage(EM_SCROLLCARET);activityRecord.sequence=402;panes[0]->AppendRecord(entries[0].key.name.c_str(),activityRecord);panes[0]->FocusTranscript(0);panes[0]->Tick();
+  ok=Check(log,"selecting a scrolled-back pane retains unseen output and mention badges",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==1 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==1)&&ok;
+  panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);panes[0]->Tick();
+  ok=Check(log,"returning to live output clears badges without requiring new traffic",panes[0]->UnreadCount(activityRecord.connectionId,entries[0].key.name.c_str())==0 && panes[0]->MentionCount(activityRecord.connectionId,entries[0].key.name.c_str())==0)&&ok;
+  panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);
+  const bool followingBefore=panes[0]->Following();CRect originalFrame;frame->GetWindowRect(originalFrame);
+  frame->SetWindowPos(NULL,0,0,originalFrame.Width()-250,originalFrame.Height()-300,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);frame->AdjustDockingLayout();
+  ok=Check(log,"resizing a plain pane from live-end keeps automatic follow enabled",followingBefore && panes[0]->Following())&&ok;
+  panes[0]->Text().SetSel(panes[0]->End(149),panes[0]->End(149)+12);panes[0]->Text().SendMessage(EM_SCROLLCARET);const Surface scrolledResize=Save(*panes[0]);
+  frame->SetWindowPos(NULL,0,0,originalFrame.Width(),originalFrame.Height(),SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);frame->AdjustDockingLayout();
+  ok=Check(log,"resizing a scrolled plain pane preserves reading anchor and selection",Same(*panes[0],scrolledResize) && SameReading(*panes[0],scrolledResize) && !panes[0]->Following())&&ok;
+  wd::Forest fresh;std::vector<int> freshLeaves;
+  for(int i=0;i<4;++i){panes[i]->ClearTranscript(entries[i].key.world.c_str(),entries[i].key.name.c_str());workspace_spawn::Preferences fixed;fixed.appearanceOverride=true;fixed.appearance.face=L"Fixedsys";fixed.appearance.pointSize=11;fixed.mention=L"fictional";panes[i]->SetPreferences(entries[i].key.world.c_str(),entries[i].key.name.c_str(),fixed);freshLeaves.push_back(Leaf(fresh,{entries[i].key}));}
+  const int upper=Split(fresh,freshLeaves[0],freshLeaves[1],false),lower=Split(fresh,freshLeaves[2],freshLeaves[3],false);wd::Root freshRoot;freshRoot.node=Split(fresh,upper,lower,true);freshRoot.bounds=CRect(600,100,1800,1000);fresh.roots.push_back(freshRoot);
+  ok=Check(log,"restore four empty Fixedsys panes before fictional traffic",wd::Restore(*frame,fresh,entries))&&ok;
+  bool freshFollow=true;for(int i=0;i<4;++i){freshFollow=panes[i]->Following()&&freshFollow;panes[i]->Diagnostics(log);}
+  ok=Check(log,"empty restored panes initially follow live output",freshFollow)&&ok;
+  bool unicodeFollow=true;int firstBroken=-1;
+  for(int packet=0;packet<40;++packet){for(int i=0;i<4;++i)panes[i]->BeginRenderBatch();
+    for(int line=0;line<8;++line)for(int i=0;i<4;++i){WorkspaceRecord record;record.connectionId=entries[i].key.world.c_str();record.sequence=packet*8+line+1;record.serverOutput=true;WorkspaceRun run;run.text=L"DATA fictional output \u03bb\U0001f409 "+std::wstring(80,L'x');record.runs.push_back(run);panes[i]->AppendRecord(entries[i].key.name.c_str(),record);}
+    for(int i=0;i<4;++i){panes[i]->EndRenderBatch();panes[i]->Tick();if(!panes[i]->Following()){unicodeFollow=false;if(firstBroken<0){firstBroken=packet;log<<"first Unicode follow failure packet="<<packet<<" pane="<<i;panes[i]->Diagnostics(log);}}}
+  }
+  ok=Check(log,"first empty to sustained batched long Unicode output retains live follow in four splits",unicodeFollow)&&ok;
+  workspace_spawn::Appearance inherited;inherited.face=L"Fixedsys";inherited.pointSize=11;inherited.foreground=RGB(0,0,0);inherited.background=RGB(255,255,255);
+  for(int i=0;i<4;++i){panes[i]->SetAppearanceHandler([&](const CString&,workspace_spawn::Appearance& value){value=inherited;return true;});workspace_spawn::Preferences normal;normal.mention=L"fictional";panes[i]->SetPreferences(entries[i].key.world.c_str(),entries[i].key.name.c_str(),normal);panes[i]->ClearTranscript(entries[i].key.world.c_str(),entries[i].key.name.c_str());}
+  bool inheritedFollow=true;firstBroken=-1;
+  for(int packet=0;packet<40;++packet){for(int i=0;i<4;++i)panes[i]->BeginRenderBatch();
+    for(int line=0;line<8;++line){for(int i=0;i<4;++i){WorkspaceRecord record;record.connectionId=entries[i].key.world.c_str();record.sequence=packet*8+line+1;record.serverOutput=true;WorkspaceRun run;run.defaultForeground=run.defaultBackground=true;run.text=L"DATA fictional output \u03bb\U0001f409 "+std::wstring(80,L'x');record.runs.push_back(run);panes[i]->AppendRecord(entries[i].key.name.c_str(),record);}if(line==0 && packet%10==0){inherited.pointSize=inherited.pointSize==11?12:11;for(int i=0;i<4;++i)panes[i]->Tick();}}
+    for(int i=0;i<4;++i){panes[i]->EndRenderBatch();panes[i]->Tick();if(!panes[i]->Following()){inheritedFollow=false;if(firstBroken<0){firstBroken=packet;log<<"first inherited follow failure packet="<<packet<<" pane="<<i;panes[i]->Diagnostics(log);}}}
+    MSG message;while(PeekMessage(&message,NULL,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessage(&message);}
+  }
+  ok=Check(log,"live world appearance changes during Unicode batches retain live follow",inheritedFollow)&&ok;
+  panes[0]->Text().SetSel(-1,-1);panes[0]->Text().SendMessage(EM_SCROLLCARET);
+  SCROLLINFO cold={sizeof(cold)};cold.fMask=SIF_RANGE|SIF_PAGE|SIF_POS;cold.nMin=0;cold.nMax=100;cold.nPage=0;cold.nPos=0;::SetScrollInfo(panes[0]->Text().m_hWnd,SB_VERT,&cold,FALSE);
+  SCROLLINFO observedCold={sizeof(observedCold)};observedCold.fMask=SIF_PAGE;::GetScrollInfo(panes[0]->Text().m_hWnd,SB_VERT,&observedCold);
+  ok=Check(log,"cold RichEdit default scrollbar has no measured page",observedCold.nPage==0)&&ok;
+  ok=Check(log,"end caret keeps follow while cold native scrollbar metrics initialize",panes[0]->Following())&&ok;
+  panes[0]->Text().SetSel(0,0);
+  ok=Check(log,"cold metrics never override an earlier caret or selected text",!panes[0]->Following())&&ok;
   log<<(ok?"PASS":"FAIL")<<" fictional native dock layout regression; native API simulation, not physical mixed-DPI mouse acceptance\n";
   frame->DestroyWindow();for(auto* pane:panes)delete pane;result_=ok?0:1;return FALSE;
  }

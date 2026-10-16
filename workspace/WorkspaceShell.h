@@ -6,7 +6,7 @@
 
 class CMDIFrameWndEx;
 namespace workspace_shell {
-enum Action {ToggleWorlds,Connect,Disconnect,Find,Logging,Channels,Tools,Select,OpenWorld,Legacy,ThemeSystem,ThemeLight,ThemeDark,OrganizeCharacter,ToggleWorldTabs};
+enum Action {ToggleWorlds,Connect,Disconnect,Find,Logging,Channels,Tools,Select,OpenWorld,Legacy,ThemeSystem,ThemeLight,ThemeDark,OrganizeCharacter,ToggleWorldTabs,AccentRed,AccentBlue,Arrange,Editor,Review,CreateWorld,Dictionaries,AddChannel,ChannelSettings,ToggleChannelMain};
 struct Row {
   std::string world,name;
   std::wstring label;
@@ -16,6 +16,8 @@ struct Row {
   bool channel=false,connected=false,connecting=false,disconnecting=false,logging=false;
   unsigned unread=0,mentions=0;
   int priority=0;
+  // 0: no incoming rule; 1: all copied to Main; 2: all separate; 3: mixed.
+  int mainRouting=0;
 };
 struct Snapshot {std::vector<Row> rows;std::string world,name;bool legacy=false;};
 typedef std::function<void(Action,const std::string&,const std::string&)> Handler;

@@ -4,12 +4,15 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "WorkspaceAppearance.h"
 
 namespace workspace_spawn {
 struct Preferences {
   std::wstring mention;
   int priority = 0;
   unsigned short shortcut = 0; // Low byte virtual key; high byte HOTKEYF_*.
+  bool appearanceOverride = false;
+  Appearance appearance;
 };
 inline bool ShortcutValid(unsigned short chord) {
   if (!chord) return true;
@@ -26,6 +29,7 @@ inline bool ShortcutValid(unsigned short chord) {
          ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9'));
 }
 inline bool Valid(const Preferences &p) {
+  if(p.appearanceOverride && !ValidAppearance(p.appearance))return false;
   if (p.mention.size() > 128 || p.priority < -100 || p.priority > 100 || !ShortcutValid(p.shortcut))
     return false;
   for (size_t i = 0; i < p.mention.size(); ++i) {

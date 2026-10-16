@@ -8,7 +8,9 @@
 #include <afxtabbedpane.h>
 #pragma pop_macro("Translate")
 #include "workspace/WorkspaceInputPolicy.h"
+#include "workspace/WorkspaceSharedHistory.h"
 #include "workspace/WorkspaceSpawnPolicy.h"
+namespace workspace_spell { struct Context; }
 
 // Independently implemented native workspace; no external client code.
 #define ID_WORKSPACE_TRANSCRIPT 59000
@@ -19,6 +21,7 @@ struct WorkspaceRun
   std::wstring text;  // UTF-16, native Unicode RichEdit surface
   COLORREF foreground, background;
   bool bold, italic, underline;
+  bool defaultForeground=false, defaultBackground=false;
   unsigned short actionType;
   CString action;  // immutable action metadata; activation is destination-bound
   WorkspaceRun() : foreground(RGB(225,225,225)), background(RGB(25,25,28)),
@@ -89,7 +92,13 @@ public:
   bool RetainedSourceAfter(const CString& id,const CString& name,unsigned __int64 boundary) const;
   size_t TranscriptCount() const { return m_transcripts.size(); }
   bool FocusTranscript(size_t index);
-  bool FocusSearch(){if(!m_search.GetSafeHwnd())return false;m_search.SetFocus();return true;}
+  bool FocusSearch(){if(!m_search.GetSafeHwnd())return false;m_searchVisible=true;LayoutChildren();m_search.SetFocus();return true;}
+  // Display metadata never replaces the transcript's immutable connection ID.
+  void SetPresentationIdentity(const std::wstring& game,const std::wstring& character);
+  enum class Placement {Join,Left,Right,Above,Below};
+  bool ArrangeBeside(CWorkspacePane& target,Placement placement);
+  void ShowPlacementMenu();
+  bool DetachToWindow();
   unsigned int UnreadCount(const CString& id,const CString& name) const;
   unsigned int MentionCount(const CString& id,const CString& name) const;
   bool SetPreferences(const CString& id,const CString& name,const workspace_spawn::Preferences& preferences);
@@ -111,6 +120,20 @@ public:
   typedef std::function<void(const CString&,const CString&,const std::deque<WorkspaceRecord>&)> PruneHandler;
   void SetPruneHandler(const PruneHandler& handler) { m_pruneHandler=handler; }
   void SetInputHandler(const InputHandler& handler) { m_inputHandler=handler; }
+  void SetFullInputHandler(const InputHandler& handler) { m_fullInputHandler=handler; }
+  bool SharedInputIsFullCommand() const;
+  void SetSpellingContextProvider(std::function<workspace_spell::Context(const CString&)> provider){m_spellingContext=provider;}
+  typedef std::function<bool(const CString&,workspace_spawn::Appearance&)> AppearanceHandler;
+  void SetAppearanceHandler(const AppearanceHandler& handler) {m_appearanceHandler=handler;}
+  bool GetAppearance(const CString& id,const CString& name,workspace_spawn::Appearance& appearance) const;
+  typedef std::function<bool(CWorkspacePane&,bool)> SharedInputHandler;
+  void SetSharedInputHandler(const SharedInputHandler& handler) { m_sharedInputHandler=handler;if(GetSafeHwnd())LayoutChildren(); }
+  bool SharedInputIdentity(CString& connectionId,CString& name) const;
+  HWND SharedInputWindow() const { return m_input.GetSafeHwnd(); }
+  std::wstring SharedInputDestination() const;
+  bool SelectSharedInput(bool focus=true);
+  void SubmitSharedInput() { OnReviewInput(); }
+  bool HasUnsentInput(const CString& connectionId) const;
   bool SetInputPrefix(const CString& connectionId, const CString& name, const std::wstring& prefix);
   virtual BOOL PreTranslateMessage(MSG* message);
   void SetActionHandler(const ActionHandler& handler) { m_actionHandler=handler; }
@@ -145,9 +168,12 @@ protected:
     unsigned int unread;
     unsigned int mentions = 0;
     workspace_spawn::Preferences preferences;
+    workspace_spawn::Appearance worldAppearance,appearance;
+    bool appearanceKnown=false;
     std::wstring foldedMention;
     int renderedWidth,connectionState;
     COLORREF surfaceForeground,surfaceBackground;
+    ~Transcript(){workspace_history::Forget((std::uintptr_t)this);}
     Transcript():deferredRemoved(0),retainedBytes(0),paused(false),deferred(false),batchPending(false),unread(0),renderedWidth(0),connectionState(-1),surfaceForeground(RGB(225,225,225)),surfaceBackground(RGB(25,25,28)){}
   };
   std::vector<Transcript*> m_transcripts;
@@ -155,10 +181,20 @@ protected:
   HWND m_toolWindow;
   CString m_toolTitle;
   ActionHandler m_actionHandler;
-  InputHandler m_inputHandler;
+  InputHandler m_inputHandler,m_fullInputHandler;
+  std::function<workspace_spell::Context(const CString&)> m_spellingContext;
+  AppearanceHandler m_appearanceHandler;
+  SharedInputHandler m_sharedInputHandler;
+  CPoint m_inputPointerStart;
+  bool m_inputPointerCancelled=true;
+  static LRESULT CALLBACK TranscriptInputProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR id,DWORD_PTR data);
   ConnectionHandler m_connectionHandler;
   InputErrorHandler m_inputErrorHandler;
   CStatic m_inputStatus;
+  CStatic m_destination;
+  CButton m_arrange,m_findToggle;
+  bool m_searchVisible=false;
+  std::wstring m_gameLabel,m_characterLabel;
   PruneHandler m_pruneHandler;
   CEdit m_input;
   CButton m_reviewInput;
@@ -173,11 +209,13 @@ protected:
   CPoint m_resizeStart;
   int m_resizeOriginal;
   Transcript* Find(const CString& connectionId, const CString& name);
+  void RefreshAppearance(Transcript& transcript);
   void LayoutChildren();
   CSize MinimumSize() const;
   virtual void GetMinSize(CSize& size) const { size=MinimumSize(); }
   void SaveInputDraft();
   void UpdateTabLabel(size_t index);
+  void MarkVisibleTranscriptRead();
   long RenderRecord(Transcript& transcript, const WorkspaceRecord& record,long insertAt=-1,bool track=true);
   void Rebuild(Transcript& transcript);
   void ReflowImages(Transcript& transcript,ViewState view);
@@ -194,9 +232,12 @@ protected:
   afx_msg void OnSize(UINT type, int cx, int cy);
   afx_msg void OnPaint();
   afx_msg void OnSetFocus(CWnd* oldWindow);
+  afx_msg void OnLButtonUp(UINT flags,CPoint point);
   afx_msg void OnReviewInput();
   afx_msg void OnFindNext();
   afx_msg void OnPause();
+  afx_msg void OnArrange(){ShowPlacementMenu();}
+  afx_msg void OnFindToggle(){m_searchVisible=!m_searchVisible;LayoutChildren();if(m_searchVisible)m_search.SetFocus();}
   afx_msg void OnTimer(UINT_PTR timer);
   afx_msg void OnLink(UINT id, NMHDR* hdr, LRESULT* result);
   afx_msg void OnTabChanged(NMHDR* hdr, LRESULT* result);

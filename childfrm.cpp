@@ -80,6 +80,16 @@ BOOL CChildFrame::OnCreateClient( LPCREATESTRUCT lpcs,
     bottomview->m_topview = topview;
     topview->m_owner_frame = this;
     topview->m_bottomview = bottomview;
+    const HWND originalInput=bottomview->GetSafeHwnd();
+    if(!m_wndSplitter.AttachComposer(COMMAND_PANE,originalInput,[originalInput,bottomview](){
+      if(::IsWindow(originalInput) && CWnd::FromHandlePermanent(originalInput)==bottomview)bottomview->SubmitMainInput();
+    }))return FALSE;
+    m_wndSplitter.SetHeightPolicy([originalInput,bottomview](int mode){
+      if(::IsWindow(originalInput) && CWnd::FromHandlePermanent(originalInput)==bottomview){
+        CMUSHclientDoc* doc=bottomview->GetDocument();doc->m_bAutoResizeCommandWindow=false;
+        if(!doc->m_strWorldID.IsEmpty())App.db_write_int("worlds",(LPCTSTR)CFormat("%s:Composer height mode",(LPCTSTR)doc->m_strWorldID),mode);
+      }
+    });
     bottomview->m_owner_frame = this;
 		SetActiveView((CView*) bottomview);
 
@@ -131,6 +141,15 @@ BOOL CChildFrame::PreCreateWindow(CREATESTRUCT& cs)
 }
 
 
+// Tree-first navigation uses the original maximized document view. No client
+// replacement, transcript replay, synthetic close controls or input proxy.
+void CChildFrame::ActivateFrame(int show)
+{
+  if(!Frame.m_workspaceTabbedWorlds && show!=SW_HIDE && show!=SW_MINIMIZE && show!=SW_SHOWMINIMIZED)
+    show=SW_SHOWMAXIMIZED;
+  CMDIChildWndEx::ActivateFrame(show);
+}
+
 void CChildFrame::OnClose() 
 {
 
@@ -151,7 +170,7 @@ void CChildFrame::FixUpSplitterBar (void)
    int iDefaultHeight = (15 * 2) + 9;
 
    if (m_pDoc)
-     iDefaultHeight = (m_pDoc->m_InputFontHeight * 2) + 9;   // 2 lines plus 7 pixels for add, below
+     iDefaultHeight = ((m_pDoc->m_InputFontHeight>0?m_pDoc->m_InputFontHeight:15) * 2) + 9;   // Font metrics may not exist during construction.
 
    int iMinimumHeight = 15 + 9;
 
@@ -171,6 +190,16 @@ void CChildFrame::FixUpSplitterBar (void)
      // otherwise, allow for a 2-line command area
     cyCurBottom = iDefaultHeight;
 
+   if(m_pDoc && m_pDoc->m_bLoaded && !m_pDoc->m_mush_name.IsEmpty() && m_pDoc->m_InputFontHeight>0){
+     const int fallback=m_pDoc->m_bAutoResizeCommandWindow?0:-1;
+     m_wndSplitter.InitializeHeightMode(App.db_get_int("worlds",(LPCTSTR)CFormat("%s:Composer height mode",(LPCTSTR)m_pDoc->m_strWorldID),fallback));
+   }
+
+   // Read persisted/default body height once. MDI activation/fullscreen can
+   // resize this original frame without a user splitter change.
+   cyCurBottom=m_wndSplitter.RestoreInputHeight(cyCurBottom,
+     m_pDoc && m_pDoc->m_bLoaded && !m_pDoc->m_mush_name.IsEmpty() && m_pDoc->m_InputFontHeight>0);
+
 //  TRACE1 ("Bottom height (loaded) = %i\n", cyCurBottom);
 
    // if height from registry is smaller, make the input font height
@@ -184,7 +213,8 @@ void CChildFrame::FixUpSplitterBar (void)
    // you are going to type. Thus I work out how much the maxmimum top view
    // can be.
 
-   int iRoom = rectInside.bottom - rectInside.top - cyCurBottom 
+   const int totalBottom=m_wndSplitter.RowHeightForInput(cyCurBottom);
+   int iRoom = rectInside.bottom - rectInside.top - totalBottom
         + 7;    // 7 pixels for the splitter bar
 
    cyCurTop = iRoom;
@@ -197,10 +227,11 @@ void CChildFrame::FixUpSplitterBar (void)
    m_wndSplitter.SetRowInfo (OUTPUT_PANE, cyCurTop, 20);
 
    // set the info for the bottom view
-   m_wndSplitter.SetRowInfo (COMMAND_PANE, cyCurBottom, 9);
+   m_wndSplitter.SetRowInfo (COMMAND_PANE, totalBottom, cyCurBottom>0?m_wndSplitter.ComposerOverhead()+9:0);
 
    // recalculate it all
    m_wndSplitter.RecalcLayout ();
+   m_wndSplitter.UpdateInputHeight();
 
   }
 
@@ -271,4 +302,15 @@ LRESULT CChildFrame::WindowProc(UINT message, WPARAM wp, LPARAM lp)
     return CMDIChildWndEx::WindowProc(message,wp,lp);
   }
   return CMDIChildWndEx::WindowProc(message,wp,lp);
+}
+
+BOOL CChildFrame::OnCmdMsg(UINT id,int code,void* extra,AFX_CMDHANDLERINFO* info)
+{
+  const bool commonEdit=id==ID_EDIT_COPY || id==ID_EDIT_CUT || id==ID_EDIT_PASTE || id==ID_EDIT_CLEAR || id==ID_EDIT_UNDO || id==ID_EDIT_SELECT_ALL;
+  const HWND focus=::GetFocus();
+  const bool inputContext=focus==m_wndSplitter.CurrentInput() || focus==::GetDlgItem(m_wndSplitter.GetSafeHwnd(),0x7b20);
+  wchar_t controlClass[64]={};if(focus)::GetClassNameW(focus,controlClass,64);
+  const bool nativeEdit=!_wcsicmp(controlClass,L"EDIT") || !_wcsnicmp(controlClass,L"RichEdit",8);
+  if((!commonEdit || inputContext || nativeEdit) && m_wndSplitter.RouteEditCommand(id,code,extra,info,commonEdit && nativeEdit?focus:NULL))return TRUE;
+  return CMDIChildWndEx::OnCmdMsg(id,code,extra,info);
 }

@@ -5,6 +5,7 @@ CPU/private bytes/GDI/USER/handle trends. Never reads installed profiles.
 """
 import argparse, ctypes, hashlib, json, pathlib, shutil, socket, sqlite3
 import subprocess, tempfile, threading, time
+import os, sys, uuid
 from ctypes import wintypes as W
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.sax.saxutils import quoteattr
@@ -24,6 +25,8 @@ p.add_argument('--image-url',default='https://raw.githubusercontent.com/Balerion
 p.add_argument('--blocked-images',action='store_true')
 p.add_argument('--spawn-features',action='store_true',help='Exercise opt-in mention matching, priorities and following-image routes.')
 p.add_argument('--split-spawns',action='store_true',help='Restore a balanced visible split layout instead of tabbing the routed panes.')
+p.add_argument('--isolated-desktop',action='store_true',help='Use a verified private desktop, never display or switch to it.')
+p.add_argument('--spell-drafts',action='store_true',help='Change fictional unsent Main prose once per second to exercise background spelling.')
 a=p.parse_args()
 if a.seconds<1 or a.rate<0 or not 0<=a.routes<=8:p.error('Use positive seconds, nonnegative rate and zero to eight routes.')
 if a.split_spawns and a.routes<2:p.error('Split-spawn profiling requires at least two routes.')
@@ -31,6 +34,7 @@ dest=pathlib.Path(tempfile.mkdtemp(prefix='mush-perf-'+a.label+'-'))
 (dest/'config.json').write_text(json.dumps({'sha256':hashlib.sha256(a.exe.read_bytes()).hexdigest(),'seconds':a.seconds,'rate':a.rate,'routes':a.routes,'heartbeat':not a.no_heartbeat,'ascii':a.ascii,'visible_startup':a.visible,'font':a.font,'spawn_features':a.spawn_features,'split_spawns':a.split_spawns,'images':'blocked-loopback' if a.blocked_images else a.image_url}))
 runtime=ROOT/'.distribution-source/extracted'
 shutil.copytree(runtime/'locale',dest/'locale')
+shutil.copytree(ROOT/'spelling/packs',dest/'spelling/packs')
 for f in (a.exe,runtime/'lua5.1.dll',ROOT/'third_party/scintilla/bin/Scintilla.dll'):
     shutil.copy2(f,dest/f.name)
 # Keep matching private symbols with the exact fictional executable before a
@@ -111,6 +115,8 @@ function OnPluginClose() if receipt then receipt:close() end if image_receipt th
 ]]></script></muclient>''',encoding='utf-8')
 if a.no_heartbeat:
     plugin.write_text(plugin.read_text().replace('function OnPluginTick()', 'function DisabledHeartbeat()'), encoding='utf-8')
+if a.spell_drafts:
+    plugin.write_text(plugin.read_text().replace('previous_tick=now',"previous_tick=now\n  if ticks%10==0 then SetCommand('The knight watched the weirwod qzxvvaal '..tostring(ticks)) end"),encoding='utf-8')
 world=dest/'fictional.mcl'
 world.write_text('<?xml version="1.0"?><!DOCTYPE muclient><muclient><world name="Performance fictional world" id="ab12cd34ef56ab12cd34ef56" site="127.0.0.1" port="'+str(listener.getsockname()[1])+'" utf_8="y" use_mxp="2" detect_pueblo="n" enable_scripts="y" enable_triggers="y" enable_aliases="y" script_language="Lua" max_output_lines="5000" output_font_name="Consolas" output_font_height="11"/><include name='+quoteattr(str(plugin))+' plugin="y"/></muclient>',encoding='utf-8')
 world.write_text(world.read_text().replace('output_font_name="Consolas"','output_font_name='+quoteattr(a.font)+' input_font_name='+quoteattr(a.font)),encoding='utf-8')
@@ -146,7 +152,29 @@ if a.split_spawns:
     db.execute('INSERT INTO workspace_dock_forest_v3 VALUES(1,?)',(forest.encode('ascii'),))
 db.commit();db.close()
 startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=1 if a.visible else 0
-client=subprocess.Popen([str(dest/a.exe.name),'/noregister'],cwd=dest,startupinfo=startup)
+desktop_handle=None
+if a.isolated_desktop:
+    from private_desktop_process import PrivateDesktopProcess
+    desktop_api=ctypes.WinDLL('user32',use_last_error=True)
+    desktop_api.CreateDesktopW.argtypes=[W.LPCWSTR,W.LPCWSTR,ctypes.c_void_p,W.DWORD,W.DWORD,ctypes.c_void_p];desktop_api.CreateDesktopW.restype=W.HANDLE
+    desktop_api.CloseDesktop.argtypes=[W.HANDLE]
+    desktop_name='ValyriaQA-'+uuid.uuid4().hex
+    desktop_handle=desktop_api.CreateDesktopW(desktop_name,None,None,0,0x00ff,None)
+    if not desktop_handle:raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        proof_file=dest/'desktop-preflight.json'
+        proof=PrivateDesktopProcess([sys.executable,str(pathlib.Path(__file__).with_name('inspect_fixture_desktop.py')),'0',str(proof_file)],desktop_name,dest,os.environ.copy())
+        try:
+            proof.wait(timeout=8)
+            assert proof.returncode==0 and json.loads(proof_file.read_text())['desktop']==desktop_name,'Isolation proof failed; client will not launch'
+        finally:
+            if proof.poll() is None:proof.terminate();proof.wait(timeout=3)
+            proof.close()
+        client=PrivateDesktopProcess([str(dest/a.exe.name),'/noregister'],desktop_name,dest,os.environ.copy(),show=a.visible)
+    except BaseException:
+        desktop_api.CloseDesktop(desktop_handle);raise
+else:client=subprocess.Popen([str(dest/a.exe.name),'/noregister'],cwd=dest,startupinfo=startup)
+configuration=json.loads((dest/'config.json').read_text());configuration.update(isolated_desktop=a.isolated_desktop,spell_drafts=a.spell_drafts);(dest/'config.json').write_text(json.dumps(configuration))
 print(json.dumps({'directory':str(dest),'pid':client.pid,'sha256':hashlib.sha256(a.exe.read_bytes()).hexdigest(),'seconds':a.seconds,'rate':a.rate,'routes':a.routes}),flush=True)
 class Memory(ctypes.Structure):
     _fields_=[('cb',W.DWORD),('PageFaultCount',W.DWORD),('PeakWorkingSetSize',ctypes.c_size_t),('WorkingSetSize',ctypes.c_size_t),('QuotaPeakPagedPoolUsage',ctypes.c_size_t),('QuotaPagedPoolUsage',ctypes.c_size_t),('QuotaPeakNonPagedPoolUsage',ctypes.c_size_t),('QuotaNonPagedPoolUsage',ctypes.c_size_t),('PagefileUsage',ctypes.c_size_t),('PeakPagefileUsage',ctypes.c_size_t),('PrivateUsage',ctypes.c_size_t)]
@@ -249,4 +277,5 @@ finally:
     if conn:conn.close()
     listener.close();http.shutdown();k.CloseHandle(handle)
     if client.poll() is None:client.terminate();client.wait(timeout=10)
+    if desktop_handle:client.close();desktop_api.CloseDesktop(desktop_handle)
 print('Profile complete: '+str(dest),flush=True)

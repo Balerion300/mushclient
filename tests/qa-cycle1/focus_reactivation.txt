@@ -1,0 +1,22 @@
+starting
+frame=1
+pane=1
+transcript=1
+controls=1
+channel-focus-before=1 channel-focus-after=1 main-focus-after=0 null-focus-after=0 focus-was-other=1 focus-class-after=Edit focus-is-pane-child=1 active-frame-after=1
+PASS direct focus on already active frame retains channel composer
+PASS explicit different control focus wins after reactivation
+PASS disabled remembered composer cannot receive focus
+PASS remembered control moved to another top-level owner cannot receive focus
+PASS missing lifetime property rejects stale or replaced focus target
+PASS hidden remembered composer cannot receive focus
+PASS mouse reactivation through non-input chrome retains composer
+PASS explicit click target is not overwritten by delayed focus restoration
+PASS disconnect feedback is visible without a resize
+PASS reconnection feedback is visible and send reenabled
+PASS channel detaches into original native mini-frame
+PASS detached mini-frame activation retains its own composer
+PASS direct focus on detached mini-frame retains its own composer
+PASS explicit main composer focus wins over detached bookmark
+PASS redocked channel remains direct-frame-focus target
+PASS original channel composer focus after native frame reactivation

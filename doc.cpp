@@ -11,6 +11,7 @@
 #include "MUSHview.h"
 #include "mainfrm.h"
 #include "WorkspaceIntegration.h"
+#include "workspace/WorkspaceDraftClose.h"
 #include "childfrm.h"
 #include "sendvw.h"
 #include "TextView.h"
@@ -1352,6 +1353,7 @@ CString str = strText;
 
 // send it
 
+   WorkspaceRecordSentInput(this,strText);
    SendPacket (str, str.GetLength ());
 
 } // end of CMUSHclientDoc::DoSendMsg
@@ -4629,6 +4631,20 @@ void CMUSHclientDoc::ShowStatusLine (const bool bNow)
 BOOL CMUSHclientDoc::SaveModified() 
 {
 CString str;
+
+  bool unsent=false;
+  for(POSITION pos=GetFirstViewPosition();pos!=NULL;){
+    CView* view=GetNextView(pos);
+    if(view->IsKindOf(RUNTIME_CLASS(CSendView)) && ::GetWindowTextLength(view->GetSafeHwnd())>0){unsent=true;break;}
+  }
+  CMainFrame* frame=DYNAMIC_DOWNCAST(CMainFrame,App.m_pMainWnd);
+  if(frame && frame->HasWorkspaceUnsentInput(WorkspaceConnectionId(this)))unsent=true;
+  if(unsent){
+    const CString label=m_mush_name;
+    const int length=MultiByteToWideChar(CP_ACP,0,label,-1,NULL,0);
+    std::wstring world(length,L'\0');if(length){MultiByteToWideChar(CP_ACP,0,label,-1,&world[0],length);world.resize(length-1);}
+    if(!workspace_draft::ConfirmDiscard(frame?frame->GetSafeHwnd():NULL,world))return FALSE;
+  }
 
   if (m_pSocket && 
       m_iConnectPhase == eConnectConnectedToMud && 

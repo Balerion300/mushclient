@@ -16,4 +16,5 @@ bool ApplyNativeFrame(HWND window);
 // false for custom/owner-drawn, vertical, button or multiline tab controls.
 // Keeps the native item rectangles, messages, focus and accessibility provider.
 bool StyleTabs(HWND tabs);
+bool StyleStatusBar(HWND status);
 }

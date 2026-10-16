@@ -29,8 +29,10 @@ public:
 public:
 
   void FixUpSplitterBar (void);
+  virtual BOOL OnCmdMsg(UINT id,int code,void* extra,AFX_CMDHANDLERINFO* info) override;
 
   virtual void OnUpdateFrameMenu(BOOL bActivate, CWnd* pActivateWnd, HMENU hMenuAlt);
+  virtual void ActivateFrame(int show = -1) override;
   virtual CString GetFrameText() const override;
   virtual void OnUpdateFrameTitle(BOOL addToTitle) override;
 

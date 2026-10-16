@@ -114,7 +114,9 @@ public:
    bool HostWorkspaceTool(HWND toolWindow, const CString& title);
    bool AddWorkspaceRoute(const WorkspaceRoute& route, CString& error);
    bool ReplaceWorkspaceRoute(const WorkspaceRoute& original,const WorkspaceRoute& replacement,CString& error);
+   bool SaveWorkspaceRoute(const WorkspaceRoute* original,const WorkspaceRoute& replacement,const std::wstring& prefix,CString& error);
    bool RemoveWorkspaceRoute(const WorkspaceRoute& route);
+   bool ToggleWorkspaceChannelMain(const CString& connectionId,const CString& name,CString& error);
    bool SetWorkspaceInputPrefix(const CString& connectionId,const CString& name,const std::wstring& prefix);
    std::wstring WorkspaceInputPrefix(const CString& connectionId,const CString& name) const;
    bool FocusWorkspaceTranscript(size_t index);
@@ -138,7 +140,9 @@ public:
   void SetWorkspaceTabbedWorlds(bool enabled);
   unsigned m_workspaceLegacyMask;
   void UpdateWorkspaceShell();
+  bool HasWorkspaceUnsentInput(const CString& connectionId) const;
   void WorkspaceShellAction(int action,const std::string& world,const std::string& name);
+  bool CycleWorkspaceInput(MSG* message);
   void SaveWorkspaceShell();
   afx_msg LRESULT OnInitializeWorkspaceShell(WPARAM,LPARAM);
   afx_msg void OnWorkspaceShellCommand(UINT command);

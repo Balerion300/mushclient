@@ -38,7 +38,7 @@ try {
   $taskResponse=@'
 /nologo /Zi /MT /EHsc /D_WIN32_WINNT=0x0601 /DNO_HTMLHELP /DNDEBUG /DWIN32 /D_WINDOWS /DZLIB_DLL /DLUA51 /D_CRT_SECURE_NO_WARNINGS /D_CRT_NON_CONFORMING_SWPRINTFS /DNO_WARN_MBCS_MFC_DEPRECATION /I. /IWinRel\workspace-probe-objects /Iluacom /Iopenssl\include
 /FeWinRel\workspace-cold-route-probe.exe /FoWinRel\workspace-probe-objects\
-tests\workspace\cold_route_probe.cpp WorkspacePane.cpp InlineImage.cpp workspace\WorkspaceInputPolicy.cpp
+tests\workspace\cold_route_probe.cpp WorkspacePane.cpp WorkspaceStyle.cpp InlineImage.cpp workspace\WorkspaceInputPolicy.cpp
 /link /DEBUG /SUBSYSTEM:WINDOWS /LTCG Shlwapi.lib WinRel\sqlite3_wrapper.obj
 '@
   $taskName=if($Source -eq 'native_soak.cpp'){'workspace-native-soak'}else{'workspace-cold-route-probe'}

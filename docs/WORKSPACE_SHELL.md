@@ -47,3 +47,7 @@ connected client. The fixture retains the native control accessibility roles.
 Integrated startup, existing user layouts, real world command routing and actual
 client responsiveness are separate orchestrator checks. Physical mixed-monitor
 DPI, screen-reader behavior and sustained daily use remain acceptance work.
+
+## Connection profiles and game shortcuts
+
+The navigator provides **New connection...** for local server settings and **Open saved profile...** for an existing world file. Game account login happens after connecting. **All open connections** remains the navigator title: the game rail switches to the first character and scrolls to that group; it does not filter out other games. **Tools > Spelling dictionaries** opens personal, selected-game and bundled vocabulary. Output channels are local filtered transcripts rather than commands to join server channels.

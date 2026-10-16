@@ -10,7 +10,9 @@
 /////////////////////////////////////////////////////////////////////////////
 // CMySplitterWnd window
 
-class CMySplitterWnd : public CSplitterWnd
+#include "workspace/WorkspaceComposerSplitter.h"
+
+class CMySplitterWnd : public CWorkspaceComposerSplitter
 {
 // Construction
 public:

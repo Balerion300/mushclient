@@ -10,7 +10,14 @@ int main() {
              .command == "page Alice=hello");
   assert(
       PrepareHumanInput("world-a", "world-a", true, "+pub", "hello").command ==
-      "+pubhello");
+      "+pub hello");
+  assert(PrepareHumanInput("a","a",true,"+staff","Hi").command=="+staff Hi");
+  assert(PrepareHumanInput("a","a",true,"+staff"," Hi").command=="+staff Hi");
+  assert(PrepareHumanInput("a","a",true,"+staff ","Hi").command=="+staff Hi");
+  assert(PrepareHumanInput("a","a",true,":","smiles").command==":smiles");
+  assert(PrepareHumanInput("a","a",true,"page Person=","Hi").command=="page Person=Hi");
+  assert(PrepareHumanInput("a","a",true,"+channel/switch","Hi").command=="+channel/switch Hi");
+  assert(!PrepareHumanInput("a","a",true,"+staff","Hi",8).ok);
   assert(!PrepareHumanInput("world-a", "world-b", true, "", "look").ok);
   assert(!PrepareHumanInput("world-a", "world-a", false, "", "look").ok);
   assert(!PrepareHumanInput("", "", true, "", "look").ok);

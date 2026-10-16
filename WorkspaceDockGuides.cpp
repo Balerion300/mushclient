@@ -68,7 +68,7 @@ class DropGuides:public CSmartDockingGroupGuidesManager {
   CSmartDockingManager* engine;
 public:
   DropGuides():engine(creatingGuides){}
-  bool Native()const{return workspace_style::Colors().highContrast || host.Width()<300 || host.Height()<200 || !preview.GetSafeHwnd();}
+  bool Native()const{return workspace_style::Colors().highContrast || host.Width()<workspace_style::Scale(preview.GetSafeHwnd(),300) || host.Height()<workspace_style::Scale(preview.GetSafeHwnd(),200) || !preview.GetSafeHwnd();}
   CSmartDockingGroupGuide* Original(Place place){return CSmartDockingGroupGuidesManager::GetGuide(place);}
   void SyncNative(){for(int i=0;i<5;++i)Original((Place)(Left+i))->SetVisible(own[i].IsVisible(),FALSE);}
   bool Enabled(Place place)const {
@@ -106,8 +106,25 @@ public:
       if(different){if(!Native())preview.Invalidate(FALSE);else m_Wnd.Invalidate(FALSE);}}
     return changed || different;
   }
+  CRect ChipBounds(Place place,CRect bounds)const {
+    const int height=workspace_style::Scale(preview.GetSafeHwnd(),34),gap=workspace_style::Scale(preview.GetSafeHwnd(),6);
+    const int width=min((bounds.Width()-gap*4)/3,workspace_style::Scale(preview.GetSafeHwnd(),138));
+    const CPoint center=bounds.CenterPoint();
+    CRect chip(center.x-width/2,center.y-height/2,center.x+width/2,center.y+height/2);
+    if(place==Left)chip.OffsetRect(-width-gap,0);
+    if(place==Right)chip.OffsetRect(width+gap,0);
+    if(place==Top)chip.OffsetRect(0,-height-gap);
+    if(place==Bottom)chip.OffsetRect(0,height+gap);
+    return chip;
+  }
   Place At(CPoint point)const {
     if(!shown || !host.PtInRect(point))return None;
+    // The labels are actual drop targets. Testing only broad edge zones made
+    // a visible "Place left" chip near the center silently select "Join tabs".
+    // Resolve every chip before the forgiving edge/center fallback, including
+    // disabled chips so an unavailable operation never promises a different one.
+    for(int i=0;i<5;++i){const Place place=(Place)(Left+i);
+      if(ChipBounds(place,host).PtInRect(point))return Enabled(place)?place:None;}
     const int x=point.x-host.left,y=point.y-host.top,w=host.Width(),h=host.Height();
     const double left=(double)x/w,right=(double)(w-x)/w,top=(double)y/h,bottom=(double)(h-y)/h;
     Place place=Middle;
@@ -138,16 +155,10 @@ public:
       CRect projected;if(engine && NativeGuideAccess::Bounds(*engine,projected)){projected.OffsetRect(-host.left,-host.top);area.IntersectRect(bounds,projected);}
       if(!area.IsRectEmpty()){area.DeflateRect(inset,inset);dc.FillSolidRect(area,palette.hover);dc.Draw3dRect(area,palette.accent,palette.accent);}
     }
-    const CPoint center=bounds.CenterPoint();
-    const int height=workspace_style::Scale(preview.GetSafeHwnd(),34),gap=workspace_style::Scale(preview.GetSafeHwnd(),6);
-    const int width=min((bounds.Width()-gap*4)/3,workspace_style::Scale(preview.GetSafeHwnd(),138));
+
     const wchar_t* labels[]={L"Place left",L"Place right",L"Place above",L"Place below",L"Join tabs"};
     for(int i=0;i<5;++i){const Place place=(Place)(Left+i);if(!Enabled(place))continue;
-      CRect chip(center.x-width/2,center.y-height/2,center.x+width/2,center.y+height/2);
-      if(place==Left)chip.OffsetRect(-width-gap,0);
-      if(place==Right)chip.OffsetRect(width+gap,0);
-      if(place==Top)chip.OffsetRect(0,-height-gap);
-      if(place==Bottom)chip.OffsetRect(0,height+gap);
+      CRect chip=ChipBounds(place,bounds);
       const bool active=selected==place;dc.FillSolidRect(chip,active?palette.accent:palette.surface);dc.Draw3dRect(chip,palette.border,palette.border);
       dc.SetTextColor(active?palette.accentText:palette.text);::DrawTextW(dc.GetSafeHdc(),labels[i],-1,chip,DT_SINGLELINE|DT_CENTER|DT_VCENTER|DT_NOPREFIX);
     }

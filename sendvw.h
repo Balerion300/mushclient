@@ -57,6 +57,10 @@ public:
 // Operations
 public:
 
+  void SubmitMainInput();
+  bool RecallSharedHistory(bool up);
+  bool m_sharedHistoryWriting=false;
+  bool m_mainSubmitting=false;
   void SetCommand (LPCTSTR str);
   void SendCommand (const CString strCommand, 
                     const BOOL bSavePrevious, 
